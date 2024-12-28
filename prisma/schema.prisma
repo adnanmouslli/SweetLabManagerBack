@@ -14,10 +14,184 @@ model User {
   roles     Role[]   @default([EMPLOYEE])
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  shifts    Shift[]    
+  invoices  Invoice[]  
 }
 
 enum Role {
   MANAGER
   ADMIN
   EMPLOYEE
+}
+
+
+model Shift {
+  id        Int       @id @default(autoincrement())
+  shiftType ShiftType
+  status    ShiftStatus @default(open)
+  openTime  DateTime
+  closeTime DateTime?
+  
+  employeeId Int
+  employee   User     @relation(fields: [employeeId], references: [id])
+  invoices   Invoice[]
+
+  @@map("shifts")
+}
+
+enum ShiftType {
+  morning
+  evening
+}
+
+enum ShiftStatus {
+  open
+  closed
+}
+
+model Fund {
+  id             Int       @id @default(autoincrement())
+  fundType       FundType
+  currentBalance Float     @default(0)
+  lastUpdate     DateTime  @updatedAt
+  
+  invoices       Invoice[]
+
+  @@map("funds")
+}
+
+enum FundType {
+  main
+  general
+  booth
+  university
+}
+
+model ItemGroup {
+  id          Int       @id @default(autoincrement())
+  name        String
+  type        ItemType
+  description String?
+  
+  items       Item[]
+
+  @@map("item_groups")
+}
+
+model Item {
+  id          Int       @id @default(autoincrement())
+  name        String
+  type        ItemType
+  unit        String
+  price       Float
+  description String?
+  
+  groupId     Int
+  group       ItemGroup @relation(fields: [groupId], references: [id])
+  
+  invoiceItems InvoiceItem[]
+
+  @@map("items")
+}
+
+enum ItemType {
+  production
+  raw
+}
+
+model Invoice {
+  id            Int            @id @default(autoincrement())
+  invoiceNumber String         @unique
+  invoiceType   InvoiceType
+  invoiceCategory InvoiceCategory
+  customerName  String?
+  customerPhone String?
+  paymentType   PaymentType    @default(cash)
+  totalAmount   Float
+  discount      Float          @default(0)
+  paidStatus    Boolean        @default(false)
+  paymentDate   DateTime?
+  createdAt     DateTime       @default(now())
+  notes         String?
+  
+  fundId      Int
+  fund        Fund    @relation(fields: [fundId], references: [id])
+  
+  shiftId     Int
+  shift       Shift   @relation(fields: [shiftId], references: [id])
+  
+  employeeId  Int
+  employee    User    @relation(fields: [employeeId], references: [id])
+  
+  items       InvoiceItem[]
+  debtPayments DebtPayment[]
+
+  @@map("invoices")
+}
+
+enum InvoiceType {
+  income
+  expense
+}
+
+enum InvoiceCategory {
+  products
+  direct
+  debt
+}
+
+enum PaymentType {
+  cash
+  credit
+}
+
+model InvoiceItem {
+  id          Int     @id @default(autoincrement())
+  quantity    Float
+  unitPrice   Float
+  trayCount   Int     @default(0)
+  subTotal    Float
+  
+  invoiceId   Int
+  invoice     Invoice @relation(fields: [invoiceId], references: [id])
+  
+  itemId      Int
+  item        Item    @relation(fields: [itemId], references: [id])
+
+  @@map("invoice_items")
+}
+
+model Debt {
+  id              Int       @id @default(autoincrement())
+  customerName    String
+  customerPhone   String
+  totalAmount     Float
+  remainingAmount Float
+  lastPaymentDate DateTime?
+  status          DebtStatus @default(active)
+  notes           String?
+  
+  payments        DebtPayment[]
+
+  @@map("debts")
+}
+
+enum DebtStatus {
+  active
+  paid
+}
+
+model DebtPayment {
+  id          Int      @id @default(autoincrement())
+  amount      Float
+  paymentDate DateTime @default(now())
+  
+  debtId      Int
+  debt        Debt    @relation(fields: [debtId], references: [id])
+  
+  invoiceId   Int
+  invoice     Invoice @relation(fields: [invoiceId], references: [id])
+
+  @@map("debt_payments")
 }
