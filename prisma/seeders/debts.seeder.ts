@@ -1,4 +1,3 @@
-// prisma/seeders/debts.seeder.ts
 import { PrismaClient, DebtStatus } from '@prisma/client';
 import { faker } from '@faker-js/faker/locale/ar';
 
@@ -7,7 +6,7 @@ export async function seedDebts(prisma: PrismaClient) {
 
   const invoices = await prisma.invoice.findMany({
     where: {
-      paymentType: 'credit',
+      paidStatus: true,
     },
   });
 
@@ -27,7 +26,6 @@ export async function seedDebts(prisma: PrismaClient) {
       },
     });
 
-    // إنشاء دفعات للدين
     const paymentsCount = faker.number.int({ min: 1, max: 3 });
     for (let i = 0; i < paymentsCount; i++) {
       await prisma.debtPayment.create({
@@ -35,7 +33,7 @@ export async function seedDebts(prisma: PrismaClient) {
           debtId: debt.id,
           invoiceId: invoice.id,
           amount: faker.number.float({
-            min: 100,
+            min: 0,
             max: invoice.totalAmount / 2,
             fractionDigits: 2
           }),

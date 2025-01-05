@@ -5,7 +5,6 @@ export const User = createParamDecorator(
     const request = ctx.switchToHttp().getRequest();
     const user = request.user;
 
-    // إذا تم تحديد حقل معين، أرجع قيمة هذا الحقل فقط
     return data ? user?.[data] : user;
   },
 );

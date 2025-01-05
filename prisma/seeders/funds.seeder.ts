@@ -1,4 +1,3 @@
-// prisma/seeders/funds.seeder.ts
 import { PrismaClient, FundType } from '@prisma/client';
 
 const funds = [

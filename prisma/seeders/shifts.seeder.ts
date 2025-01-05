@@ -17,12 +17,10 @@ export async function seedShifts(prisma: PrismaClient) {
     }
   });
 
-  // إنشاء ورديات للأيام الماضية
   for (let i = 0; i < 5; i++) {
     const date = generatePastDate(i);
     const employeeIndex = i % employees.length;
     
-    // واردية صباحية
     await prisma.shift.create({
       data: {
         shiftType: 'morning',
@@ -33,7 +31,6 @@ export async function seedShifts(prisma: PrismaClient) {
       },
     });
 
-    // واردية مسائية
     await prisma.shift.create({
       data: {
         shiftType: 'evening',
@@ -45,7 +42,6 @@ export async function seedShifts(prisma: PrismaClient) {
     });
   }
 
-  // واردية مفتوحة حالية
   await prisma.shift.create({
     data: {
       shiftType: 'morning',

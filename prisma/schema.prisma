@@ -107,10 +107,9 @@ model Invoice {
   invoiceCategory InvoiceCategory
   customerName  String?
   customerPhone String?
-  paymentType   PaymentType    @default(cash)
   totalAmount   Float
   discount      Float          @default(0)
-  paidStatus    Boolean        @default(false)
+  paidStatus    Boolean        
   paymentDate   DateTime?
   createdAt     DateTime       @default(now())
   notes         String?
@@ -141,10 +140,6 @@ enum InvoiceCategory {
   debt
 }
 
-enum PaymentType {
-  cash
-  credit
-}
 
 model InvoiceItem {
   id          Int     @id @default(autoincrement())

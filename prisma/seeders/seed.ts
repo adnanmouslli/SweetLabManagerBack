@@ -1,3 +1,4 @@
+import { execSync } from 'child_process';
 import { PrismaClient } from '@prisma/client';
 import { seedUsers } from './users.seeder';
 import { seedItemGroups } from './item-groups.seeder';
@@ -7,49 +8,30 @@ import { seedShifts } from './shifts.seeder';
 import { seedInvoices } from './invoices.seeder';
 import { seedDebts } from './debts.seeder';
 
-
 const prisma = new PrismaClient();
 
-async function cleanDatabase() {
+async function resetDatabase() {
   try {
-    console.log('🧹 Cleaning database...');
+    console.log('🔄 Resetting database...');
     
-    // حذف البيانات بالترتيب المناسب حسب العلاقات
-    const deleteDebtPayments = prisma.debtPayment.deleteMany();
-    const deleteDebts = prisma.debt.deleteMany();
-    const deleteInvoiceItems = prisma.invoiceItem.deleteMany();
-    const deleteInvoices = prisma.invoice.deleteMany();
-    const deleteShifts = prisma.shift.deleteMany();
-    const deleteItems = prisma.item.deleteMany();
-    const deleteItemGroups = prisma.itemGroup.deleteMany();
-    const deleteFunds = prisma.fund.deleteMany();
-    const deleteUsers = prisma.user.deleteMany();
-
-    await prisma.$transaction([
-      deleteDebtPayments,
-      deleteDebts,
-      deleteInvoiceItems,
-      deleteInvoices,
-      deleteShifts,
-      deleteItems,
-      deleteItemGroups,
-      deleteFunds,
-      deleteUsers,
-    ]);
-
-    console.log('✅ Clean database success');
+    // تنفيذ أمر prisma migrate reset
+    execSync('npx prisma migrate reset --force', { stdio: 'inherit' });
+    
+    console.log('✅ Database reset completed');
   } catch (error) {
-    console.error('❌ Clean database error:', error);
+    console.error('❌ Database reset failed:', error);
     throw error;
   }
 }
 
 async function main() {
-  await cleanDatabase();
-  
-  console.log('🌱 Starting seeding...');
-  
   try {
+    // إعادة تعيين قاعدة البيانات بالكامل
+    await resetDatabase();
+    
+    console.log('🌱 Starting seeding...');
+    
+    // تعبئة البيانات
     await seedUsers(prisma);
     await seedItemGroups(prisma);
     await seedItems(prisma);
@@ -60,7 +42,7 @@ async function main() {
     
     console.log('✅ Seeding completed successfully');
   } catch (error) {
-    console.error('❌ Seeding failed:', error);
+    console.error('❌ Process failed:', error);
     throw error;
   } finally {
     await prisma.$disconnect();
@@ -69,6 +51,6 @@ async function main() {
 
 main()
   .catch((error) => {
-    console.error(error);
+    console.error('❌ Main process error:', error);
     process.exit(1);
   });

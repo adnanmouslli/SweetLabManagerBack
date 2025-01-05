@@ -5,6 +5,6 @@ export class CreateShiftDto {
   @IsEnum(ShiftType)
   shiftType: ShiftType;
 
-  @IsNumber()
-  employeeId: number;
+  // @IsNumber()
+  // employeeId: number;
 }

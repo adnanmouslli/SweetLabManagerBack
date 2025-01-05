@@ -28,7 +28,7 @@ export class DebtsService {
     }
 
     return this.prisma.$transaction(async (prisma) => {
-      // إضافة الدفعة
+
       const payment = await prisma.debtPayment.create({
         data: {
           ...createPaymentDto,
@@ -36,7 +36,7 @@ export class DebtsService {
         }
       });
 
-      // تحديث المبلغ المتبقي
+
       const newRemainingAmount = debt.remainingAmount - createPaymentDto.amount;
       
       await prisma.debt.update({

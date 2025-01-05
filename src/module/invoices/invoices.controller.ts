@@ -1,7 +1,9 @@
-import { Controller, Get, Post, Body, Param, UseGuards, Req } from '@nestjs/common';
-import { CreateInvoiceDto } from './dto/create-invoice.dto';
-import { JwtAuthGuard, RolesGuard } from '@/common';
-import { InvoicesService } from './invoices.service';
+  import { Controller, Get, Post, Body, Param, UseGuards, Req, Query } from '@nestjs/common';
+  import { CreateInvoiceDto } from './dto/create-invoice.dto';
+  import { JwtAuthGuard, RolesGuard } from '@/common';
+  import { InvoicesService } from './invoices.service';
+import { FilterInvoiceDto } from './dto/filter-invoice.dto';
+import { InvoiceCategory, InvoiceType } from '@prisma/client';
 
 
 @Controller('invoices')
@@ -15,13 +17,26 @@ export class InvoicesController {
   }
 
   @Get()
-  findAll() {
-    return this.invoicesService.findAll();
+  findAll(@Query() query: FilterInvoiceDto) {
+    return this.invoicesService.findAll(query);
   }
 
-  @Get('unpaid')
-  findUnpaid() {
-    return this.invoicesService.findUnpaid();
+  @Get(':id')
+  findOne(@Param('id') id: string) {
+    return this.invoicesService.findOne(+id);
+  }
+
+  @Get('type/:type/category/:category')
+  findByTypeAndCategory(
+    @Param('type') type: InvoiceType,
+    @Param('category') category: InvoiceCategory
+  ) {
+    return this.invoicesService.findByTypeAndCategory(type, category);
+  }
+
+  @Get('summary')
+  getSummary() {
+    return this.invoicesService.getSummary();
   }
 
   @Post(':id/pay')

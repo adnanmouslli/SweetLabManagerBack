@@ -45,6 +45,6 @@ export async function seedUsers(prisma: PrismaClient) {
       },
     });
   }
-
+  
   console.log('✅ Users seeded successfully');
 }

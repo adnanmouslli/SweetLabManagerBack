@@ -1,5 +1,5 @@
 import { IsEnum, IsString, IsNumber, IsOptional, IsBoolean, IsArray } from 'class-validator';
-import { InvoiceType, InvoiceCategory, PaymentType } from '@prisma/client';
+import { InvoiceType, InvoiceCategory } from '@prisma/client';
 
 export class CreateInvoiceItemDto {
   @IsNumber()
@@ -31,8 +31,8 @@ export class CreateInvoiceDto {
   @IsOptional()
   customerPhone?: string;
 
-  @IsEnum(PaymentType)
-  paymentType: PaymentType;
+  @IsBoolean()
+  paidStatus: boolean;
 
   @IsNumber()
   totalAmount: number;
