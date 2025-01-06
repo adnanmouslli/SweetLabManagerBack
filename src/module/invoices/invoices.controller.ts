@@ -1,9 +1,10 @@
-  import { Controller, Get, Post, Body, Param, UseGuards, Req, Query } from '@nestjs/common';
+  import { Controller, Get, Post, Body, Param, UseGuards, Req, Query, Put } from '@nestjs/common';
   import { CreateInvoiceDto } from './dto/create-invoice.dto';
   import { JwtAuthGuard, RolesGuard } from '@/common';
   import { InvoicesService } from './invoices.service';
 import { FilterInvoiceDto } from './dto/filter-invoice.dto';
 import { InvoiceCategory, InvoiceType } from '@prisma/client';
+import { UpdateInvoiceDto } from './dto/update-invoice.dto';
 
 
 @Controller('invoices')
@@ -21,11 +22,16 @@ export class InvoicesController {
     return this.invoicesService.findAll(query);
   }
 
+  @Get('summary')
+  getSummary() {
+    return this.invoicesService.getSummary();
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.invoicesService.findOne(+id);
   }
-
+  
   @Get('type/:type/category/:category')
   findByTypeAndCategory(
     @Param('type') type: InvoiceType,
@@ -34,13 +40,16 @@ export class InvoicesController {
     return this.invoicesService.findByTypeAndCategory(type, category);
   }
 
-  @Get('summary')
-  getSummary() {
-    return this.invoicesService.getSummary();
-  }
-
   @Post(':id/pay')
   markAsPaid(@Param('id') id: string) {
     return this.invoicesService.markAsPaid(+id);
   }
+
+
+  @Put(':id')
+  updateInvoice(@Param('id') id: string, @Body() updateInvoiceDto: UpdateInvoiceDto) {
+    return this.invoicesService.update(+id, updateInvoiceDto);
+  }
+
+
 }

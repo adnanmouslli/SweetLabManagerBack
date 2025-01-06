@@ -3,6 +3,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { InvoiceCategory, InvoiceType } from '@prisma/client';
 import { FilterInvoiceDto } from './dto/filter-invoice.dto';
+import { UpdateInvoiceDto } from './dto/update-invoice.dto';
 
 @Injectable()
 export class InvoicesService {
@@ -163,47 +164,57 @@ export class InvoicesService {
   
 
   async getSummary() {
-    const summary = await this.prisma.invoice.groupBy({
-      by: ['invoiceType', 'invoiceCategory'],
-      _sum: {
-        totalAmount: true, 
-      },
-      _count: {
-        _all: true, 
-      },
-    });
+    try {
+      const summary = await this.prisma.invoice.groupBy({
+        by: ['invoiceType', 'invoiceCategory'],
+        _sum: {
+          totalAmount: true,
+        },
+        _count: {
+          _all: true,
+        },
+      });
   
-    return summary;
+      return summary;
+    } catch (error) {
+      throw new BadRequestException('حدث خطأ أثناء معالجة ملخص الفواتير');
+    }
   }
+  
   
 
 
 
   async findOne(id: number) {
+    if (!id || isNaN(id)) {
+      throw new BadRequestException('معرف الفاتورة غير صالح');
+    }
+
     const invoice = await this.prisma.invoice.findUnique({
       where: { id },
       include: {
         items: {
           include: {
-            item: true
-          }
+            item: true,
+          },
         },
         employee: {
           select: {
-            username: true
-          }
+            username: true,
+          },
         },
         fund: true,
-        shift: true
-      }
+        shift: true,
+      },
     });
-
+  
     if (!invoice) {
       throw new NotFoundException(`Invoice with ID ${id} not found`);
     }
-
+  
     return invoice;
   }
+  
 
 
 
@@ -231,6 +242,107 @@ export class InvoicesService {
       }
     });
   }
+
+  async update(id: number, updateInvoiceDto: UpdateInvoiceDto) {
+    const existingInvoice = await this.prisma.invoice.findUnique({
+      where: { id },
+      include: {
+        items: true,
+      },
+    });
+  
+    if (!existingInvoice) {
+      throw new NotFoundException(`Invoice with ID ${id} not found`);
+    }
+  
+    return this.prisma.$transaction(async (prisma) => {
+      const updateData: any = {};
+  
+      if (updateInvoiceDto.invoiceType !== undefined) {
+        updateData.invoiceType = updateInvoiceDto.invoiceType;
+      }
+  
+      if (updateInvoiceDto.invoiceCategory !== undefined) {
+        updateData.invoiceCategory = updateInvoiceDto.invoiceCategory;
+      }
+  
+      if (updateInvoiceDto.customerName !== undefined) {
+        updateData.customerName = updateInvoiceDto.customerName;
+      }
+  
+      if (updateInvoiceDto.customerPhone !== undefined) {
+        updateData.customerPhone = updateInvoiceDto.customerPhone;
+      }
+  
+      if (updateInvoiceDto.paidStatus !== undefined) {
+        updateData.paidStatus = updateInvoiceDto.paidStatus;
+        updateData.paymentDate = updateInvoiceDto.paidStatus ? new Date() : null;
+      }
+  
+      if (updateInvoiceDto.totalAmount !== undefined) {
+        updateData.totalAmount = updateInvoiceDto.totalAmount;
+      }
+  
+      if (updateInvoiceDto.discount !== undefined) {
+        updateData.discount = updateInvoiceDto.discount;
+      }
+  
+      if (updateInvoiceDto.notes !== undefined) {
+        updateData.notes = updateInvoiceDto.notes;
+      }
+  
+      if (updateInvoiceDto.fundId !== undefined) {
+        updateData.fundId = updateInvoiceDto.fundId;
+      }
+  
+      if (updateInvoiceDto.shiftId !== undefined) {
+        updateData.shiftId = updateInvoiceDto.shiftId;
+      }
+  
+      if (updateInvoiceDto.items !== undefined) {
+        await prisma.invoiceItem.deleteMany({
+          where: { invoiceId: id },
+        });
+  
+        await prisma.invoiceItem.createMany({
+          data: updateInvoiceDto.items.map((item) => ({
+            invoiceId: id,
+            itemId: item.itemId,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            trayCount: item.trayCount || 0,
+            subTotal: item.quantity * item.unitPrice,
+          })),
+        });
+      }
+  
+
+      const updatedInvoice = await prisma.invoice.update({
+        where: { id },
+        data: updateData,
+      });
+  
+
+      if (updateInvoiceDto.totalAmount !== undefined && updateInvoiceDto.fundId !== undefined) {
+        const balanceAdjustment =
+          updateInvoiceDto.invoiceType === 'income'
+            ? updateInvoiceDto.totalAmount - (updateInvoiceDto.discount || 0)
+            : -(updateInvoiceDto.totalAmount - (updateInvoiceDto.discount || 0));
+  
+        await prisma.fund.update({
+          where: { id: updateInvoiceDto.fundId },
+          data: {
+            currentBalance: {
+              increment: balanceAdjustment,
+            },
+          },
+        });
+      }
+  
+      return updatedInvoice;
+    });
+  }
+  
 
 
 
