@@ -1,8 +1,9 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, UseGuards, Query } from '@nestjs/common';
 import { ShiftsService } from './shifts.service';
 import { CreateShiftDto } from './dto/create-shift.dto';
 import { UpdateShiftDto } from './dto/update-shift.dto';
 import { JwtAuthGuard, Role, Roles, RolesGuard, User } from '@/common';
+import { ShiftStatus, ShiftType } from '@prisma/client';
 
 @Controller('shifts')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -37,4 +38,14 @@ export class ShiftsController {
   closeShift(@Param('id') id: string) {
     return this.shiftsService.closeShift(+id);
   }
+
+  @Get('filter')
+  findFilteredShifts(
+  @Query('status') status?: ShiftStatus,
+  @Query('shiftType') shiftType?: ShiftType
+) {
+  console.log(status);
+  return this.shiftsService.findShiftsByStatusOrType(status, shiftType);
+}
+
 }

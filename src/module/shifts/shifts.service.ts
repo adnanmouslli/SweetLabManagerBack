@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException, InternalServerErrorException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateShiftDto } from './dto/create-shift.dto';
-import { ShiftStatus, User } from '@prisma/client';
+import { ShiftStatus, ShiftType, User } from '@prisma/client';
 import { UpdateShiftDto } from './dto/update-shift.dto';
 
 @Injectable()
@@ -196,4 +196,34 @@ async remove(id: number) {
      throw new InternalServerErrorException('Failed to close shift');
    }
  }
+
+ async findShiftsByStatusOrType(status?: ShiftStatus, shiftType?: ShiftType) {
+  try {
+    const where: any = {};
+    if (status) {
+      where.status = status;
+    }
+    if (shiftType) {
+      where.shiftType = shiftType;
+    }
+    
+    return await this.prisma.shift.findMany({
+      where,
+      include: {
+        employee: {
+          select: {
+            id: true,
+            username: true
+          }
+        }
+      },
+      orderBy: {
+        openTime: 'desc'
+      }
+    });
+  } catch (error) {
+    throw new InternalServerErrorException('Failed to fetch shifts');
+  }
+}
+
 }

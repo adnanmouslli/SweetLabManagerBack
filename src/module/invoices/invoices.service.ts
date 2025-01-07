@@ -11,84 +11,100 @@ export class InvoicesService {
 
   async create(createInvoiceDto: CreateInvoiceDto, employeeId: number) {
     const activeShift = await this.prisma.shift.findFirst({
-      where: { 
+      where: {
         id: createInvoiceDto.shiftId,
-        status: 'open'
-      }
+        status: 'open',
+      },
     });
-
+  
     if (!activeShift) {
       throw new BadRequestException('هذه الوردية مغلقة');
     }
-
-
-     const fund = await this.prisma.fund.findUnique({
-      where: { id: createInvoiceDto.fundId }
+  
+    const fund = await this.prisma.fund.findUnique({
+      where: { id: createInvoiceDto.fundId },
     });
-
+  
     if (!fund) {
       throw new BadRequestException('الصندوق غير موجود');
     }
-
+  
     const invoiceNumber = `INV-${Date.now()}`;
-
+  
     return this.prisma.$transaction(async (prisma) => {
-
-      const calculatedTotal = createInvoiceDto.items.reduce(
-        (sum, item) => sum + (item.quantity * item.unitPrice),
-        0
-      );
-
-
-      if (Math.abs(calculatedTotal - createInvoiceDto.totalAmount) > 0.01) {
+      const calculatedTotal =
+        createInvoiceDto.items?.reduce(
+          (sum, item) => sum + item.quantity * item.unitPrice,
+          0
+        ) || 0;
+  
+      if (
+        createInvoiceDto.items &&
+        Math.abs(calculatedTotal - (createInvoiceDto.totalAmount || 0)) > 0.01
+      ) {
         throw new BadRequestException('المجموع الكلي غير صحيح');
       }
-
+  
       const invoice = await prisma.invoice.create({
         data: {
-          ...createInvoiceDto,
           invoiceNumber,
           employeeId,
+          invoiceType: createInvoiceDto.invoiceType,
+          invoiceCategory: createInvoiceDto.invoiceCategory,
+          customerName: createInvoiceDto.customerName || null,
+          customerPhone: createInvoiceDto.customerPhone || null,
+          paidStatus: createInvoiceDto.paidStatus,
+          totalAmount: createInvoiceDto.totalAmount || 0,
+          discount: createInvoiceDto.discount || 0,
+          notes: createInvoiceDto.notes || null,
+          fundId: createInvoiceDto.fundId,
+          shiftId: createInvoiceDto.shiftId,
           paymentDate: createInvoiceDto.paidStatus ? new Date() : null,
-          items: {
-            create: createInvoiceDto.items.map(item => ({
-              quantity: item.quantity,
-              unitPrice: item.unitPrice,
-              trayCount: item.trayCount || 0,
-              subTotal: item.quantity * item.unitPrice,
-              itemId: item.itemId
-            }))
-          }
+          items: createInvoiceDto.items
+            ? {
+                create: createInvoiceDto.items.map((item) => ({
+                  quantity: item.quantity,
+                  unitPrice: item.unitPrice,
+                  trayCount: item.trayCount || 0,
+                  subTotal: item.quantity * item.unitPrice,
+                  itemId: item.itemId,
+                })),
+              }
+            : undefined,
         },
         include: {
           items: {
             include: {
-              item: true
-            }
+              item: true,
+            },
           },
           employee: {
             select: {
-              username: true
-            }
-          }
-        }
-      }
-    );
-
-
-    await prisma.fund.update({
-        where: { id: createInvoiceDto.fundId },
-        data: {
-          currentBalance: {
-            [createInvoiceDto.invoiceType === 'income' ? 'increment' : 'decrement']: 
-              createInvoiceDto.totalAmount - (createInvoiceDto.discount || 0)
-          }
-        }
+              username: true,
+            },
+          },
+        },
       });
-
+  
+      // تحديث الصندوق بناءً على نوع الفاتورة
+      if (createInvoiceDto.totalAmount) {
+        await prisma.fund.update({
+          where: { id: createInvoiceDto.fundId },
+          data: {
+            currentBalance: {
+              [createInvoiceDto.invoiceType === 'income'
+                ? 'increment'
+                : 'decrement']:
+                createInvoiceDto.totalAmount - (createInvoiceDto.discount || 0),
+            },
+          },
+        });
+      }
+  
       return invoice;
     });
   }
+  
 
   async findByTypeAndCategory(type: InvoiceType, category: InvoiceCategory) {
     return this.prisma.invoice.findMany({

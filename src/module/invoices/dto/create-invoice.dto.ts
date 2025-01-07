@@ -52,5 +52,6 @@ export class CreateInvoiceDto {
   shiftId: number;
 
   @IsArray()
+  @IsOptional()
   items: CreateInvoiceItemDto[];
 }
