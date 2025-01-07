@@ -12,13 +12,12 @@ export class InvoicesService {
   async create(createInvoiceDto: CreateInvoiceDto, employeeId: number) {
     const activeShift = await this.prisma.shift.findFirst({
       where: {
-        id: createInvoiceDto.shiftId,
         status: 'open',
       },
     });
   
     if (!activeShift) {
-      throw new BadRequestException('هذه الوردية مغلقة');
+      throw new BadRequestException('لا يوجد واردية مفتوحة');
     }
   
     const fund = await this.prisma.fund.findUnique({
@@ -58,7 +57,7 @@ export class InvoicesService {
           discount: createInvoiceDto.discount || 0,
           notes: createInvoiceDto.notes || null,
           fundId: createInvoiceDto.fundId,
-          shiftId: createInvoiceDto.shiftId,
+          shiftId: activeShift.id,
           paymentDate: createInvoiceDto.paidStatus ? new Date() : null,
           items: createInvoiceDto.items
             ? {
@@ -199,8 +198,6 @@ export class InvoicesService {
   
   
 
-
-
   async findOne(id: number) {
     if (!id || isNaN(id)) {
       throw new BadRequestException('معرف الفاتورة غير صالح');
@@ -266,7 +263,7 @@ export class InvoicesService {
         items: true,
       },
     });
-  
+    
     if (!existingInvoice) {
       throw new NotFoundException(`Invoice with ID ${id} not found`);
     }
@@ -311,10 +308,6 @@ export class InvoicesService {
         updateData.fundId = updateInvoiceDto.fundId;
       }
   
-      if (updateInvoiceDto.shiftId !== undefined) {
-        updateData.shiftId = updateInvoiceDto.shiftId;
-      }
-  
       if (updateInvoiceDto.items !== undefined) {
         await prisma.invoiceItem.deleteMany({
           where: { invoiceId: id },
@@ -331,13 +324,11 @@ export class InvoicesService {
           })),
         });
       }
-  
 
       const updatedInvoice = await prisma.invoice.update({
         where: { id },
         data: updateData,
       });
-  
 
       if (updateInvoiceDto.totalAmount !== undefined && updateInvoiceDto.fundId !== undefined) {
         const balanceAdjustment =
