@@ -156,60 +156,100 @@ async remove(id: number) {
   }
 }
 
+async closeShift() {
+  try {
+
+    const openShift = await this.prisma.shift.findFirst({
+      where: { 
+        status: ShiftStatus.open 
+      },
+      include: {
+        employee: true
+      }
+    });
+
+    if (!openShift) {
+      throw new NotFoundException('لا توجد واردية مفتوحة');
+    }
+
+    if (openShift.status === ShiftStatus.closed) {
+      throw new BadRequestException('الواردية مغلقة بالفعل');
+    }
+
+    const [generalFund, boothFund, universityFund] = await Promise.all([
+      this.prisma.fund.findFirst({ where: { fundType: 'general' } }),
+      this.prisma.fund.findFirst({ where: { fundType: 'booth' } }),
+      this.prisma.fund.findFirst({ where: { fundType: 'university' } })
+    ]);
+
+    if (!generalFund) {
+      throw new BadRequestException('الصندوق العام غير موجود');
+    }
+
+    return await this.prisma.$transaction(async (prisma) => {
+
+      const boothBalance = boothFund?.currentBalance || 0;
+      const universityBalance = universityFund?.currentBalance || 0;
+      const totalTransfer = boothBalance + universityBalance;
 
 
- async closeShift() {
+      if (boothFund) {
+        await prisma.fund.update({
+          where: { id: boothFund.id },
+          data: { currentBalance: 0 }
+        });
+      }
 
-  const openShift = await this.prisma.shift.findFirst({
-    where: { 
-      status: ShiftStatus.open 
-    },
-  });
+      if (universityFund) {
+        await prisma.fund.update({
+          where: { id: universityFund.id },
+          data: { currentBalance: 0 }
+        });
+      }
 
-   try {
-     const shift = await this.prisma.shift.findUnique({
-       where: { 
-        id: openShift.id
+      await prisma.fund.update({
+        where: { id: generalFund.id },
+        data: {
+          currentBalance: {
+            increment: totalTransfer
+          }
+        }
+      });
+
+      const closedShift = await prisma.shift.update({
+        where: { id: openShift.id },
+        data: {
+          status: ShiftStatus.closed,
+          closeTime: new Date()
         },
-       include: {
-         invoices: true,
-         employee: true
-       }
-     });
+        include: {
+          employee: {
+            select: {
+              id: true,
+              username: true
+            }
+          }
+        }
+      });
 
-     if (!shift) {
-       throw new NotFoundException(`Shift #${openShift.id} not found`);
-     }
+      return {
+        message: 'تم إغلاق الواردية وتحويل الأرصدة بنجاح',
+        shift: closedShift,
+        transfers: {
+          boothTransfer: boothBalance,
+          universityTransfer: universityBalance,
+          totalTransferred: totalTransfer
+        }
+      };
+    });
 
-     if (shift.status === ShiftStatus.closed) {
-       throw new BadRequestException('Shift is already closed');
-     }
-
-     return await this.prisma.shift.update({
-       where: { 
-        id: openShift.id
-        },
-       data: {
-         status: ShiftStatus.closed,
-         closeTime: new Date()
-       },
-       include: {
-         employee: {
-           select: {
-             id: true,
-             username: true
-           }
-         }
-       }
-     });
-
-   } catch (error) {
-     if (error instanceof BadRequestException || error instanceof NotFoundException) {
-       throw error;
-     }
-     throw new InternalServerErrorException('Failed to close shift');
-   }
- }
+  } catch (error) {
+    if (error instanceof BadRequestException || error instanceof NotFoundException) {
+      throw error;
+    }
+    throw new InternalServerErrorException('حدث خطأ أثناء إغلاق الواردية');
+  }
+}
 
  async findShiftsByStatusOrType(status?: ShiftStatus, shiftType?: ShiftType) {
   try {

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Patch, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, UseGuards, Req } from '@nestjs/common';
 import { FundsService } from './funds.service';
 import { CreateFundDto } from './dto/create-fund.dto';
 import { JwtAuthGuard, Role, Roles, RolesGuard } from '@/common';
@@ -29,4 +29,15 @@ export class FundsController {
   ) {
     return this.fundsService.updateBalance(+id, amount);
   }
+
+  @Post('transfer-to-main')
+  @Roles(Role.MANAGER, Role.ADMIN) // Only managers and admins can transfer
+  async transferToMain(
+    @Body('amount') amount: number,
+    @Req() req
+  ) {
+    return this.fundsService.transferToMain(amount, req.user.id);
+  }
+  
+
 }

@@ -31,6 +31,7 @@ export class InvoicesService {
     const invoiceNumber = `INV-${Date.now()}`;
   
     return this.prisma.$transaction(async (prisma) => {
+      
       const calculatedTotal =
         createInvoiceDto.items?.reduce(
           (sum, item) => sum + item.quantity * item.unitPrice,
@@ -411,7 +412,6 @@ export class InvoicesService {
           net: income - expense
         };
       };
-      
       return {
         shiftId: activeShift.id,
         openTime: activeShift.openTime,
