@@ -27,6 +27,11 @@ export class InvoicesController {
     return this.invoicesService.getSummary();
   }
 
+  @Get('current-shift')
+  getCurrentShiftInvoices() {
+  return this.invoicesService.getCurrentShiftInvoices();
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.invoicesService.findOne(+id);
@@ -45,11 +50,11 @@ export class InvoicesController {
     return this.invoicesService.markAsPaid(+id);
   }
 
-
   @Put(':id')
   updateInvoice(@Param('id') id: string, @Body() updateInvoiceDto: UpdateInvoiceDto) {
     return this.invoicesService.update(+id, updateInvoiceDto);
   }
+
 
 
 }

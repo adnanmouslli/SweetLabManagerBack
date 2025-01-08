@@ -351,6 +351,94 @@ export class InvoicesService {
   }
   
 
+  async getCurrentShiftInvoices() {
+    try {
+
+      const activeShift = await this.prisma.shift.findFirst({
+        where: {
+          status: 'open',
+        },
+      });
+  
+      if (!activeShift) {
+        throw new BadRequestException('لا يوجد واردية مفتوحة');
+      }
+  
+
+      const invoices = await this.prisma.invoice.findMany({
+        where: {
+          shiftId: activeShift.id,
+          fund: {
+            fundType: {
+              not: 'main'
+            }
+          }
+        },
+        include: {
+          items: {
+            include: {
+              item: true
+            }
+          },
+          employee: {
+            select: {
+              username: true
+            }
+          },
+          fund: true,
+        },
+        orderBy: {
+          createdAt: 'desc'
+        }
+      });
+  
+      const boothInvoices = invoices.filter(invoice => invoice.fund.fundType === 'booth');
+      const universityInvoices = invoices.filter(invoice => invoice.fund.fundType === 'university');
+      const generalInvoices = invoices.filter(invoice => invoice.fund.fundType === 'general');
+  
+      const calculateFundTotals = (fundInvoices) => {
+        const income = fundInvoices
+          .filter(inv => inv.invoiceType === 'income')
+          .reduce((sum, inv) => sum + (inv.totalAmount - (inv.discount || 0)), 0);
+        
+        const expense = fundInvoices
+          .filter(inv => inv.invoiceType === 'expense')
+          .reduce((sum, inv) => sum + (inv.totalAmount - (inv.discount || 0)), 0);
+  
+        return {
+          income,
+          expense,
+          net: income - expense
+        };
+      };
+      
+      return {
+        shiftId: activeShift.id,
+        openTime: activeShift.openTime,
+        booth: {
+          invoices: boothInvoices,
+          count: boothInvoices.length,
+          totals: calculateFundTotals(boothInvoices)
+        },
+        university: {
+          invoices: universityInvoices,
+          count: universityInvoices.length,
+          totals: calculateFundTotals(universityInvoices)
+        },
+        general: {
+          invoices: generalInvoices,
+          count: generalInvoices.length,
+          totals: calculateFundTotals(generalInvoices)
+        }
+      };
+  
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new BadRequestException('حدث خطأ أثناء جلب فواتير الواردية الحالية');
+    }
+  }
 
 
 }
