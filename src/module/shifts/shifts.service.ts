@@ -1,8 +1,11 @@
 import { Injectable, NotFoundException, BadRequestException, InternalServerErrorException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateShiftDto } from './dto/create-shift.dto';
-import { ShiftStatus, ShiftType, User } from '@prisma/client';
+import {  FundType, ShiftStatus, ShiftType, User } from '@prisma/client';
 import { UpdateShiftDto } from './dto/update-shift.dto';
+import { FundSummary, ShiftSummary } from '@/common/types/shift-summary.types';
+
+
 
 @Injectable()
 export class ShiftsService {
@@ -155,10 +158,19 @@ async remove(id: number) {
 
 
 
- async closeShift(id: number) {
+ async closeShift() {
+
+  const openShift = await this.prisma.shift.findFirst({
+    where: { 
+      status: ShiftStatus.open 
+    },
+  });
+
    try {
      const shift = await this.prisma.shift.findUnique({
-       where: { id },
+       where: { 
+        id: openShift.id
+        },
        include: {
          invoices: true,
          employee: true
@@ -166,7 +178,7 @@ async remove(id: number) {
      });
 
      if (!shift) {
-       throw new NotFoundException(`Shift #${id} not found`);
+       throw new NotFoundException(`Shift #${openShift.id} not found`);
      }
 
      if (shift.status === ShiftStatus.closed) {
@@ -174,7 +186,9 @@ async remove(id: number) {
      }
 
      return await this.prisma.shift.update({
-       where: { id },
+       where: { 
+        id: openShift.id
+        },
        data: {
          status: ShiftStatus.closed,
          closeTime: new Date()
@@ -223,6 +237,154 @@ async remove(id: number) {
     });
   } catch (error) {
     throw new InternalServerErrorException('Failed to fetch shifts');
+  }
+}
+
+async getShiftSummary(shiftId: number): Promise<ShiftSummary> {
+  try {
+    // Get shift details with employee and invoices
+    const shift = await this.prisma.shift.findUnique({
+      where: { id: shiftId },
+      include: {
+        employee: true,
+        invoices: {
+          include: {
+            fund: true
+          }
+        }
+      }
+    });
+
+    if (!shift) {
+      throw new NotFoundException(`Shift #${shiftId} not found`);
+    }
+
+    // Get relevant fund types (excluding main)
+    const relevantFundTypes = Object.values(FundType).filter(
+      fundType => fundType !== 'main'
+    );
+
+    // Group invoices by fund type
+    const fundSummaries: FundSummary[] = await Promise.all(
+      relevantFundTypes.map(async (fundType) => {
+        // Get all invoices for this fund type in the shift
+        const fundInvoices = shift.invoices.filter(
+          invoice => invoice.fund.fundType === fundType
+        );
+
+        // Calculate totals
+        const incomeTotal = fundInvoices
+          .filter(invoice => invoice.invoiceType === 'income')
+          .reduce((sum, invoice) => sum + invoice.totalAmount, 0);
+
+        const expenseTotal = fundInvoices
+          .filter(invoice => invoice.invoiceType === 'expense')
+          .reduce((sum, invoice) => sum + invoice.totalAmount, 0);
+
+        return {
+          fundType,
+          invoiceCount: fundInvoices.length,
+          incomeTotal,
+          expenseTotal,
+          netTotal: incomeTotal - expenseTotal
+        };
+      })
+    );
+
+    // Calculate total net across all non-main funds
+    const totalNet = fundSummaries.reduce(
+      (sum, fund) => sum + fund.netTotal, 
+      0
+    );
+
+    return {
+      shiftId: shift.id,
+      employeeName: shift.employee.username,
+      openTime: shift.openTime,
+      fundSummaries,
+      totalNet
+    };
+  } catch (error) {
+    if (error instanceof NotFoundException) {
+      throw error;
+    }
+    throw new InternalServerErrorException('Failed to generate shift summary');
+  }
+}
+
+async getCurrentShiftSummary(): Promise<ShiftSummary> {
+  
+  try {
+    const openShift = await this.prisma.shift.findFirst({
+      where: { 
+        status: ShiftStatus.open 
+      },
+      include: {
+        employee: true,
+        invoices: {
+          include: {
+            fund: true
+          }
+        }
+      },
+      orderBy: {
+        openTime: 'desc'
+      }
+    });
+
+    if (!openShift) {
+      throw new NotFoundException('No open shift found');
+    }
+
+    const relevantFundTypes = Object.values(FundType).filter(
+      fundType => fundType !== 'main'
+    );
+
+    const fundSummaries: FundSummary[] = await Promise.all(
+      relevantFundTypes.map(async (fundType) => {
+
+        const fundInvoices = openShift.invoices.filter(
+          invoice => invoice.fund.fundType === fundType
+        );
+
+
+        const incomeTotal = fundInvoices
+          .filter(invoice => invoice.invoiceType === 'income')
+          .reduce((sum, invoice) => sum + invoice.totalAmount, 0);
+
+        const expenseTotal = fundInvoices
+          .filter(invoice => invoice.invoiceType === 'expense')
+          .reduce((sum, invoice) => sum + invoice.totalAmount, 0);
+
+        return {
+          fundType,
+          invoiceCount: fundInvoices.length,
+          incomeTotal,
+          expenseTotal,
+          netTotal: incomeTotal - expenseTotal
+        };
+      })
+    );
+
+
+    const totalNet = fundSummaries.reduce(
+      (sum, fund) => sum + fund.netTotal, 
+      0
+    );
+
+    return {
+      shiftId: openShift.id,
+      employeeName: openShift.employee.username,
+      openTime: openShift.openTime,
+      fundSummaries,
+      totalNet
+    };
+  } catch (error) {
+    if (error instanceof NotFoundException) {
+      throw error;
+    }
+    console.log(error);
+    throw new InternalServerErrorException('Failed to generate current shift summary');
   }
 }
 
