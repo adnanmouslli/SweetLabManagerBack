@@ -146,6 +146,8 @@ model Invoice {
   items       InvoiceItem[]
   debtPayments DebtPayment[]
 
+  trayTracking    TrayTracking?
+
   @@map("invoices")
 }
 
@@ -177,6 +179,27 @@ model InvoiceItem {
   @@map("invoice_items")
 }
 
+
+enum TrayStatus {
+  pending
+  returned
+}
+
+model TrayTracking {
+  id              Int         @id @default(autoincrement())
+  customerName    String
+  customerPhone   String
+  totalTrays      Int
+  status          TrayStatus  @default(pending)
+  createdAt       DateTime    @default(now())
+  returnedAt      DateTime?
+  notes           String?
+  
+  invoiceId       Int         @unique  // One-to-one relation with invoice
+  invoice         Invoice     @relation(fields: [invoiceId], references: [id])
+
+  @@map("tray_tracking")
+}
 model Debt {
   id              Int       @id @default(autoincrement())
   customerName    String

@@ -48,8 +48,6 @@ export class CreateInvoiceDto {
   @IsNumber()
   fundId: number;
 
-  // @IsNumber()
-  // shiftId: number;
 
   @IsArray()
   @IsOptional()

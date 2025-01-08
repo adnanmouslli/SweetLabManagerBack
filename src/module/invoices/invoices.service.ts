@@ -28,10 +28,20 @@ export class InvoicesService {
       throw new BadRequestException('الصندوق غير موجود');
     }
   
+
+    if (
+      createInvoiceDto.invoiceType === 'income' &&
+      createInvoiceDto.invoiceCategory === 'products' &&
+      createInvoiceDto.items?.some(item => item.trayCount > 0) &&
+      (!createInvoiceDto.customerName || !createInvoiceDto.customerPhone)
+    ) {
+      throw new BadRequestException('معلومات العميل مطلوبة عند وجود صاجات');
+    }
+  
     const invoiceNumber = `INV-${Date.now()}`;
   
     return this.prisma.$transaction(async (prisma) => {
-      
+
       const calculatedTotal =
         createInvoiceDto.items?.reduce(
           (sum, item) => sum + item.quantity * item.unitPrice,
@@ -45,7 +55,16 @@ export class InvoicesService {
         throw new BadRequestException('المجموع الكلي غير صحيح');
       }
   
-      const invoice = await prisma.invoice.create({
+
+      const totalTrays = createInvoiceDto.invoiceType === 'income' &&
+        createInvoiceDto.invoiceCategory === 'products' ?
+        createInvoiceDto.items?.reduce(
+          (sum, item) => sum + (item.trayCount || 0),
+          0
+        ) || 0 : 0;
+  
+
+        const invoice = await prisma.invoice.create({
         data: {
           invoiceNumber,
           employeeId,
@@ -86,7 +105,20 @@ export class InvoicesService {
         },
       });
   
-      // تحديث الصندوق بناءً على نوع الفاتورة
+
+      if (totalTrays > 0) {
+        await prisma.trayTracking.create({
+          data: {
+            customerName: createInvoiceDto.customerName!,
+            customerPhone: createInvoiceDto.customerPhone!,
+            totalTrays,
+            status: 'pending',
+            notes: `تم تسليم ${totalTrays} صاج مع الفاتورة ${invoiceNumber}`,
+            invoiceId: invoice.id
+          }
+        });
+      }
+  
       if (createInvoiceDto.totalAmount) {
         await prisma.fund.update({
           where: { id: createInvoiceDto.fundId },
@@ -101,7 +133,13 @@ export class InvoicesService {
         });
       }
   
-      return invoice;
+      return {
+        ...invoice,
+        trayTracking: totalTrays > 0 ? {
+          totalTrays,
+          status: 'pending'
+        } : null
+      };
     });
   }
   
