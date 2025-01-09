@@ -13,6 +13,7 @@ import { DebtsModule } from './module/debts/debts.module';
 import { ItemsModule } from './module/items/items.module';
 import { ItemGroupsModule } from './module/item-groups/item-groups.module';
 import { TrayTrackingModule } from './module/tray-tracking/tray-tracking.module';
+import { CustomersModule } from './module/customers/customers.module';
 
 @Module({
   imports: [
@@ -41,7 +42,8 @@ import { TrayTrackingModule } from './module/tray-tracking/tray-tracking.module'
     DebtsModule,
     ItemsModule,
     ItemGroupsModule,
-    TrayTrackingModule
+    TrayTrackingModule,
+    CustomersModule
   ],
   providers: [PrismaConfig],
   exports: [PrismaConfig],

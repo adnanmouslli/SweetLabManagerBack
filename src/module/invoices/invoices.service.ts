@@ -8,7 +8,6 @@ import { UpdateInvoiceDto } from './dto/update-invoice.dto';
 @Injectable()
 export class InvoicesService {
   constructor(private prisma: PrismaService) {}
-
   async create(createInvoiceDto: CreateInvoiceDto, employeeId: number) {
     const activeShift = await this.prisma.shift.findFirst({
       where: {
@@ -27,21 +26,36 @@ export class InvoicesService {
     if (!fund) {
       throw new BadRequestException('الصندوق غير موجود');
     }
-  
 
+    // التحقق من وجود العميل إذا تم تحديده
+    if (createInvoiceDto.customerId) {
+      const customer = await this.prisma.customer.findUnique({
+        where: { id: createInvoiceDto.customerId },
+      });
+
+      if (!customer) {
+        throw new BadRequestException('العميل غير موجود');
+      }
+    }
+  
+    // التحقق من وجود العميل عند وجود صاجات
     if (
       createInvoiceDto.invoiceType === 'income' &&
       createInvoiceDto.invoiceCategory === 'products' &&
       createInvoiceDto.items?.some(item => item.trayCount > 0) &&
-      (!createInvoiceDto.customerName || !createInvoiceDto.customerPhone)
+      !createInvoiceDto.customerId
     ) {
       throw new BadRequestException('معلومات العميل مطلوبة عند وجود صاجات');
+    }
+
+    // التحقق من وجود العميل لفواتير الدين
+    if (createInvoiceDto.invoiceCategory === 'debt' && !createInvoiceDto.customerId) {
+      throw new BadRequestException('يجب تحديد العميل لفواتير الدين');
     }
   
     const invoiceNumber = `INV-${Date.now()}`;
   
     return this.prisma.$transaction(async (prisma) => {
-
       const calculatedTotal =
         createInvoiceDto.items?.reduce(
           (sum, item) => sum + item.quantity * item.unitPrice,
@@ -55,7 +69,6 @@ export class InvoicesService {
         throw new BadRequestException('المجموع الكلي غير صحيح');
       }
   
-
       const totalTrays = createInvoiceDto.invoiceType === 'income' &&
         createInvoiceDto.invoiceCategory === 'products' ?
         createInvoiceDto.items?.reduce(
@@ -63,15 +76,14 @@ export class InvoicesService {
           0
         ) || 0 : 0;
   
-
-        const invoice = await prisma.invoice.create({
+      // إنشاء الفاتورة
+      const invoice = await prisma.invoice.create({
         data: {
           invoiceNumber,
           employeeId,
           invoiceType: createInvoiceDto.invoiceType,
           invoiceCategory: createInvoiceDto.invoiceCategory,
-          customerName: createInvoiceDto.customerName || null,
-          customerPhone: createInvoiceDto.customerPhone || null,
+          customerId: createInvoiceDto.customerId,
           paidStatus: createInvoiceDto.paidStatus,
           totalAmount: createInvoiceDto.totalAmount || 0,
           discount: createInvoiceDto.discount || 0,
@@ -102,15 +114,103 @@ export class InvoicesService {
               username: true,
             },
           },
+          customer: true,
         },
       });
-  
 
+      // معالجة الديون
+      if (createInvoiceDto.invoiceCategory === 'debt') {
+        if (createInvoiceDto.invoiceType === 'expense') {
+          // البحث عن دين نشط للعميل
+          const existingDebt = await prisma.debt.findFirst({
+            where: {
+              customerId: createInvoiceDto.customerId!,
+              status: 'active',
+            },
+          });
+
+          if (existingDebt) {
+            // تحديث الدين الموجود
+            const updatedDebt = await prisma.debt.update({
+              where: { id: existingDebt.id },
+              data: {
+                totalAmount: existingDebt.totalAmount + createInvoiceDto.totalAmount,
+                remainingAmount: existingDebt.remainingAmount + createInvoiceDto.totalAmount,
+                notes: createInvoiceDto.notes || 'تم إضافة دين جديد',
+              },
+            });
+
+            // ربط الفاتورة بالدين الموجود
+            await prisma.invoice.update({
+              where: { id: invoice.id },
+              data: { relatedDebtId: existingDebt.id },
+            });
+          } else {
+            // إنشاء سجل دين جديد
+            const debt = await prisma.debt.create({
+              data: {
+                customerId: createInvoiceDto.customerId!,
+                totalAmount: createInvoiceDto.totalAmount,
+                remainingAmount: createInvoiceDto.totalAmount,
+                status: 'active',
+                notes: createInvoiceDto.notes || 'دين جديد',
+              },
+            });
+
+            // ربط الفاتورة بالدين الجديد
+            await prisma.invoice.update({
+              where: { id: invoice.id },
+              data: { relatedDebtId: debt.id },
+            });
+          }
+        } else if (createInvoiceDto.invoiceType === 'income') {
+          // البحث عن الديون النشطة للعميل
+          const activeDebt = await prisma.debt.findFirst({
+            where: {
+              customerId: createInvoiceDto.customerId!,
+              status: 'active',
+            },
+            orderBy: {
+              createdAt: 'asc',
+            },
+          });
+
+          if (!activeDebt) {
+            throw new BadRequestException('لا يوجد ديون نشطة لهذا العميل');
+          }
+
+          // التحقق من أن مبلغ الدفعة لا يتجاوز المبلغ المتبقي
+          if (createInvoiceDto.totalAmount > activeDebt.remainingAmount) {
+            throw new BadRequestException('مبلغ الدفعة يتجاوز المبلغ المتبقي من الدين');
+          }
+
+          // تحديث الدين
+          const newRemainingAmount = activeDebt.remainingAmount - createInvoiceDto.totalAmount;
+          await prisma.debt.update({
+            where: { id: activeDebt.id },
+            data: {
+              remainingAmount: newRemainingAmount,
+              lastPaymentDate: new Date(),
+              status: newRemainingAmount <= 0 ? 'paid' : 'active',
+              notes: newRemainingAmount <= 0 
+                ? `${activeDebt.notes || ''}\nتم سداد الدين بالكامل بتاريخ ${new Date().toLocaleDateString()}`
+                : activeDebt.notes
+            },
+          });
+
+          // ربط الفاتورة بالدين
+          await prisma.invoice.update({
+            where: { id: invoice.id },
+            data: { relatedDebtId: activeDebt.id },
+          });
+        }
+      }
+
+      // معالجة الصواني
       if (totalTrays > 0) {
         await prisma.trayTracking.create({
           data: {
-            customerName: createInvoiceDto.customerName!,
-            customerPhone: createInvoiceDto.customerPhone!,
+            customerId: createInvoiceDto.customerId!,
             totalTrays,
             status: 'pending',
             notes: `تم تسليم ${totalTrays} صاج مع الفاتورة ${invoiceNumber}`,
@@ -118,7 +218,8 @@ export class InvoicesService {
           }
         });
       }
-  
+      
+      // تحديث رصيد الصندوق
       if (createInvoiceDto.totalAmount) {
         await prisma.fund.update({
           where: { id: createInvoiceDto.fundId },
@@ -132,7 +233,6 @@ export class InvoicesService {
           },
         });
       }
-  
       return {
         ...invoice,
         trayTracking: totalTrays > 0 ? {
@@ -318,13 +418,9 @@ export class InvoicesService {
         updateData.invoiceCategory = updateInvoiceDto.invoiceCategory;
       }
   
-      if (updateInvoiceDto.customerName !== undefined) {
-        updateData.customerName = updateInvoiceDto.customerName;
-      }
-  
-      if (updateInvoiceDto.customerPhone !== undefined) {
-        updateData.customerPhone = updateInvoiceDto.customerPhone;
-      }
+      // if (updateInvoiceDto.customerId !== undefined) {
+      //   updateData.customerId = updateInvoiceDto.customerId;
+      // }
   
       if (updateInvoiceDto.paidStatus !== undefined) {
         updateData.paidStatus = updateInvoiceDto.paidStatus;

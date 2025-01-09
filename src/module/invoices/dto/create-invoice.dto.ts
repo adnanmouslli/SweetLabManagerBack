@@ -23,13 +23,9 @@ export class CreateInvoiceDto {
   @IsEnum(InvoiceCategory)
   invoiceCategory: InvoiceCategory;
 
-  @IsString()
+  @IsNumber()
   @IsOptional()
-  customerName?: string;
-
-  @IsString()
-  @IsOptional()
-  customerPhone?: string;
+  customerId?: number;
 
   @IsBoolean()
   paidStatus: boolean;
@@ -47,7 +43,6 @@ export class CreateInvoiceDto {
 
   @IsNumber()
   fundId: number;
-
 
   @IsArray()
   @IsOptional()

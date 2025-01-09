@@ -9,58 +9,122 @@ export class DebtsService {
   findAll() {
     return this.prisma.debt.findMany({
       include: {
-        payments: {
+        customer: true,
+        relatedInvoices: {
           include: {
-            invoice: true
+            items: {
+              include: {
+                item: true
+              }
+            },
+            employee: {
+              select: {
+                username: true
+              }
+            },
+            fund: true
+          }
+        }
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    });
+  }
+
+  async getActiveDebts() {
+    return this.prisma.debt.findMany({
+      where: {
+        status: 'active'
+      },
+      include: {
+        customer: true,
+        relatedInvoices: {
+          include: {
+            items: {
+              include: {
+                item: true
+              }
+            },
+            employee: {
+              select: {
+                username: true
+              }
+            },
+            fund: true
+          }
+        }
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    });
+  }
+
+  async getCustomerDebts(customerId: number) {
+    const customer = await this.prisma.customer.findUnique({
+      where: { id: customerId }
+    });
+
+    if (!customer) {
+      throw new NotFoundException(`العميل غير موجود`);
+    }
+
+    return this.prisma.debt.findMany({
+      where: {
+        customerId,
+      },
+      include: {
+        relatedInvoices: {
+          include: {
+            items: {
+              include: {
+                item: true
+              }
+            },
+            employee: {
+              select: {
+                username: true
+              }
+            },
+            fund: true
+          }
+        }
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    });
+  }
+
+  async findOne(id: number) {
+    const debt = await this.prisma.debt.findUnique({
+      where: { id },
+      include: {
+        customer: true,
+        relatedInvoices: {
+          include: {
+            items: {
+              include: {
+                item: true
+              }
+            },
+            employee: {
+              select: {
+                username: true
+              }
+            },
+            fund: true
           }
         }
       }
     });
-  }
-
-  async addPayment(debtId: number, createPaymentDto: CreatePaymentDto) {
-    const debt = await this.prisma.debt.findUnique({
-      where: { id: debtId }
-    });
 
     if (!debt) {
-      throw new NotFoundException(`Debt #${debtId} not found`);
+      throw new NotFoundException(`الدين غير موجود`);
     }
 
-    return this.prisma.$transaction(async (prisma) => {
-
-      const payment = await prisma.debtPayment.create({
-        data: {
-          ...createPaymentDto,
-          debtId
-        }
-      });
-
-
-      const newRemainingAmount = debt.remainingAmount - createPaymentDto.amount;
-      
-      await prisma.debt.update({
-        where: { id: debtId },
-        data: {
-          remainingAmount: newRemainingAmount,
-          status: newRemainingAmount <= 0 ? 'paid' : 'active',
-          lastPaymentDate: new Date()
-        }
-      });
-
-      return payment;
-    });
+    return debt;
   }
-
-  async getCustomerDebts(customerPhone: string) {
-    return this.prisma.debt.findMany({
-      where: {
-        customerPhone,
-        status: 'active'
-      },
-      include: {
-        payments: true
-      }
-    });
-  }
+  
 }

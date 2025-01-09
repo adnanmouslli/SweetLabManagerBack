@@ -7,6 +7,7 @@ import { seedFunds } from './funds.seeder';
 import { seedShifts } from './shifts.seeder';
 import { seedInvoices } from './invoices.seeder';
 import { seedDebts } from './debts.seeder';
+import { seedCustomers } from './customers.seeder';
 
 const prisma = new PrismaClient();
 
@@ -26,19 +27,17 @@ async function resetDatabase() {
 
 async function main() {
   try {
-    // إعادة تعيين قاعدة البيانات بالكامل
     await resetDatabase();
     
     console.log('🌱 Starting seeding...');
     
-    // تعبئة البيانات
     await seedUsers(prisma);
     await seedItemGroups(prisma);
     await seedItems(prisma);
     await seedFunds(prisma);
     await seedShifts(prisma);
+    await seedCustomers(prisma); // إضافة
     await seedInvoices(prisma);
-    await seedDebts(prisma);
     
     console.log('✅ Seeding completed successfully');
   } catch (error) {

@@ -41,7 +41,9 @@ export class TrayTrackingService {
       where: {
         status: 'pending'
       },
-     
+      include:{
+        customer:true
+      },
       orderBy: {
         createdAt: 'desc'
       }

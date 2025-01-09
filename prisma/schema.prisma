@@ -15,11 +15,10 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  shifts    Shift[]    
-  invoices  Invoice[]  
+  shifts   Shift[]
+  invoices Invoice[]
 
   fundTransfers FundTransferLog[]
-
 }
 
 enum Role {
@@ -28,16 +27,15 @@ enum Role {
   EMPLOYEE
 }
 
-
 model Shift {
-  id        Int       @id @default(autoincrement())
+  id        Int         @id @default(autoincrement())
   shiftType ShiftType
   status    ShiftStatus @default(open)
   openTime  DateTime
   closeTime DateTime?
-  
+
   employeeId Int
-  employee   User     @relation(fields: [employeeId], references: [id])
+  employee   User      @relation(fields: [employeeId], references: [id])
   invoices   Invoice[]
 
   @@map("shifts")
@@ -54,15 +52,16 @@ enum ShiftStatus {
 }
 
 model Fund {
-  id             Int       @id @default(autoincrement())
+  id             Int      @id @default(autoincrement())
   fundType       FundType
-  currentBalance Float     @default(0)
-  lastUpdate     DateTime  @updatedAt
-  
-  invoices       Invoice[]
+  currentBalance Float    @default(0)
+  lastUpdate     DateTime @updatedAt
+
+  invoices Invoice[]
 
   transfersFrom FundTransferLog[] @relation("FromFund")
   transfersTo   FundTransferLog[] @relation("ToFund")
+
   @@map("funds")
 }
 
@@ -80,36 +79,36 @@ model FundTransferLog {
   toFundId        Int
   transferredById Int
   transferredAt   DateTime @default(now())
-  
-  fromFund        Fund     @relation("FromFund", fields: [fromFundId], references: [id])
-  toFund          Fund     @relation("ToFund", fields: [toFundId], references: [id])
-  transferredBy   User     @relation(fields: [transferredById], references: [id])
+
+  fromFund      Fund @relation("FromFund", fields: [fromFundId], references: [id])
+  toFund        Fund @relation("ToFund", fields: [toFundId], references: [id])
+  transferredBy User @relation(fields: [transferredById], references: [id])
 
   @@map("fund_transfer_logs")
 }
 
 model ItemGroup {
-  id          Int       @id @default(autoincrement())
+  id          Int      @id @default(autoincrement())
   name        String
   type        ItemType
   description String?
-  
-  items       Item[]
+
+  items Item[]
 
   @@map("item_groups")
 }
 
 model Item {
-  id          Int       @id @default(autoincrement())
+  id          Int      @id @default(autoincrement())
   name        String
   type        ItemType
   unit        String
   price       Float
   description String?
-  
-  groupId     Int
-  group       ItemGroup @relation(fields: [groupId], references: [id])
-  
+
+  groupId Int
+  group   ItemGroup @relation(fields: [groupId], references: [id])
+
   invoiceItems InvoiceItem[]
 
   @@map("items")
@@ -121,32 +120,32 @@ enum ItemType {
 }
 
 model Invoice {
-  id            Int            @id @default(autoincrement())
-  invoiceNumber String         @unique
-  invoiceType   InvoiceType
+  id              Int             @id @default(autoincrement())
+  invoiceNumber   String          @unique
+  invoiceType     InvoiceType
   invoiceCategory InvoiceCategory
-  customerName  String?
-  customerPhone String?
-  totalAmount   Float
-  discount      Float          @default(0)
-  paidStatus    Boolean        
-  paymentDate   DateTime?
-  createdAt     DateTime       @default(now())
-  notes         String?
-  
-  fundId      Int
-  fund        Fund    @relation(fields: [fundId], references: [id])
-  
-  shiftId     Int
-  shift       Shift   @relation(fields: [shiftId], references: [id])
-  
-  employeeId  Int
-  employee    User    @relation(fields: [employeeId], references: [id])
-  
-  items       InvoiceItem[]
-  debtPayments DebtPayment[]
+  customerId      Int?
+  customer        Customer?       @relation(fields: [customerId], references: [id])
+  totalAmount     Float
+  discount        Float           @default(0)
+  paidStatus      Boolean
+  paymentDate     DateTime?
+  createdAt       DateTime        @default(now())
+  notes           String?
 
-  trayTracking    TrayTracking?
+  fundId Int
+  fund   Fund @relation(fields: [fundId], references: [id])
+
+  shiftId Int
+  shift   Shift @relation(fields: [shiftId], references: [id])
+
+  employeeId Int
+  employee   User @relation(fields: [employeeId], references: [id])
+
+  items         InvoiceItem[]
+  relatedDebtId Int? // Reference to the debt this invoice is related to
+  relatedDebt   Debt?         @relation(fields: [relatedDebtId], references: [id])
+  trayTracking  TrayTracking?
 
   @@map("invoices")
 }
@@ -162,23 +161,21 @@ enum InvoiceCategory {
   debt
 }
 
-
 model InvoiceItem {
-  id          Int     @id @default(autoincrement())
-  quantity    Float
-  unitPrice   Float
-  trayCount   Int     @default(0)
-  subTotal    Float
-  
-  invoiceId   Int
-  invoice     Invoice @relation(fields: [invoiceId], references: [id])
-  
-  itemId      Int
-  item        Item    @relation(fields: [itemId], references: [id])
+  id        Int   @id @default(autoincrement())
+  quantity  Float
+  unitPrice Float
+  trayCount Int   @default(0)
+  subTotal  Float
+
+  invoiceId Int
+  invoice   Invoice @relation(fields: [invoiceId], references: [id])
+
+  itemId Int
+  item   Item @relation(fields: [itemId], references: [id])
 
   @@map("invoice_items")
 }
-
 
 enum TrayStatus {
   pending
@@ -186,31 +183,33 @@ enum TrayStatus {
 }
 
 model TrayTracking {
-  id              Int         @id @default(autoincrement())
-  customerName    String
-  customerPhone   String
-  totalTrays      Int
-  status          TrayStatus  @default(pending)
-  createdAt       DateTime    @default(now())
-  returnedAt      DateTime?
-  notes           String?
-  
-  invoiceId       Int         @unique  // One-to-one relation with invoice
-  invoice         Invoice     @relation(fields: [invoiceId], references: [id])
+  id         Int        @id @default(autoincrement())
+  customerId Int
+  customer   Customer   @relation(fields: [customerId], references: [id])
+  totalTrays Int
+  status     TrayStatus @default(pending)
+  createdAt  DateTime   @default(now())
+  returnedAt DateTime?
+  notes      String?
+
+  invoiceId Int     @unique
+  invoice   Invoice @relation(fields: [invoiceId], references: [id])
 
   @@map("tray_tracking")
 }
+
 model Debt {
-  id              Int       @id @default(autoincrement())
-  customerName    String
-  customerPhone   String
-  totalAmount     Float
-  remainingAmount Float
+  id              Int        @id @default(autoincrement())
+  customerId      Int
+  customer        Customer   @relation(fields: [customerId], references: [id])
+  totalAmount     Float // إجمالي مبلغ الدين الأصلي
+  remainingAmount Float // المبلغ المتبقي
+  createdAt       DateTime   @default(now())
   lastPaymentDate DateTime?
   status          DebtStatus @default(active)
   notes           String?
-  
-  payments        DebtPayment[]
+
+  relatedInvoices Invoice[]
 
   @@map("debts")
 }
@@ -220,16 +219,17 @@ enum DebtStatus {
   paid
 }
 
-model DebtPayment {
-  id          Int      @id @default(autoincrement())
-  amount      Float
-  paymentDate DateTime @default(now())
-  
-  debtId      Int
-  debt        Debt    @relation(fields: [debtId], references: [id])
-  
-  invoiceId   Int
-  invoice     Invoice @relation(fields: [invoiceId], references: [id])
+model Customer {
+  id        Int      @id @default(autoincrement())
+  name      String
+  phone     String   @unique
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  @@map("debt_payments")
+  invoices Invoice[]
+  debts    Debt[]
+  trays    TrayTracking[]
+
+  @@map("customers")
 }

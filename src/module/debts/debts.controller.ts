@@ -1,8 +1,6 @@
-import { Controller, Get, Post, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, UseGuards, ParseIntPipe } from '@nestjs/common';
 import { DebtsService } from './debts.service';
-import { CreatePaymentDto } from './dto/create-payment.dto';
 import { JwtAuthGuard, Role, Roles, RolesGuard } from '@/common';
-
 
 @Controller('debts')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -10,23 +8,26 @@ export class DebtsController {
   constructor(private readonly debtsService: DebtsService) {}
 
   @Get()
-  @Roles(Role.MANAGER, Role.ADMIN)
+  @Roles(Role.ADMIN, Role.MANAGER)
   findAll() {
     return this.debtsService.findAll();
   }
 
-  @Post(':id/payments')
-  @Roles(Role.MANAGER, Role.ADMIN)
-  addPayment(
-    @Param('id') id: string,
-    @Body() createPaymentDto: CreatePaymentDto
-  ) {
-    return this.debtsService.addPayment(+id, createPaymentDto);
+  @Get('active')
+  @Roles(Role.ADMIN, Role.MANAGER, Role.EMPLOYEE)
+  getActiveDebts() {
+    return this.debtsService.getActiveDebts();
   }
 
-  @Get('customer/:phone')
-  @Roles(Role.MANAGER, Role.ADMIN, Role.EMPLOYEE)
-  getCustomerDebts(@Param('phone') phone: string) {
-    return this.debtsService.getCustomerDebts(phone);
+  @Get('customer/:customerId')
+  @Roles(Role.ADMIN, Role.MANAGER, Role.EMPLOYEE)
+  getCustomerDebts(@Param('customerId', ParseIntPipe) customerId: number) {
+    return this.debtsService.getCustomerDebts(customerId);
+  }
+
+  @Get(':id')
+  @Roles(Role.ADMIN, Role.MANAGER, Role.EMPLOYEE)
+  findOne(@Param('id', ParseIntPipe) id: number) {
+    return this.debtsService.findOne(id);
   }
 }
