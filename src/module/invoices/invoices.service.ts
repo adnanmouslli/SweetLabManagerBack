@@ -219,20 +219,20 @@ export class InvoicesService {
         });
       }
       
-      // تحديث رصيد الصندوق
-      if (createInvoiceDto.totalAmount) {
-        await prisma.fund.update({
-          where: { id: createInvoiceDto.fundId },
-          data: {
-            currentBalance: {
-              [createInvoiceDto.invoiceType === 'income'
-                ? 'increment'
-                : 'decrement']:
-                createInvoiceDto.totalAmount - (createInvoiceDto.discount || 0),
-            },
+      // تحديث رصيد الصندوق فقط إذا كانت الفاتورة مدفوعة
+    if (createInvoiceDto.paidStatus && createInvoiceDto.totalAmount) {
+      await prisma.fund.update({
+        where: { id: createInvoiceDto.fundId },
+        data: {
+          currentBalance: {
+            [createInvoiceDto.invoiceType === 'income'
+              ? 'increment'
+              : 'decrement']:
+              createInvoiceDto.totalAmount - (createInvoiceDto.discount || 0),
           },
-        });
-      }
+        },
+      });
+    }
       return {
         ...invoice,
         trayTracking: totalTrays > 0 ? {
@@ -335,7 +335,6 @@ export class InvoicesService {
     }
   }
   
-  
 
   async findOne(id: number) {
     if (!id || isNaN(id)) {
@@ -367,9 +366,6 @@ export class InvoicesService {
     return invoice;
   }
   
-
-
-
   findUnpaid() {
     return this.prisma.invoice.findMany({
       where: {
@@ -386,12 +382,62 @@ export class InvoicesService {
   }
 
   async markAsPaid(id: number) {
-    return this.prisma.invoice.update({
+    const activeShift = await this.prisma.shift.findFirst({
+      where: {
+        status: 'open',
+      },
+    });
+  
+    if (!activeShift) {
+      throw new BadRequestException('لا يمكن تحويل الفاتورة - لا يوجد واردية مفتوحة');
+    }
+  
+
+    const invoice = await this.prisma.invoice.findUnique({
       where: { id },
-      data: {
-        paidStatus: true,
-        paymentDate: new Date()
+      include: {
+        fund: true
       }
+    });
+  
+    if (!invoice) {
+      throw new NotFoundException('الفاتورة غير موجودة');
+    }
+  
+    if (invoice.paidStatus) {
+      throw new BadRequestException('الفاتورة مدفوعة بالفعل');
+    }
+  
+    return this.prisma.$transaction(async (prisma) => {
+
+      const updatedInvoice = await prisma.invoice.update({
+        where: { id },
+        data: {
+          paidStatus: true,
+          paymentDate: new Date(),
+          shiftId: activeShift.id 
+        },
+        include: {
+          fund: true,
+          items: {
+            include: {
+              item: true
+            }
+          }
+        }
+      });
+  
+      await prisma.fund.update({
+        where: { id: invoice.fundId },
+        data: {
+          currentBalance: {
+            [invoice.invoiceType === 'income' ? 'increment' : 'decrement']:
+              invoice.totalAmount - (invoice.discount || 0),
+          },
+        },
+      });
+  
+      return updatedInvoice;
     });
   }
 
