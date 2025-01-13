@@ -308,7 +308,8 @@ export class InvoicesService {
           }
         },
         fund: true,
-        shift: true
+        shift: true,
+        customer:true
       },
       orderBy: {
         createdAt: 'desc'
@@ -567,6 +568,7 @@ export class InvoicesService {
             }
           },
           fund: true,
+          customer:true
         },
         orderBy: {
           createdAt: 'desc'
