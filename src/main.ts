@@ -22,7 +22,7 @@ async function bootstrap() {
     },
   }));
 
-  const corsOrigin = configService.get('CORS_ORIGIN', 'http://localhost:3000');
+  const corsOrigin = configService.get('CORS_ORIGIN', '*');
   app.enableCors({
     origin: corsOrigin,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
@@ -32,10 +32,10 @@ async function bootstrap() {
   });
 
 
-  // const host = configService.get('HOST', '0.0.0.0');
+  const host = configService.get('HOST', '0.0.0.0');
   const port = configService.get('PORT', 80);
   
-  await app.listen(80);
+  await app.listen(port);
   
 
   const serverUrl = await app.getUrl();
