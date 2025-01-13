@@ -10,7 +10,13 @@ export class AuthController {
   @Public()
   @Post('login')
   async login(@Body() loginDto: LoginDto) {
-    return this.authService.login(loginDto);
+    try {
+      const result = await this.authService.login(loginDto);
+      return result;
+    } catch (error) {
+      console.error('Login error:', error);
+      throw error;
+    }  
   }
   
 }

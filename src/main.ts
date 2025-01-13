@@ -6,7 +6,9 @@ import { ConfigService } from '@nestjs/config';
 
 async function bootstrap() {
 
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, {
+    logger: ['error', 'warn', 'debug', 'log', 'verbose'],
+  });
   const logger = new Logger('Bootstrap');
   const configService = app.get(ConfigService);
 
@@ -23,27 +25,17 @@ async function bootstrap() {
   }));
 
   const corsOrigin = configService.get('CORS_ORIGIN', '*');
-  app.enableCors({
-    origin: corsOrigin,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    credentials: true,
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
-    maxAge: 3600,
-  });
+  app.enableCors();
 
-
-  const host = configService.get('HOST', '0.0.0.0');
-  const port = configService.get('PORT', 80);
+  const port = process.env.PORT || 3000;
   
   await app.listen(port);
   
 
   const serverUrl = await app.getUrl();
-  console.log(`Environment: ${configService.get('NODE_ENV', 'development')}`);
   console.log(`Server is running on: ${serverUrl}`);
-  console.log(`CORS enabled for: ${corsOrigin}`);
+  console.log(`Environment: ${configService.get('NODE_ENV', 'development')}`);
   console.log(`API prefix: ${apiPrefix}`);
-  console.log('--------------------------------------------------------');  
 }
 
 bootstrap().catch((error) => {
