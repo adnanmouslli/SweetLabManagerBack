@@ -32,10 +32,10 @@ async function bootstrap() {
   });
 
 
-  const host = configService.get('HOST', '0.0.0.0');
-  const port = configService.get('PORT', 3000);
+  // const host = configService.get('HOST', '0.0.0.0');
+  const port = configService.get('PORT', 80);
   
-  await app.listen(port, host);
+  await app.listen(80);
   
 
   const serverUrl = await app.getUrl();
