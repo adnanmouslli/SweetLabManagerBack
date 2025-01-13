@@ -15,14 +15,16 @@ async function bootstrap() {
   const apiPrefix = configService.get('API_PREFIX', '/');
   app.setGlobalPrefix(apiPrefix);
   
-  app.useGlobalPipes(new ValidationPipe({
-    whitelist: true,
-    forbidNonWhitelisted: true,
-    transform: true,
-    transformOptions: {
-      enableImplicitConversion: true,
-    },
-  }));
+  app.useGlobalPipes(new ValidationPipe(
+  //   {
+  //   whitelist: true,
+  //   forbidNonWhitelisted: true,
+  //   transform: true,
+  //   transformOptions: {
+  //     enableImplicitConversion: true,
+  //   },
+  // }
+));
 
   const corsOrigin = configService.get('CORS_ORIGIN', '*');
   app.enableCors();

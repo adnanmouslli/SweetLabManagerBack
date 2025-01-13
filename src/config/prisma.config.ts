@@ -11,8 +11,8 @@ export class PrismaConfig extends PrismaClient {
     super({
       datasources: {
         db: {
-          url,
-        },
+          url: process.env.DATABASE_URL,
+        }, 
       },
       log: config.get('app.env') === 'development' 
         ? ['query', 'info', 'warn', 'error']
