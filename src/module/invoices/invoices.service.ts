@@ -581,11 +581,15 @@ export class InvoicesService {
   
       const calculateFundTotals = (fundInvoices) => {
         const income = fundInvoices
-          .filter(inv => inv.invoiceType === 'income')
+          .filter(inv => inv.invoiceType === 'income' && 
+            inv.paidStatus === true
+          )
           .reduce((sum, inv) => sum + (inv.totalAmount - (inv.discount || 0)), 0);
         
         const expense = fundInvoices
-          .filter(inv => inv.invoiceType === 'expense')
+          .filter(inv => inv.invoiceType === 'expense' && 
+            inv.paidStatus === true
+          )
           .reduce((sum, inv) => sum + (inv.totalAmount - (inv.discount || 0)), 0);
   
         return {

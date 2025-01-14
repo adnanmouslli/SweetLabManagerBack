@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException, InternalServerErrorException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateShiftDto } from './dto/create-shift.dto';
-import {  FundType, ShiftStatus, ShiftType, User } from '@prisma/client';
+import {  FundType, InvoiceType, ShiftStatus, ShiftType, User } from '@prisma/client';
 import { UpdateShiftDto } from './dto/update-shift.dto';
 import { FundSummary, ShiftSummary } from '@/common/types/shift-summary.types';
 
@@ -353,7 +353,6 @@ async getShiftSummary(shiftId: number): Promise<ShiftSummary> {
 }
 
 async getCurrentShiftSummary(): Promise<ShiftSummary> {
-  
   try {
     const openShift = await this.prisma.shift.findFirst({
       where: { 
@@ -382,30 +381,49 @@ async getCurrentShiftSummary(): Promise<ShiftSummary> {
 
     const fundSummaries: FundSummary[] = await Promise.all(
       relevantFundTypes.map(async (fundType) => {
-
         const fundInvoices = openShift.invoices.filter(
           invoice => invoice.fund.fundType === fundType
         );
 
 
+        // Calculate totals only for paid invoices and subtract discounts
         const incomeTotal = fundInvoices
-          .filter(invoice => invoice.invoiceType === 'income')
-          .reduce((sum, invoice) => sum + invoice.totalAmount, 0);
+          .filter(invoice => 
+            invoice.invoiceType === InvoiceType.income && 
+            invoice.paidStatus === true
+          ) 
+          .reduce((sum, invoice) => {
+
+            const actualAmount = invoice.totalAmount - invoice.discount;
+            return sum + actualAmount;
+          }, 0);
+
+          // console.log("incomeTotal" , incomeTotal);
 
         const expenseTotal = fundInvoices
-          .filter(invoice => invoice.invoiceType === 'expense')
-          .reduce((sum, invoice) => sum + invoice.totalAmount, 0);
+          .filter(invoice => 
+            invoice.invoiceType === 'expense' && 
+            invoice.paidStatus === true 
+          )
+          .reduce((sum, invoice) => {
+            // Subtract discount from total amount
+            const actualAmount = invoice.totalAmount - invoice.discount;
+            return sum + actualAmount;
+          }, 0);
+
+        const paidInvoicesCount = fundInvoices.filter(
+          invoice => invoice.paidStatus === true
+        ).length;
 
         return {
           fundType,
-          invoiceCount: fundInvoices.length,
+          invoiceCount: paidInvoicesCount, // Only count paid invoices
           incomeTotal,
           expenseTotal,
           netTotal: incomeTotal - expenseTotal
         };
       })
     );
-
 
     const totalNet = fundSummaries.reduce(
       (sum, fund) => sum + fund.netTotal, 
@@ -419,6 +437,7 @@ async getCurrentShiftSummary(): Promise<ShiftSummary> {
       fundSummaries,
       totalNet
     };
+
   } catch (error) {
     if (error instanceof NotFoundException) {
       throw error;
