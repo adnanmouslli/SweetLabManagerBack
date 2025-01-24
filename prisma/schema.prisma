@@ -28,11 +28,14 @@ enum Role {
 }
 
 model Shift {
-  id        Int         @id @default(autoincrement())
-  shiftType ShiftType
-  status    ShiftStatus @default(open)
-  openTime  DateTime
-  closeTime DateTime?
+  id         Int         @id @default(autoincrement())
+  shiftType  ShiftType
+  status     ShiftStatus @default(open)
+  openTime   DateTime
+  closeTime  DateTime?
+  
+  differenceStatus DifferenceStatus? 
+  differenceValue  Float?            
 
   employeeId Int
   employee   User      @relation(fields: [employeeId], references: [id])
@@ -40,6 +43,12 @@ model Shift {
 
   @@map("shifts")
 }
+
+enum DifferenceStatus {
+  surplus  // زيادة
+  deficit  // نقصان
+}
+
 
 enum ShiftType {
   morning
@@ -145,6 +154,7 @@ model Invoice {
   items         InvoiceItem[]
   relatedDebtId Int? // Reference to the debt this invoice is related to
   relatedDebt   Debt?         @relation(fields: [relatedDebtId], references: [id])
+  trayCount Int   @default(0)
   trayTracking  TrayTracking?
 
   @@map("invoices")
@@ -165,7 +175,6 @@ model InvoiceItem {
   id        Int   @id @default(autoincrement())
   quantity  Float
   unitPrice Float
-  trayCount Int   @default(0)
   subTotal  Float
 
   invoiceId Int

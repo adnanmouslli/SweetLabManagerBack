@@ -18,7 +18,7 @@ export class InvoicesService {
     if (!activeShift) {
       throw new BadRequestException('لا يوجد واردية مفتوحة');
     }
-  
+    
     const fund = await this.prisma.fund.findUnique({
       where: { id: createInvoiceDto.fundId },
     });
@@ -42,7 +42,7 @@ export class InvoicesService {
     if (
       createInvoiceDto.invoiceType === 'income' &&
       createInvoiceDto.invoiceCategory === 'products' &&
-      createInvoiceDto.items?.some(item => item.trayCount > 0) &&
+      createInvoiceDto.trayCount > 0 &&
       !createInvoiceDto.customerId
     ) {
       throw new BadRequestException('معلومات العميل مطلوبة عند وجود صاجات');
@@ -53,8 +53,12 @@ export class InvoicesService {
       throw new BadRequestException('يجب تحديد العميل لفواتير الدين');
     }
   
-    const invoiceNumber = `INV-${Date.now()}`;
-  
+    const now = new Date();
+    const formattedDate = `${now.getFullYear().toString().slice(-2)}${(now.getMonth() + 1)
+      .toString()
+      .padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}`;
+    const invoiceNumber = `INV-${formattedDate}`;
+      
     return this.prisma.$transaction(async (prisma) => {
       const calculatedTotal =
         createInvoiceDto.items?.reduce(
@@ -69,12 +73,6 @@ export class InvoicesService {
         throw new BadRequestException('المجموع الكلي غير صحيح');
       }
   
-      const totalTrays = createInvoiceDto.invoiceType === 'income' &&
-        createInvoiceDto.invoiceCategory === 'products' ?
-        createInvoiceDto.items?.reduce(
-          (sum, item) => sum + (item.trayCount || 0),
-          0
-        ) || 0 : 0;
   
       // إنشاء الفاتورة
       const invoice = await prisma.invoice.create({
@@ -91,12 +89,12 @@ export class InvoicesService {
           fundId: createInvoiceDto.fundId,
           shiftId: activeShift.id,
           paymentDate: createInvoiceDto.paidStatus ? new Date() : null,
+          trayCount: createInvoiceDto.trayCount,
           items: createInvoiceDto.items
             ? {
                 create: createInvoiceDto.items.map((item) => ({
                   quantity: item.quantity,
                   unitPrice: item.unitPrice,
-                  trayCount: item.trayCount || 0,
                   subTotal: item.quantity * item.unitPrice,
                   itemId: item.itemId,
                 })),
@@ -207,13 +205,13 @@ export class InvoicesService {
       }
 
       // معالجة الصواني
-      if (totalTrays > 0) {
+      if (createInvoiceDto.trayCount > 0) {
         await prisma.trayTracking.create({
           data: {
             customerId: createInvoiceDto.customerId!,
-            totalTrays,
+            totalTrays: createInvoiceDto.trayCount,
             status: 'pending',
-            notes: `تم تسليم ${totalTrays} صاج مع الفاتورة ${invoiceNumber}`,
+            notes: `تم تسليم ${createInvoiceDto.trayCount} صاج مع الفاتورة ${invoiceNumber}`,
             invoiceId: invoice.id
           }
         });
@@ -235,8 +233,8 @@ export class InvoicesService {
     }
       return {
         ...invoice,
-        trayTracking: totalTrays > 0 ? {
-          totalTrays,
+        trayTracking: createInvoiceDto.trayCount > 0 ? {
+          totalTrays: createInvoiceDto.trayCount,
           status: 'pending'
         } : null
       };
@@ -465,9 +463,9 @@ export class InvoicesService {
         updateData.invoiceCategory = updateInvoiceDto.invoiceCategory;
       }
   
-      // if (updateInvoiceDto.customerId !== undefined) {
-      //   updateData.customerId = updateInvoiceDto.customerId;
-      // }
+      if (updateInvoiceDto.customerId !== undefined) {
+        updateData.customerId = updateInvoiceDto.customerId;
+      }
   
       if (updateInvoiceDto.paidStatus !== undefined) {
         updateData.paidStatus = updateInvoiceDto.paidStatus;
@@ -501,7 +499,6 @@ export class InvoicesService {
             itemId: item.itemId,
             quantity: item.quantity,
             unitPrice: item.unitPrice,
-            trayCount: item.trayCount || 0,
             subTotal: item.quantity * item.unitPrice,
           })),
         });

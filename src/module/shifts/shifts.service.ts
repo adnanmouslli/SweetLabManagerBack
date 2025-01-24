@@ -156,16 +156,11 @@ async remove(id: number) {
   }
 }
 
-async closeShift() {
+async closeShift(differenceStatus: 'surplus' | 'deficit', differenceValue: number) {
   try {
-
     const openShift = await this.prisma.shift.findFirst({
-      where: { 
-        status: ShiftStatus.open 
-      },
-      include: {
-        employee: true
-      }
+      where: { status: ShiftStatus.open },
+      include: { employee: true },
     });
 
     if (!openShift) {
@@ -179,7 +174,7 @@ async closeShift() {
     const [generalFund, boothFund, universityFund] = await Promise.all([
       this.prisma.fund.findFirst({ where: { fundType: 'general' } }),
       this.prisma.fund.findFirst({ where: { fundType: 'booth' } }),
-      this.prisma.fund.findFirst({ where: { fundType: 'university' } })
+      this.prisma.fund.findFirst({ where: { fundType: 'university' } }),
     ]);
 
     if (!generalFund) {
@@ -187,23 +182,21 @@ async closeShift() {
     }
 
     return await this.prisma.$transaction(async (prisma) => {
-
       const boothBalance = boothFund?.currentBalance || 0;
       const universityBalance = universityFund?.currentBalance || 0;
       const totalTransfer = boothBalance + universityBalance;
 
-
       if (boothFund) {
         await prisma.fund.update({
           where: { id: boothFund.id },
-          data: { currentBalance: 0 }
+          data: { currentBalance: 0 },
         });
       }
 
       if (universityFund) {
         await prisma.fund.update({
           where: { id: universityFund.id },
-          data: { currentBalance: 0 }
+          data: { currentBalance: 0 },
         });
       }
 
@@ -211,25 +204,27 @@ async closeShift() {
         where: { id: generalFund.id },
         data: {
           currentBalance: {
-            increment: totalTransfer
-          }
-        }
+            increment: totalTransfer,
+          },
+        },
       });
 
       const closedShift = await prisma.shift.update({
         where: { id: openShift.id },
         data: {
           status: ShiftStatus.closed,
-          closeTime: new Date()
+          closeTime: new Date(),
+          differenceStatus,
+          differenceValue: Number(differenceValue),
         },
         include: {
           employee: {
             select: {
               id: true,
-              username: true
-            }
-          }
-        }
+              username: true,
+            },
+          },
+        },
       });
 
       return {
@@ -238,18 +233,19 @@ async closeShift() {
         transfers: {
           boothTransfer: boothBalance,
           universityTransfer: universityBalance,
-          totalTransferred: totalTransfer
-        }
+          totalTransferred: totalTransfer,
+        },
       };
     });
-
   } catch (error) {
+    console.log(error)
     if (error instanceof BadRequestException || error instanceof NotFoundException) {
       throw error;
     }
     throw new InternalServerErrorException('حدث خطأ أثناء إغلاق الواردية');
   }
 }
+
 
  async findShiftsByStatusOrType(status?: ShiftStatus, shiftType?: ShiftType) {
   try {
@@ -326,7 +322,8 @@ async getShiftSummary(shiftId: number): Promise<ShiftSummary> {
           invoiceCount: fundInvoices.length,
           incomeTotal,
           expenseTotal,
-          netTotal: incomeTotal - expenseTotal
+          netTotal: incomeTotal - expenseTotal,
+
         };
       })
     );
@@ -342,7 +339,9 @@ async getShiftSummary(shiftId: number): Promise<ShiftSummary> {
       employeeName: shift.employee.username,
       openTime: shift.openTime,
       fundSummaries,
-      totalNet
+      totalNet,
+      differenceStatus: shift.differenceStatus || null,
+      differenceValue: shift.differenceValue || null,  
     };
   } catch (error) {
     if (error instanceof NotFoundException) {
@@ -435,7 +434,7 @@ async getCurrentShiftSummary(): Promise<ShiftSummary> {
       employeeName: openShift.employee.username,
       openTime: openShift.openTime,
       fundSummaries,
-      totalNet
+      totalNet,
     };
 
   } catch (error) {

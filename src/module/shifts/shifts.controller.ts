@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, UseGuards, Query } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, UseGuards, Query, BadRequestException } from '@nestjs/common';
 import { ShiftsService } from './shifts.service';
 import { CreateShiftDto } from './dto/create-shift.dto';
 import { UpdateShiftDto } from './dto/update-shift.dto';
@@ -35,9 +35,14 @@ export class ShiftsController {
 
   @Get('close')
   @Roles(Role.EMPLOYEE, Role.MANAGER)
-  closeShift() {
-    return this.shiftsService.closeShift();
+  closeShift(@Query('differenceStatus') differenceStatus: 'surplus' | 'deficit', @Query('differenceValue') differenceValue: number) {
+    if (!differenceStatus || differenceValue === undefined) {
+      throw new BadRequestException('يرجى إدخال حالة وقيمة الفرق');
+    }
+  
+    return this.shiftsService.closeShift(differenceStatus, differenceValue);
   }
+  
 
   @Get('filter')
   findFilteredShifts(

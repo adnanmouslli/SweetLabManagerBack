@@ -37,6 +37,8 @@ export async function seedInvoices(prisma: PrismaClient) {
         fundId: faker.helpers.arrayElement(funds).id,
         shiftId: faker.helpers.arrayElement(shifts).id,
         employeeId: faker.helpers.arrayElement(users).id,
+        trayCount: faker.number.int({ min: 0, max: 5 }),
+
       },
     });
 
@@ -54,7 +56,6 @@ export async function seedInvoices(prisma: PrismaClient) {
             itemId: item.id,
             quantity,
             unitPrice,
-            trayCount: faker.number.int({ min: 0, max: 5 }),
             subTotal: quantity * unitPrice,
           },
         });

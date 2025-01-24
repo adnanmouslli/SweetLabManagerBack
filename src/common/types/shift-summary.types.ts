@@ -13,4 +13,6 @@ export interface FundSummary {
     openTime: Date;
     fundSummaries: FundSummary[];
     totalNet: number;
+    differenceStatus?: 'surplus' | 'deficit' | null; // حالة الفرق
+    differenceValue?: number | null; 
   }

@@ -11,9 +11,6 @@ export class CreateInvoiceItemDto {
   @IsNumber()
   unitPrice: number;
 
-  @IsNumber()
-  @IsOptional()
-  trayCount?: number;
 }
 
 export class CreateInvoiceDto {
@@ -47,4 +44,8 @@ export class CreateInvoiceDto {
   @IsArray()
   @IsOptional()
   items: CreateInvoiceItemDto[];
+
+  @IsNumber()
+  @IsOptional()
+  trayCount?: number;
 }
