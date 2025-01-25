@@ -45,8 +45,8 @@ model Shift {
 }
 
 enum DifferenceStatus {
-  surplus  // زيادة
-  deficit  // نقصان
+  surplus  
+  deficit 
 }
 
 
