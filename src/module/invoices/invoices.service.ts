@@ -52,14 +52,30 @@ export class InvoicesService {
     if (createInvoiceDto.invoiceCategory === 'debt' && !createInvoiceDto.customerId) {
       throw new BadRequestException('يجب تحديد العميل لفواتير الدين');
     }
-  
-    const now = new Date();
-  const formattedDate = `${now.getFullYear().toString().slice(-2)}${(now.getMonth() + 1)
-    .toString()
-    .padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}`;
+    // const now = new Date();
+    // const formattedDate = `${now.getFullYear().toString().slice(-2)}${(now.getMonth() + 1)
+    //   .toString()
+    //   .padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}`;
+    
+    // // التأكد من فريدة رقم الفاتورة
+    // let invoiceNumber: string;
+    // let isDuplicate = true;
+    
+    // while (isDuplicate) {
+    //   const randomPart = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+    //   invoiceNumber = `INV-${formattedDate}-${randomPart}`;
+    
+    //   const existingInvoice = await this.prisma.invoice.findUnique({
+    //     where: { invoiceNumber },
+    //   });
+    
+    //   if (!existingInvoice) {
+    //     isDuplicate = false;
+    //   }
+    // }
 
+    const invoiceNumber = `INV-${Date.now()}`;
 
-  const invoiceNumber = `INV-${formattedDate}`;
       
     return this.prisma.$transaction(async (prisma) => {
       const calculatedTotal =
