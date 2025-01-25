@@ -54,10 +54,12 @@ export class InvoicesService {
     }
   
     const now = new Date();
-    const formattedDate = `${now.getFullYear().toString().slice(-2)}${(now.getMonth() + 1)
-      .toString()
-      .padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}`;
-    const invoiceNumber = `INV-${formattedDate}`;
+  const formattedDate = `${now.getFullYear().toString().slice(-2)}${(now.getMonth() + 1)
+    .toString()
+    .padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}`;
+
+
+  const invoiceNumber = `INV-${formattedDate}`;
       
     return this.prisma.$transaction(async (prisma) => {
       const calculatedTotal =
@@ -65,15 +67,13 @@ export class InvoicesService {
           (sum, item) => sum + item.quantity * item.unitPrice,
           0
         ) || 0;
-  
+        
       if (
         createInvoiceDto.items &&
         Math.abs(calculatedTotal - (createInvoiceDto.totalAmount || 0)) > 0.01
       ) {
         throw new BadRequestException('المجموع الكلي غير صحيح');
-      }
-  
-  
+      }    
       // إنشاء الفاتورة
       const invoice = await prisma.invoice.create({
         data: {

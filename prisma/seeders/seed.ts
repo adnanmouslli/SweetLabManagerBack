@@ -27,7 +27,7 @@ async function resetDatabase() {
 
 async function main() {
   try {
-    await resetDatabase();
+    // await resetDatabase();
     
     console.log('🌱 Starting seeding...');
     
