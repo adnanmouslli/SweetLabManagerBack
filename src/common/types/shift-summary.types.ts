@@ -11,8 +11,9 @@ export interface FundSummary {
     shiftId: number;
     employeeName: string;
     openTime: Date;
+    closedTime?: Date;
     fundSummaries: FundSummary[];
     totalNet: number;
-    differenceStatus?: 'surplus' | 'deficit' | null; // حالة الفرق
+    differenceStatus?: 'surplus' | 'deficit' | null;
     differenceValue?: number | null; 
   }

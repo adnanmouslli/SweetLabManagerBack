@@ -456,94 +456,172 @@ export class InvoicesService {
     });
   }
 
-  async update(id: number, updateInvoiceDto: UpdateInvoiceDto) {
+  // async update(id: number, updateInvoiceDto: UpdateInvoiceDto) {
+  //   const existingInvoice = await this.prisma.invoice.findUnique({
+  //     where: { id },
+  //     include: {
+  //       items: true,
+  //     },
+  //   });
+    
+  //   if (!existingInvoice) {
+  //     throw new NotFoundException(`Invoice with ID ${id} not found`);
+  //   }
+  
+  //   return this.prisma.$transaction(async (prisma) => {
+  //     const updateData: any = {};
+  
+  //     if (updateInvoiceDto.invoiceType !== undefined) {
+  //       updateData.invoiceType = updateInvoiceDto.invoiceType;
+  //     }
+  
+  //     if (updateInvoiceDto.invoiceCategory !== undefined) {
+  //       updateData.invoiceCategory = updateInvoiceDto.invoiceCategory;
+  //     }
+  
+  //     if (updateInvoiceDto.customerId !== undefined) {
+  //       updateData.customerId = updateInvoiceDto.customerId;
+  //     }
+  
+  //     if (updateInvoiceDto.paidStatus !== undefined) {
+  //       updateData.paidStatus = updateInvoiceDto.paidStatus;
+  //       updateData.paymentDate = updateInvoiceDto.paidStatus ? new Date() : null;
+  //     }
+  
+  //     if (updateInvoiceDto.totalAmount !== undefined) {
+  //       updateData.totalAmount = updateInvoiceDto.totalAmount;
+  //     }
+  
+  //     if (updateInvoiceDto.discount !== undefined) {
+  //       updateData.discount = updateInvoiceDto.discount;
+  //     }
+  
+  //     if (updateInvoiceDto.notes !== undefined) {
+  //       updateData.notes = updateInvoiceDto.notes;
+  //     }
+  
+  //     if (updateInvoiceDto.fundId !== undefined) {
+  //       updateData.fundId = updateInvoiceDto.fundId;
+  //     }
+  
+  //     if (updateInvoiceDto.items !== undefined) {
+  //       await prisma.invoiceItem.deleteMany({
+  //         where: { invoiceId: id },
+  //       });
+  
+  //       await prisma.invoiceItem.createMany({
+  //         data: updateInvoiceDto.items.map((item) => ({
+  //           invoiceId: id,
+  //           itemId: item.itemId,
+  //           quantity: item.quantity,
+  //           unitPrice: item.unitPrice,
+  //           subTotal: item.quantity * item.unitPrice,
+  //         })),
+  //       });
+  //     }
+
+  //     const updatedInvoice = await prisma.invoice.update({
+  //       where: { id },
+  //       data: updateData,
+  //     });
+
+  //     if (updateInvoiceDto.totalAmount !== undefined && updateInvoiceDto.fundId !== undefined) {
+  //       const balanceAdjustment =
+  //         updateInvoiceDto.invoiceType === 'income'
+  //           ? updateInvoiceDto.totalAmount - (updateInvoiceDto.discount || 0)
+  //           : -(updateInvoiceDto.totalAmount - (updateInvoiceDto.discount || 0));
+  
+  //       await prisma.fund.update({
+  //         where: { id: updateInvoiceDto.fundId },
+  //         data: {
+  //           currentBalance: {
+  //             increment: balanceAdjustment,
+  //           },
+  //         },
+  //       });
+  //     }
+  
+  //     return updatedInvoice;
+  //   });
+  // }
+
+  async updateInvoice(invoiceId: number, updateInvoiceDto: UpdateInvoiceDto, employeeId: number) {
+    const allowedFields = ['customerId', 'discount', 'items', 'trayCount'];
+  
+    // تحقق من الحقول المسموح بها فقط
+    const updateKeys = Object.keys(updateInvoiceDto);
+    for (const key of updateKeys) {
+      if (!allowedFields.includes(key)) {
+        throw new BadRequestException(`لا يمكن تعديل الحقل: ${key}`);
+      }
+    }
+  
     const existingInvoice = await this.prisma.invoice.findUnique({
-      where: { id },
+      where: { id: invoiceId },
       include: {
         items: true,
+        trayTracking: true,
       },
     });
-    
+  
     if (!existingInvoice) {
-      throw new NotFoundException(`Invoice with ID ${id} not found`);
+      throw new BadRequestException('الفاتورة غير موجودة');
     }
   
     return this.prisma.$transaction(async (prisma) => {
-      const updateData: any = {};
+      const trayDifference = 
+        (updateInvoiceDto.trayCount || existingInvoice.trayCount || 0) - (existingInvoice.trayCount || 0);
   
-      if (updateInvoiceDto.invoiceType !== undefined) {
-        updateData.invoiceType = updateInvoiceDto.invoiceType;
-      }
-  
-      if (updateInvoiceDto.invoiceCategory !== undefined) {
-        updateData.invoiceCategory = updateInvoiceDto.invoiceCategory;
-      }
-  
-      if (updateInvoiceDto.customerId !== undefined) {
-        updateData.customerId = updateInvoiceDto.customerId;
-      }
-  
-      if (updateInvoiceDto.paidStatus !== undefined) {
-        updateData.paidStatus = updateInvoiceDto.paidStatus;
-        updateData.paymentDate = updateInvoiceDto.paidStatus ? new Date() : null;
-      }
-  
-      if (updateInvoiceDto.totalAmount !== undefined) {
-        updateData.totalAmount = updateInvoiceDto.totalAmount;
-      }
-  
-      if (updateInvoiceDto.discount !== undefined) {
-        updateData.discount = updateInvoiceDto.discount;
-      }
-  
-      if (updateInvoiceDto.notes !== undefined) {
-        updateData.notes = updateInvoiceDto.notes;
-      }
-  
-      if (updateInvoiceDto.fundId !== undefined) {
-        updateData.fundId = updateInvoiceDto.fundId;
-      }
-  
-      if (updateInvoiceDto.items !== undefined) {
-        await prisma.invoiceItem.deleteMany({
-          where: { invoiceId: id },
-        });
-  
-        await prisma.invoiceItem.createMany({
-          data: updateInvoiceDto.items.map((item) => ({
-            invoiceId: id,
-            itemId: item.itemId,
-            quantity: item.quantity,
-            unitPrice: item.unitPrice,
-            subTotal: item.quantity * item.unitPrice,
-          })),
-        });
-      }
-
-      const updatedInvoice = await prisma.invoice.update({
-        where: { id },
-        data: updateData,
-      });
-
-      if (updateInvoiceDto.totalAmount !== undefined && updateInvoiceDto.fundId !== undefined) {
-        const balanceAdjustment =
-          updateInvoiceDto.invoiceType === 'income'
-            ? updateInvoiceDto.totalAmount - (updateInvoiceDto.discount || 0)
-            : -(updateInvoiceDto.totalAmount - (updateInvoiceDto.discount || 0));
-  
-        await prisma.fund.update({
-          where: { id: updateInvoiceDto.fundId },
-          data: {
-            currentBalance: {
-              increment: balanceAdjustment,
+      // تحديث الصواني إذا كان ذلك مطلوبًا
+      if ('trayCount' in updateInvoiceDto && trayDifference !== 0) {
+        if (trayDifference > 0) {
+          await prisma.trayTracking.create({
+            data: {
+              customerId: updateInvoiceDto.customerId || existingInvoice.customerId,
+              totalTrays: trayDifference,
+              status: 'pending',
+              notes: `تم إضافة ${trayDifference} صاج مع تعديل الفاتورة ${existingInvoice.invoiceNumber}`,
+              invoiceId: invoiceId,
             },
-          },
-        });
+          });
+        } else {
+          await prisma.trayTracking.updateMany({
+            where: { invoiceId: invoiceId },
+            data: { status: 'returned', returnedAt: new Date() },
+          });
+        }
       }
+  
+      // تحديث بيانات الفاتورة
+      const updatedInvoice = await prisma.invoice.update({
+        where: { id: invoiceId },
+        data: {
+          customerId: updateInvoiceDto.customerId || existingInvoice.customerId,
+          discount: updateInvoiceDto.discount || existingInvoice.discount,
+          trayCount: updateInvoiceDto.trayCount || existingInvoice.trayCount,
+          items: updateInvoiceDto.items
+            ? {
+                deleteMany: { invoiceId: invoiceId }, // حذف العناصر القديمة
+                create: updateInvoiceDto.items.map((item) => ({
+                  quantity: item.quantity,
+                  unitPrice: item.unitPrice,
+                  subTotal: item.quantity * item.unitPrice,
+                  itemId: item.itemId,
+                })),
+              }
+            : undefined,
+        },
+        include: {
+          items: true,
+          trayTracking: true,
+        },
+      });
   
       return updatedInvoice;
     });
   }
+  
+  
   
 
   async getCurrentShiftInvoices() {

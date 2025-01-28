@@ -65,4 +65,11 @@ export class ShiftsController {
   }
 
 
+  @Get(':shiftId/invoices-by-fund')
+  async getInvoicesByFund(@Param('shiftId') shiftId: number) {
+    return await this.shiftsService.getShiftInvoicesByFund(+shiftId);
+  }
+
+
+
 }

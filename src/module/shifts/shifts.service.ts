@@ -338,6 +338,7 @@ async getShiftSummary(shiftId: number): Promise<ShiftSummary> {
       shiftId: shift.id,
       employeeName: shift.employee.username,
       openTime: shift.openTime,
+      closedTime: shift.closeTime,
       fundSummaries,
       totalNet,
       differenceStatus: shift.differenceStatus || null,
@@ -445,5 +446,54 @@ async getCurrentShiftSummary(): Promise<ShiftSummary> {
     throw new InternalServerErrorException('Failed to generate current shift summary');
   }
 }
+
+async getShiftInvoicesByFund(shiftId: number) {
+  try {
+    // التحقق من وجود الواردية
+    const shift = await this.prisma.shift.findUnique({
+      where: { id: shiftId },
+      include: {
+        invoices: {
+          include: {
+            fund: true, 
+            customer: true,
+            employee: true,
+            
+            
+          },
+        },
+      },
+    });
+
+    if (!shift) {
+      throw new NotFoundException(`Shift #${shiftId} not found`);
+    }
+
+    // تصنيف الفواتير حسب نوع الصندوق
+    const boothInvoices = shift.invoices.filter(
+      (invoice) => invoice.fund.fundType === 'booth'
+    );
+    const generalInvoices = shift.invoices.filter(
+      (invoice) => invoice.fund.fundType === 'general'
+    );
+    const universityInvoices = shift.invoices.filter(
+      (invoice) => invoice.fund.fundType === 'university'
+    );
+
+    return {
+      boothInvoices,
+      generalInvoices,
+      universityInvoices,
+    };
+  } catch (error) {
+    if (error instanceof NotFoundException) {
+      throw error;
+    }
+    throw new InternalServerErrorException(
+      'Failed to fetch invoices for the specified shift'
+    );
+  }
+}
+
 
 }

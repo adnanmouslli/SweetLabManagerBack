@@ -51,10 +51,9 @@ export class InvoicesController {
   }
 
   @Put(':id')
-  updateInvoice(@Param('id') id: string, @Body() updateInvoiceDto: UpdateInvoiceDto) {
-    return this.invoicesService.update(+id, updateInvoiceDto);
+  updateInvoice(@Param('id') id: string, @Body() updateInvoiceDto: UpdateInvoiceDto, @Req() req) {
+    return this.invoicesService.updateInvoice(+id, updateInvoiceDto , req.user.id);
   }
-
 
 
 }
