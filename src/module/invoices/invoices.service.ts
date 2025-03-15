@@ -621,8 +621,84 @@ export class InvoicesService {
     });
   }
   
+
+  async deleteInvoice(invoiceId: number): Promise<any> {
+     this.prisma.$transaction(async (prisma) => {
+      // التحقق من وجود الفاتورة
+      const invoice = await prisma.invoice.findUnique({
+        where: { id: invoiceId },
+        include: {
+          items: true, // لجلب العناصر المرتبطة
+          trayTracking: true, // لجلب الصواني المرتبطة
+          fund: true, // لجلب الصندوق المرتبط
+          relatedDebt: true, // لجلب الديون المرتبطة
+        },
+      });
   
+      if (!invoice) {
+        throw new NotFoundException(`الفاتورة رقم ${invoiceId} غير موجودة`);
+      }
   
+      // حذف العناصر المرتبطة بالفاتورة
+      if (invoice.items.length > 0) {
+        await prisma.invoiceItem.deleteMany({
+          where: { invoiceId },
+        });
+      }
+  
+      // حذف الصواني المرتبطة بالفاتورة
+      if (invoice.trayTracking) {
+        await prisma.trayTracking.deleteMany({
+          where: { invoiceId },
+        });
+      }
+  
+      // التعامل مع الديون المرتبطة
+      if (invoice.relatedDebt) {
+        const debt = await prisma.debt.findUnique({
+          where: { id: invoice.relatedDebt.id },
+        });
+  
+        if (debt) {
+          // تقليل المبلغ المتبقي في الدين أو تغييره إلى "نشط"
+          const newRemainingAmount = debt.remainingAmount - invoice.totalAmount;
+          await prisma.debt.update({
+            where: { id: debt.id },
+            data: {
+              remainingAmount: newRemainingAmount,
+              status: newRemainingAmount > 0 ? 'active' : 'paid',
+              notes: `تم تحديث الدين بعد حذف الفاتورة رقم ${invoice.invoiceNumber}`,
+            },
+          });
+        }
+      }
+  
+      // تحديث رصيد الصندوق
+      if (invoice.paidStatus) {
+        await prisma.fund.update({
+          where: { id: invoice.fundId },
+          data: {
+            currentBalance: {
+              [invoice.invoiceType === 'income' ? 'decrement' : 'increment']:
+                invoice.totalAmount - (invoice.discount || 0),
+            },
+          },
+        });
+      }
+  
+      // حذف الفاتورة
+       await prisma.invoice.delete({
+        where: { id: invoiceId },
+      });
+  
+       return {
+        message: `تم حذف الفاتورة رقم ${invoice.invoiceNumber} بنجاح`
+       };
+    
+    });
+  }
+
+
 
   async getCurrentShiftInvoices() {
     try {
