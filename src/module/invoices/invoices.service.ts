@@ -571,34 +571,34 @@ export class InvoicesService {
     return this.prisma.$transaction(async (prisma) => {
       const trayDifference = 
         (updateInvoiceDto.trayCount || existingInvoice.trayCount || 0) - (existingInvoice.trayCount || 0);
-  
-      // تحديث الصواني إذا كان ذلك مطلوبًا
-      if ('trayCount' in updateInvoiceDto && trayDifference !== 0) {
-        if (trayDifference > 0) {
-          await prisma.trayTracking.create({
-            data: {
-              customerId: updateInvoiceDto.customerId || existingInvoice.customerId,
-              totalTrays: trayDifference,
-              status: 'pending',
-              notes: `تم إضافة ${trayDifference} صاج مع تعديل الفاتورة ${existingInvoice.invoiceNumber}`,
-              invoiceId: invoiceId,
-            },
-          });
-        } else {
-          await prisma.trayTracking.updateMany({
-            where: { invoiceId: invoiceId },
-            data: { status: 'returned', returnedAt: new Date() },
-          });
-        }
-      }
+      
+      
+      if('trayCount' in updateInvoiceDto && existingInvoice.trayCount == 0 && updateInvoiceDto.trayCount > 0){
+        await prisma.trayTracking.create({
+          data: {
+            customerId: existingInvoice.customerId,
+            totalTrays: updateInvoiceDto.trayCount,
+            status: 'pending',
+            notes: `تم إضافة ${trayDifference} صاج مع تعديل الفاتورة ${existingInvoice.invoiceNumber}`,
+            invoiceId: invoiceId,
+          },
+        });
+      } else if('trayCount' in updateInvoiceDto && existingInvoice.trayCount > 0 && updateInvoiceDto.trayCount > 0){
+        await prisma.trayTracking.updateMany({
+          where: { invoiceId: invoiceId },
+          data: { totalTrays: updateInvoiceDto.trayCount },
+        });
+      } else if('trayCount' in updateInvoiceDto && existingInvoice.trayCount > 0 && updateInvoiceDto.trayCount == 0){
+        await prisma.trayTracking.deleteMany({ where: { invoiceId: invoiceId } });
+      } 
   
       // تحديث بيانات الفاتورة
       const updatedInvoice = await prisma.invoice.update({
         where: { id: invoiceId },
         data: {
-          customerId: updateInvoiceDto.customerId || existingInvoice.customerId,
-          discount: updateInvoiceDto.discount || existingInvoice.discount,
-          trayCount: updateInvoiceDto.trayCount || existingInvoice.trayCount,
+          // customerId: updateInvoiceDto.customerId || existingInvoice.customerId,
+          discount: updateInvoiceDto.discount,
+          trayCount: updateInvoiceDto.trayCount,
           items: updateInvoiceDto.items
             ? {
                 deleteMany: { invoiceId: invoiceId }, // حذف العناصر القديمة
