@@ -3,8 +3,8 @@ module.exports = {
       {
         name: 'sweetLabBackend', // اسم التطبيق في PM2
         script: 'dist/src/main.js', // مسار ملف التطبيق المبني (بعد تشغيل npm run build)
-        instances: 'max', // استخدام أقصى عدد من النوى المتاحة (يمكنك تغييره إلى رقم محدد)
-        exec_mode: 'cluster', // وضع التشغيل (cluster للاستفادة من تعدد النوى)
+        // instances: 'max', // استخدام أقصى عدد من النوى المتاحة (يمكنك تغييره إلى رقم محدد)
+        // exec_mode: 'cluster', // وضع التشغيل (cluster للاستفادة من تعدد النوى)
         autorestart: true, // إعادة التشغيل التلقائي عند حدوث خطأ
         watch: false, // عدم مراقبة التغييرات في الملفات (يمكن تغييره إلى true في بيئة التطوير)
         max_memory_restart: '1G', // إعادة التشغيل إذا تجاوزت الذاكرة 1GB
