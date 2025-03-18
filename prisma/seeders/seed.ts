@@ -37,7 +37,7 @@ async function main() {
     await seedFunds(prisma);
     await seedShifts(prisma);
     await seedCustomers(prisma); // إضافة
-    await seedInvoices(prisma);
+    // await seedInvoices(prisma);
     
     console.log('✅ Seeding completed successfully');
   } catch (error) {
