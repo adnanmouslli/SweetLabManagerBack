@@ -459,7 +459,7 @@ export class InvoicesService {
           break;
       }
     }
-  
+    
     return this.prisma.invoice.findMany({
       where,
       include: {
@@ -1136,6 +1136,185 @@ async convertInvoiceToDebt(invoiceId: number) {
       originalInvoiceNumber: invoice.invoiceNumber
     };
   });
+}
+
+
+async getRawMaterialExpenseInvoices(query?: FilterInvoiceDto) {
+  try {
+    // التحقق من حالة المصفاة إذا تم تمريرها
+    const where: any = {
+      invoiceType: 'expense',
+      invoiceCategory: 'products',
+      items: {
+        some: {
+          item: {
+            type: 'raw'
+          }
+        }
+      }
+    };
+
+    // إضافة مصفاة إضافية من الاستعلام إذا وجدت
+    if (query) {
+      if (query.paidStatus !== undefined) {
+        where.paidStatus = query.paidStatus;
+      }
+      
+      if (query.fundId) {
+        where.fundId = Number(query.fundId);
+      }
+      
+      if (query.startDate || query.endDate) {
+        where.createdAt = {};
+        
+        if (query.startDate) {
+          where.createdAt.gte = new Date(query.startDate);
+        }
+        
+        if (query.endDate) {
+          where.createdAt.lte = new Date(query.endDate);
+        }
+      }
+    }
+
+    // جلب الفواتير مع تضمين البيانات المرتبطة
+    const invoices = await this.prisma.invoice.findMany({
+      where,
+      include: {
+        items: {
+          include: {
+            item: true
+          }
+        },
+        employee: {
+          select: {
+            username: true
+          }
+        },
+        fund: true,
+        customer: true
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    });
+
+    // حساب إحصاءات المواد الأولية
+    const materialStats = this.calculateRawMaterialStats(invoices);
+
+    return {
+      invoices,
+      totalCount: invoices.length,
+      totalAmount: invoices.reduce((sum, invoice) => sum + invoice.totalAmount, 0),
+      paidAmount: invoices
+        .filter(invoice => invoice.paidStatus)
+        .reduce((sum, invoice) => sum + invoice.totalAmount, 0),
+      unpaidAmount: invoices
+        .filter(invoice => !invoice.paidStatus)
+        .reduce((sum, invoice) => sum + invoice.totalAmount, 0),
+      rawMaterialStats: materialStats
+    };
+  } catch (error) {
+    console.error('Error in getRawMaterialExpenseInvoices:', error);
+    throw new BadRequestException('حدث خطأ أثناء جلب فواتير المواد الأولية');
+  }
+}
+
+// تابع مساعد لحساب إحصاءات المواد الأولية
+private calculateRawMaterialStats(invoices) {
+  // تجميع كل المواد الأولية من جميع الفواتير
+  const allItems = [];
+  invoices.forEach(invoice => {
+    invoice.items.forEach(item => {
+      if (item.item.type === 'raw') {
+        allItems.push({
+          itemId: item.item.id,
+          itemName: item.item.name,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          subTotal: item.subTotal,
+          invoiceId: invoice.id,
+          invoiceNumber: invoice.invoiceNumber,
+          invoiceDate: invoice.createdAt,
+          paidStatus: invoice.paidStatus
+        });
+      }
+    });
+  });
+
+  // تجميع المواد حسب المعرف
+  const groupedItems = {};
+  allItems.forEach(item => {
+    if (!groupedItems[item.itemId]) {
+      groupedItems[item.itemId] = {
+        itemId: item.itemId,
+        itemName: item.itemName,
+        totalQuantity: 0,
+        totalCost: 0,
+        averageUnitPrice: 0,
+        invoiceCount: 0,
+        transactions: []
+      };
+    }
+    
+    groupedItems[item.itemId].totalQuantity += item.quantity;
+    groupedItems[item.itemId].totalCost += item.subTotal;
+    groupedItems[item.itemId].invoiceCount += 1;
+    
+    // إضافة المعاملة إلى قائمة المعاملات للمادة
+    groupedItems[item.itemId].transactions.push({
+      invoiceId: item.invoiceId,
+      invoiceNumber: item.invoiceNumber,
+      date: item.invoiceDate,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      total: item.subTotal,
+      paidStatus: item.paidStatus
+    });
+  });
+
+  // حساب متوسط سعر الوحدة لكل مادة
+  Object.values(groupedItems).forEach(item => {
+    // @ts-ignore
+    item.averageUnitPrice = item.totalQuantity > 0 ? item.totalCost / item.totalQuantity 
+      : 0;
+  });
+
+  // إضافة إحصاءات إجمالية
+  const totalStats = {
+    totalUniqueItems: Object.keys(groupedItems).length,
+    totalQuantity: Object.values(groupedItems).reduce((sum, item: any) => sum + item.totalQuantity, 0),
+    totalCost: Object.values(groupedItems).reduce((sum, item: any) => sum + item.totalCost, 0),
+    itemsByTotalCost: Object.values(groupedItems)
+      .sort((a: any, b: any) => b.totalCost - a.totalCost)
+      .slice(0, 5)
+      .map((item: any) => ({
+        itemName: item.itemName,
+        totalCost: item.totalCost,
+        percentage: 
+        // @ts-ignore
+        Object.values(groupedItems).reduce((sum, item: any) => sum + item.totalCost, 0) > 0
+          ? 
+          // @ts-ignore
+          (item.totalCost / Object.values(groupedItems).reduce((sum, item: any) => sum + item.totalCost, 0)) * 100
+          : 0
+      })),
+    itemsByQuantity: Object.values(groupedItems)
+      .sort((a: any, b: any) => b.totalQuantity - a.totalQuantity)
+      .slice(0, 5)
+      .map((item: any) => ({
+        itemName: item.itemName,
+        totalQuantity: item.totalQuantity
+      }))
+  };
+
+  // تحويل groupedItems من كائن إلى مصفوفة وترتيبها حسب التكلفة الإجمالية
+  const itemsArray = Object.values(groupedItems).sort((a: any, b: any) => b.totalCost - a.totalCost);
+
+  return {
+    items: itemsArray,
+    summary: totalStats
+  };
 }
 
 }

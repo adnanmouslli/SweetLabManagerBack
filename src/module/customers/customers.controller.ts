@@ -1,11 +1,11 @@
-import { 
-  Controller, 
-  Get, 
-  Post, 
-  Body, 
-  Patch, 
-  Param, 
-  Delete, 
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  Delete,
   Query,
   UseGuards,
   ParseIntPipe
@@ -50,6 +50,12 @@ export class CustomersController {
     return this.customersService.findOne(id);
   }
 
+  @Get(':id/account-statement')
+  @Roles(Role.ADMIN, Role.MANAGER, Role.EMPLOYEE)
+  getCustomerAccountStatement(@Param('id', ParseIntPipe) id: number) {
+    return this.customersService.getCustomerAccountStatement(id);
+  }
+
   @Patch(':id')
   @Roles(Role.ADMIN, Role.MANAGER)
   update(
@@ -64,7 +70,4 @@ export class CustomersController {
   remove(@Param('id', ParseIntPipe) id: number) {
     return this.customersService.remove(id);
   }
-
- 
-
 }

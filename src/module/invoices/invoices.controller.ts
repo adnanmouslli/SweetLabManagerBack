@@ -32,6 +32,11 @@ export class InvoicesController {
   return this.invoicesService.getCurrentShiftInvoices();
   }
 
+  @Get('raw-material-expenses')
+  getRawMaterialExpenseInvoices(@Query() query: FilterInvoiceDto) {
+    return this.invoicesService.getRawMaterialExpenseInvoices(query);
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.invoicesService.findOne(+id);
@@ -66,6 +71,8 @@ export class InvoicesController {
     return await this.invoicesService.deleteInvoice(+invoiceId);
   }
 
+
+ 
   
 
 
