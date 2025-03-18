@@ -12,7 +12,7 @@ export async function seedShifts(prisma: PrismaClient) {
   const employees = await prisma.user.findMany({
     where: {
       roles: {
-        has: 'EMPLOYEE'
+        has: 'ShiftManager'
       }
     }
   });

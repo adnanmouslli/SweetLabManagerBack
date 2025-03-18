@@ -8,6 +8,7 @@ import { UpdateInvoiceDto } from './dto/update-invoice.dto';
 @Injectable()
 export class InvoicesService {
   constructor(private prisma: PrismaService) {}
+  
   async create(createInvoiceDto: CreateInvoiceDto, employeeId: number) {
     const activeShift = await this.prisma.shift.findFirst({
       where: {
@@ -26,13 +27,13 @@ export class InvoicesService {
     if (!fund) {
       throw new BadRequestException('الصندوق غير موجود');
     }
-
+  
     // التحقق من وجود العميل إذا تم تحديده
     if (createInvoiceDto.customerId) {
       const customer = await this.prisma.customer.findUnique({
         where: { id: createInvoiceDto.customerId },
       });
-
+  
       if (!customer) {
         throw new BadRequestException('العميل غير موجود');
       }
@@ -47,35 +48,23 @@ export class InvoicesService {
     ) {
       throw new BadRequestException('معلومات العميل مطلوبة عند وجود صاجات');
     }
-
+  
     // التحقق من وجود العميل لفواتير الدين
     if (createInvoiceDto.invoiceCategory === 'debt' && !createInvoiceDto.customerId) {
       throw new BadRequestException('يجب تحديد العميل لفواتير الدين');
     }
-    // const now = new Date();
-    // const formattedDate = `${now.getFullYear().toString().slice(-2)}${(now.getMonth() + 1)
-    //   .toString()
-    //   .padStart(2, '0')}${now.getDate().toString().padStart(2, '0')}`;
-    
-    // // التأكد من فريدة رقم الفاتورة
-    // let invoiceNumber: string;
-    // let isDuplicate = true;
-    
-    // while (isDuplicate) {
-    //   const randomPart = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-    //   invoiceNumber = `INV-${formattedDate}-${randomPart}`;
-    
-    //   const existingInvoice = await this.prisma.invoice.findUnique({
-    //     where: { invoiceNumber },
-    //   });
-    
-    //   if (!existingInvoice) {
-    //     isDuplicate = false;
-    //   }
-    // }
-
+  
+    // التحقق من وجود حقل initialPayment عندما يكون isBreak = true
+    if (createInvoiceDto.isBreak && !createInvoiceDto.initialPayment) {
+      throw new BadRequestException('يجب تحديد قيمة الدفعة الأولى عند إنشاء فاتورة كسر');
+    }
+  
+    // التحقق من أن قيمة الدفعة الأولى أقل من إجمالي المبلغ
+    if (createInvoiceDto.isBreak && createInvoiceDto.initialPayment >= createInvoiceDto.totalAmount) {
+      throw new BadRequestException('قيمة الدفعة الأولى يجب أن تكون أقل من إجمالي المبلغ');
+    }
+  
     const invoiceNumber = `INV-${Date.now()}`;
-
       
     return this.prisma.$transaction(async (prisma) => {
       const calculatedTotal =
@@ -89,173 +78,311 @@ export class InvoicesService {
         Math.abs(calculatedTotal - (createInvoiceDto.totalAmount || 0)) > 0.01
       ) {
         throw new BadRequestException('المجموع الكلي غير صحيح');
-      }    
-      // إنشاء الفاتورة
-      const invoice = await prisma.invoice.create({
-        data: {
-          invoiceNumber,
-          employeeId,
-          invoiceType: createInvoiceDto.invoiceType,
-          invoiceCategory: createInvoiceDto.invoiceCategory,
-          customerId: createInvoiceDto.customerId,
-          paidStatus: createInvoiceDto.paidStatus,
-          totalAmount: createInvoiceDto.totalAmount || 0,
-          discount: createInvoiceDto.discount || 0,
-          notes: createInvoiceDto.notes || null,
-          fundId: createInvoiceDto.fundId,
-          shiftId: activeShift.id,
-          paymentDate: createInvoiceDto.paidStatus ? new Date() : null,
-          trayCount: createInvoiceDto.trayCount,
-          items: createInvoiceDto.items
-            ? {
-                create: createInvoiceDto.items.map((item) => ({
-                  quantity: item.quantity,
-                  unitPrice: item.unitPrice,
-                  subTotal: item.quantity * item.unitPrice,
-                  itemId: item.itemId,
-                })),
-              }
-            : undefined,
-        },
-        include: {
-          items: {
-            include: {
-              item: true,
-            },
-          },
-          employee: {
-            select: {
-              username: true,
-            },
-          },
-          customer: true,
-        },
-      });
-
-      // معالجة الديون
-      if (createInvoiceDto.invoiceCategory === 'debt') {
-        if (createInvoiceDto.invoiceType === 'expense') {
-          // البحث عن دين نشط للعميل
-          const existingDebt = await prisma.debt.findFirst({
-            where: {
-              customerId: createInvoiceDto.customerId!,
-              status: 'active',
-            },
-          });
-
-          if (existingDebt) {
-            // تحديث الدين الموجود
-            const updatedDebt = await prisma.debt.update({
-              where: { id: existingDebt.id },
-              data: {
-                totalAmount: existingDebt.totalAmount + createInvoiceDto.totalAmount,
-                remainingAmount: existingDebt.remainingAmount + createInvoiceDto.totalAmount,
-                notes: createInvoiceDto.notes || 'تم إضافة دين جديد',
-              },
-            });
-
-            // ربط الفاتورة بالدين الموجود
-            await prisma.invoice.update({
-              where: { id: invoice.id },
-              data: { relatedDebtId: existingDebt.id },
-            });
-          } else {
-            // إنشاء سجل دين جديد
-            const debt = await prisma.debt.create({
-              data: {
-                customerId: createInvoiceDto.customerId!,
-                totalAmount: createInvoiceDto.totalAmount,
-                remainingAmount: createInvoiceDto.totalAmount,
-                status: 'active',
-                notes: createInvoiceDto.notes || 'دين جديد',
-              },
-            });
-
-            // ربط الفاتورة بالدين الجديد
-            await prisma.invoice.update({
-              where: { id: invoice.id },
-              data: { relatedDebtId: debt.id },
-            });
-          }
-        } else if (createInvoiceDto.invoiceType === 'income') {
-          // البحث عن الديون النشطة للعميل
-          const activeDebt = await prisma.debt.findFirst({
-            where: {
-              customerId: createInvoiceDto.customerId!,
-              status: 'active',
-            },
-            orderBy: {
-              createdAt: 'asc',
-            },
-          });
-
-          if (!activeDebt) {
-            throw new BadRequestException('لا يوجد ديون نشطة لهذا العميل');
-          }
-
-          // التحقق من أن مبلغ الدفعة لا يتجاوز المبلغ المتبقي
-          if (createInvoiceDto.totalAmount > activeDebt.remainingAmount) {
-            throw new BadRequestException('مبلغ الدفعة يتجاوز المبلغ المتبقي من الدين');
-          }
-
-          // تحديث الدين
-          const newRemainingAmount = activeDebt.remainingAmount - createInvoiceDto.totalAmount;
-          await prisma.debt.update({
-            where: { id: activeDebt.id },
-            data: {
-              remainingAmount: newRemainingAmount,
-              lastPaymentDate: new Date(),
-              status: newRemainingAmount <= 0 ? 'paid' : 'active',
-              notes: newRemainingAmount <= 0 
-                ? `${activeDebt.notes || ''}\nتم سداد الدين بالكامل بتاريخ ${new Date().toLocaleDateString()}`
-                : activeDebt.notes
-            },
-          });
-
-          // ربط الفاتورة بالدين
-          await prisma.invoice.update({
-            where: { id: invoice.id },
-            data: { relatedDebtId: activeDebt.id },
-          });
-        }
-      }
-
-      // معالجة الصواني
-      if (createInvoiceDto.trayCount > 0) {
-        await prisma.trayTracking.create({
-          data: {
-            customerId: createInvoiceDto.customerId!,
-            totalTrays: createInvoiceDto.trayCount,
-            status: 'pending',
-            notes: `تم تسليم ${createInvoiceDto.trayCount} صاج مع الفاتورة ${invoiceNumber}`,
-            invoiceId: invoice.id
-          }
-        });
       }
       
-      // تحديث رصيد الصندوق فقط إذا كانت الفاتورة مدفوعة
-    if (createInvoiceDto.paidStatus && createInvoiceDto.totalAmount) {
-      await prisma.fund.update({
-        where: { id: createInvoiceDto.fundId },
-        data: {
-          currentBalance: {
-            [createInvoiceDto.invoiceType === 'income'
-              ? 'increment'
-              : 'decrement']:
-              createInvoiceDto.totalAmount - (createInvoiceDto.discount || 0),
+      // التعامل مع فاتورة الكسر (isBreak = true)
+      if (createInvoiceDto.isBreak === true) {
+        // (1) إنشاء الفاتورة الأولى (المدفوعة) بقيمة الدفعة الأولى
+        const paidInvoice = await prisma.invoice.create({
+          data: {
+            invoiceNumber: `${invoiceNumber}-A`,
+            employeeId,
+            invoiceType: createInvoiceDto.invoiceType,
+            invoiceCategory: createInvoiceDto.invoiceCategory,
+            customerId: createInvoiceDto.customerId,
+            paidStatus: true,  // فاتورة مدفوعة
+            totalAmount: createInvoiceDto.initialPayment, // قيمة الدفعة الأولى
+            discount: createInvoiceDto.discount || 0,
+            notes: createInvoiceDto.notes ? `${createInvoiceDto.notes} - دفعة أولى` : 'دفعة أولى',
+            fundId: createInvoiceDto.fundId,
+            shiftId: activeShift.id,
+            paymentDate: new Date(),
+            trayCount: createInvoiceDto.trayCount,
+            isBreak: false,
+            items: createInvoiceDto.items
+              ? {
+                  create: createInvoiceDto.items.map((item) => ({
+                    quantity: item.quantity,
+                    unitPrice: item.unitPrice,
+                    subTotal: item.quantity * item.unitPrice,
+                    itemId: item.itemId,
+                  })),
+                }
+              : undefined,
           },
-        },
-      });
-    }
-      return {
-        ...invoice,
-        trayTracking: createInvoiceDto.trayCount > 0 ? {
-          totalTrays: createInvoiceDto.trayCount,
-          status: 'pending'
-        } : null
-      };
+          include: {
+            items: {
+              include: {
+                item: true,
+              },
+            },
+            employee: {
+              select: {
+                username: true,
+              },
+            },
+            customer: true,
+          },
+        });
+  
+        // تحديث رصيد الصندوق للفاتورة المدفوعة
+        await prisma.fund.update({
+          where: { id: createInvoiceDto.fundId },
+          data: {
+            currentBalance: {
+              [createInvoiceDto.invoiceType === 'income' ? 'increment' : 'decrement']:
+                createInvoiceDto.initialPayment - (createInvoiceDto.discount || 0),
+            },
+          },
+        });
+  
+        // (2) إنشاء فاتورة الكسر (غير مدفوعة) بالمبلغ المتبقي
+        const remainingAmount = createInvoiceDto.totalAmount - createInvoiceDto.initialPayment;
+        
+        // إنشاء فاتورة الكسر - مع الاحتفاظ بنوع الفاتورة الأصلي
+        const breakInvoice = await prisma.invoice.create({
+          data: {
+            invoiceNumber: `${invoiceNumber}-B`,
+            employeeId,
+            invoiceType: createInvoiceDto.invoiceType, // نفس نوع الفاتورة الأساسية
+            invoiceCategory: createInvoiceDto.invoiceCategory, // نفس فئة الفاتورة الأساسية
+            customerId: createInvoiceDto.customerId,
+            paidStatus: false, // غير مدفوعة
+            totalAmount: remainingAmount,
+            discount: 0, // لا خصم على فاتورة الكسر عادة
+            notes: createInvoiceDto.notes ? `${createInvoiceDto.notes} - كسر` : 'كسر',
+            fundId: createInvoiceDto.fundId,
+            shiftId: activeShift.id,
+            paymentDate: null,
+            trayCount: 0, // لا صواني إضافية في فاتورة الكسر
+            isBreak: true, // تعليم كفاتورة كسر
+            items: createInvoiceDto.items
+              ? {
+                  create: createInvoiceDto.items.map((item) => ({
+                    quantity: item.quantity,
+                    unitPrice: item.unitPrice,
+                    subTotal: item.quantity * item.unitPrice,
+                    itemId: item.itemId,
+                  })),
+                }
+              : undefined,
+          },
+          include: {
+            items: {
+              include: {
+                item: true,
+              },
+            },
+            employee: {
+              select: {
+                username: true,
+              },
+            },
+            customer: true,
+          },
+        });
+  
+        // معالجة الصواني - تسجيل الصواني فقط مع الفاتورة المدفوعة
+        if (createInvoiceDto.trayCount > 0) {
+          await prisma.trayTracking.create({
+            data: {
+              customerId: createInvoiceDto.customerId!,
+              totalTrays: createInvoiceDto.trayCount,
+              status: 'pending',
+              notes: `تم تسليم ${createInvoiceDto.trayCount} صاج مع الفاتورة ${paidInvoice.invoiceNumber}`,
+              invoiceId: paidInvoice.id
+            }
+          });
+        }
+  
+        // إرجاع تفاصيل الفواتير المنشأة
+        return {
+          paidInvoice: {
+            ...paidInvoice,
+            trayTracking: createInvoiceDto.trayCount > 0 ? {
+              totalTrays: createInvoiceDto.trayCount,
+              status: 'pending'
+            } : null
+          },
+          breakInvoice: breakInvoice,
+          isBreakInvoice: true
+        };
+      } 
+      
+      // حالة الفاتورة العادية (عندما isBreak = false أو غير محدد)
+      else {
+        // إنشاء الفاتورة العادية
+        const invoice = await prisma.invoice.create({
+          data: {
+            invoiceNumber,
+            employeeId,
+            invoiceType: createInvoiceDto.invoiceType,
+            invoiceCategory: createInvoiceDto.invoiceCategory,
+            customerId: createInvoiceDto.customerId,
+            paidStatus: createInvoiceDto.paidStatus,
+            totalAmount: createInvoiceDto.totalAmount || 0,
+            discount: createInvoiceDto.discount || 0,
+            notes: createInvoiceDto.notes || null,
+            fundId: createInvoiceDto.fundId,
+            shiftId: activeShift.id,
+            paymentDate: createInvoiceDto.paidStatus ? new Date() : null,
+            trayCount: createInvoiceDto.trayCount,
+            isBreak: false,
+            items: createInvoiceDto.items
+              ? {
+                  create: createInvoiceDto.items.map((item) => ({
+                    quantity: item.quantity,
+                    unitPrice: item.unitPrice,
+                    subTotal: item.quantity * item.unitPrice,
+                    itemId: item.itemId,
+                  })),
+                }
+              : undefined,
+          },
+          include: {
+            items: {
+              include: {
+                item: true,
+              },
+            },
+            employee: {
+              select: {
+                username: true,
+              },
+            },
+            customer: true,
+          },
+        });
+  
+        // معالجة الديون
+        if (createInvoiceDto.invoiceCategory === 'debt') {
+          if (createInvoiceDto.invoiceType === 'expense') {
+            // البحث عن دين نشط للعميل
+            const existingDebt = await prisma.debt.findFirst({
+              where: {
+                customerId: createInvoiceDto.customerId!,
+                status: 'active',
+              },
+            });
+  
+            if (existingDebt) {
+              // تحديث الدين الموجود
+              const updatedDebt = await prisma.debt.update({
+                where: { id: existingDebt.id },
+                data: {
+                  totalAmount: existingDebt.totalAmount + createInvoiceDto.totalAmount,
+                  remainingAmount: existingDebt.remainingAmount + createInvoiceDto.totalAmount,
+                  notes: createInvoiceDto.notes || 'تم إضافة دين جديد',
+                },
+              });
+  
+              // ربط الفاتورة بالدين الموجود
+              await prisma.invoice.update({
+                where: { id: invoice.id },
+                data: { relatedDebtId: existingDebt.id },
+              });
+            } else {
+              // إنشاء سجل دين جديد
+              const debt = await prisma.debt.create({
+                data: {
+                  customerId: createInvoiceDto.customerId!,
+                  totalAmount: createInvoiceDto.totalAmount,
+                  remainingAmount: createInvoiceDto.totalAmount,
+                  status: 'active',
+                  notes: createInvoiceDto.notes || 'دين جديد',
+                },
+              });
+  
+              // ربط الفاتورة بالدين الجديد
+              await prisma.invoice.update({
+                where: { id: invoice.id },
+                data: { relatedDebtId: debt.id },
+              });
+            }
+          } else if (createInvoiceDto.invoiceType === 'income') {
+            // البحث عن الديون النشطة للعميل
+            const activeDebt = await prisma.debt.findFirst({
+              where: {
+                customerId: createInvoiceDto.customerId!,
+                status: 'active',
+              },
+              orderBy: {
+                createdAt: 'asc',
+              },
+            });
+  
+            if (!activeDebt) {
+              throw new BadRequestException('لا يوجد ديون نشطة لهذا العميل');
+            }
+  
+            // التحقق من أن مبلغ الدفعة لا يتجاوز المبلغ المتبقي
+            if (createInvoiceDto.totalAmount > activeDebt.remainingAmount) {
+              throw new BadRequestException('مبلغ الدفعة يتجاوز المبلغ المتبقي من الدين');
+            }
+  
+            // تحديث الدين
+            const newRemainingAmount = activeDebt.remainingAmount - createInvoiceDto.totalAmount;
+            await prisma.debt.update({
+              where: { id: activeDebt.id },
+              data: {
+                remainingAmount: newRemainingAmount,
+                lastPaymentDate: new Date(),
+                status: newRemainingAmount <= 0 ? 'paid' : 'active',
+                notes: newRemainingAmount <= 0 
+                  ? `${activeDebt.notes || ''}\nتم سداد الدين بالكامل بتاريخ ${new Date().toLocaleDateString()}`
+                  : activeDebt.notes
+              },
+            });
+  
+            // ربط الفاتورة بالدين
+            await prisma.invoice.update({
+              where: { id: invoice.id },
+              data: { relatedDebtId: activeDebt.id },
+            });
+          }
+        }
+  
+        // معالجة الصواني
+        if (createInvoiceDto.trayCount > 0) {
+          await prisma.trayTracking.create({
+            data: {
+              customerId: createInvoiceDto.customerId!,
+              totalTrays: createInvoiceDto.trayCount,
+              status: 'pending',
+              notes: `تم تسليم ${createInvoiceDto.trayCount} صاج مع الفاتورة ${invoiceNumber}`,
+              invoiceId: invoice.id
+            }
+          });
+        }
+        
+        // تحديث رصيد الصندوق فقط إذا كانت الفاتورة مدفوعة
+        if (createInvoiceDto.paidStatus && createInvoiceDto.totalAmount) {
+          await prisma.fund.update({
+            where: { id: createInvoiceDto.fundId },
+            data: {
+              currentBalance: {
+                [createInvoiceDto.invoiceType === 'income'
+                  ? 'increment'
+                  : 'decrement']:
+                  createInvoiceDto.totalAmount - (createInvoiceDto.discount || 0),
+              },
+            },
+          });
+        }
+        
+        // إرجاع الفاتورة المنشأة
+        return {
+          ...invoice,
+          trayTracking: createInvoiceDto.trayCount > 0 ? {
+            totalTrays: createInvoiceDto.trayCount,
+            status: 'pending'
+          } : null,
+          isBreakInvoice: false
+        };
+      }
     });
   }
+
   
 
   async findByTypeAndCategory(type: InvoiceType, category: InvoiceCategory) {
@@ -282,7 +409,6 @@ export class InvoicesService {
   async findAll(query: FilterInvoiceDto) {
     const where: any = {};
     
-
     if (query.type) {
       where.invoiceType = query.type;
     }
@@ -295,7 +421,11 @@ export class InvoicesService {
       where.paidStatus = query.paidStatus;
     }
     
-
+    // إضافة البحث حسب معرف الصندوق
+    if (query.fundId) {
+      where.fundId = Number(query.fundId);
+    }
+  
     if (query.startDate || query.endDate) {
       where.createdAt = {};
       
@@ -307,7 +437,29 @@ export class InvoicesService {
         where.createdAt.lte = new Date(query.endDate);
       }
     }
-
+  
+    // Handle new InvoiceStatus filter
+    if (query.status) {
+      switch (query.status) {
+        case 'paid':
+          where.paidStatus = true;
+          where.isBreak = false;
+          break;
+        case 'unpaid':
+          where.paidStatus = false;
+          where.isBreak = false;
+          where.invoiceCategory = { not: 'debt' };  // استخدام صياغة صحيحة لشرط NOT في Prisma
+          break;
+        case 'debt':
+          where.invoiceCategory = 'debt';
+          break;
+        case 'breakage':
+          where.paidStatus = false;
+          where.isBreak = true;
+          break;
+      }
+    }
+  
     return this.prisma.invoice.findMany({
       where,
       include: {
@@ -323,14 +475,13 @@ export class InvoicesService {
         },
         fund: true,
         shift: true,
-        customer:true
+        customer: true
       },
       orderBy: {
         createdAt: 'desc'
       }
     });
   }
-  
 
   async getSummary() {
     try {
@@ -407,52 +558,149 @@ export class InvoicesService {
       throw new BadRequestException('لا يمكن تحويل الفاتورة - لا يوجد واردية مفتوحة');
     }
   
-
-    const invoice = await this.prisma.invoice.findUnique({
+    // الحصول على بيانات الفاتورة الأصلية
+    const originalInvoice = await this.prisma.invoice.findUnique({
       where: { id },
       include: {
-        fund: true
+        items: {
+          include: {
+            item: true
+          }
+        },
+        fund: true,
+        customer: true,
+        employee: true,
+        trayTracking: true,
+        relatedDebt: true
       }
     });
   
-    if (!invoice) {
+    if (!originalInvoice) {
       throw new NotFoundException('الفاتورة غير موجودة');
     }
   
-    if (invoice.paidStatus) {
+    if (originalInvoice.paidStatus) {
       throw new BadRequestException('الفاتورة مدفوعة بالفعل');
     }
   
     return this.prisma.$transaction(async (prisma) => {
-
-      const updatedInvoice = await prisma.invoice.update({
-        where: { id },
+      // 1. حفظ بيانات الفاتورة الأصلية
+      const originalInvoiceData = {
+        invoiceType: originalInvoice.invoiceType,
+        invoiceCategory: originalInvoice.invoiceCategory,
+        customerId: originalInvoice.customerId,
+        totalAmount: originalInvoice.totalAmount,
+        discount: originalInvoice.discount || 0,
+        trayCount: originalInvoice.trayCount || 0,
+        fundId: originalInvoice.fundId,
+        isBreak: originalInvoice.isBreak,
+        createdAt: originalInvoice.createdAt,
+        items: originalInvoice.items.map(item => ({
+          itemId: item.itemId,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          subTotal: item.subTotal
+        }))
+      };
+  
+      // 2. إنشاء فاتورة جديدة مدفوعة بنفس المعلومات
+      const newInvoiceNumber = `INV-${Date.now()}`;
+      const dateOptions: Intl.DateTimeFormatOptions = { 
+        year: 'numeric', 
+        month: 'numeric', 
+        day: 'numeric',
+        hour: 'numeric',
+        minute: 'numeric'
+      };
+      const formattedDate = new Intl.DateTimeFormat('ar-EG', dateOptions).format(originalInvoice.createdAt);
+      
+      const newInvoice = await prisma.invoice.create({  
         data: {
-          paidStatus: true,
-          paymentDate: new Date(),
-          shiftId: activeShift.id 
+          invoiceNumber: newInvoiceNumber,
+          employeeId: originalInvoice.employeeId,
+          invoiceType: originalInvoiceData.invoiceType,
+          invoiceCategory: originalInvoiceData.invoiceCategory,
+          customerId: originalInvoiceData.customerId,
+          paidStatus: true, // تعيين الفاتورة كمدفوعة
+          totalAmount: originalInvoiceData.totalAmount,
+          discount: originalInvoiceData.discount,
+          notes: originalInvoice.notes 
+            ? `${originalInvoice.notes} - تم دفع الفاتورة المسجلة سابقاً بتاريخ ${formattedDate}` 
+            : `تم دفع الفاتورة المسجلة سابقاً بتاريخ ${formattedDate}`,
+          fundId: originalInvoiceData.fundId,
+          shiftId: activeShift.id, // ربط الفاتورة بالواردية الحالية
+          paymentDate: new Date(), // تاريخ الدفع الحالي
+          trayCount: originalInvoiceData.trayCount,
+          isBreak: false, // الفاتورة الجديدة ليست كسر
+          relatedDebtId: originalInvoice.relatedDebtId, // نقل ارتباط الدين إن وجد
+          
+          // إنشاء نفس العناصر للفاتورة الجديدة
+          items: {
+            create: originalInvoiceData.items.map(item => ({
+              itemId: item.itemId,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              subTotal: item.subTotal
+            }))
+          }
         },
         include: {
-          fund: true,
           items: {
             include: {
               item: true
             }
-          }
+          },
+          employee: {
+            select: {
+              username: true
+            }
+          },
+          customer: true,
+          fund: true
         }
       });
   
+      // 3. إذا كانت الفاتورة تحتوي على صواني، نقل بيانات الصواني إلى الفاتورة الجديدة
+      if (originalInvoice.trayTracking) {
+        await prisma.trayTracking.updateMany({
+          where: { invoiceId: originalInvoice.id },
+          data: { 
+            invoiceId: newInvoice.id,
+            notes: `${originalInvoice.trayTracking.notes} - تم تحديث الفاتورة المرتبطة`
+          }
+        });
+      }
+  
+      // 4. تحديث رصيد الصندوق (لأن الفاتورة الآن مدفوعة)
       await prisma.fund.update({
-        where: { id: invoice.fundId },
+        where: { id: originalInvoiceData.fundId },
         data: {
           currentBalance: {
-            [invoice.invoiceType === 'income' ? 'increment' : 'decrement']:
-              invoice.totalAmount - (invoice.discount || 0),
+            [originalInvoiceData.invoiceType === 'income' ? 'increment' : 'decrement']:
+              originalInvoiceData.totalAmount - originalInvoiceData.discount,
           },
         },
       });
   
-      return updatedInvoice;
+      // 6. حذف الفاتورة الأصلية (غير المدفوعة)
+      // حذف العناصر المرتبطة بالفاتورة الأصلية أولاً
+      await prisma.invoiceItem.deleteMany({
+        where: { invoiceId: originalInvoice.id }
+      });
+      
+      // حذف الفاتورة الأصلية
+      await prisma.invoice.delete({
+        where: { id: originalInvoice.id }
+      });
+  
+      return {
+        ...newInvoice,
+        trayTracking: originalInvoice.trayTracking ? {
+          totalTrays: originalInvoice.trayTracking.totalTrays,
+          status: originalInvoice.trayTracking.status
+        } : null,
+        message: 'تم تحويل الفاتورة إلى مدفوعة بنجاح'
+      };
     });
   }
 
@@ -793,5 +1041,101 @@ export class InvoicesService {
     }
   }
 
+
+
+async convertInvoiceToDebt(invoiceId: number) {
+  // الحصول على بيانات الفاتورة الأصلية
+  const invoice = await this.prisma.invoice.findUnique({
+    where: { id: invoiceId },
+    include: {
+      customer: true,
+      items: true,
+      trayTracking: true,
+      relatedDebt: true
+    }
+  });
+
+  if (!invoice) {
+    throw new NotFoundException('الفاتورة غير موجودة');
+  }
+
+  // التحقق من أن الفاتورة غير مدفوعة
+  if (invoice.paidStatus) {
+    throw new BadRequestException('لا يمكن تحويل الفاتورة المدفوعة إلى دين');
+  }
+
+  // التحقق من وجود عميل مرتبط بالفاتورة
+  if (!invoice.customerId) {
+    throw new BadRequestException('لا يمكن تحويل الفاتورة إلى دين: العميل غير محدد');
+  }
+
+  return this.prisma.$transaction(async (prisma) => {
+    let debtRecord;
+    const debtDescription = `تم تحويل الفاتورة رقم ${invoice.invoiceNumber} إلى دين`;
+    
+    // البحث عن سجل دين نشط للعميل
+    const existingDebt = await prisma.debt.findFirst({
+      where: {
+        customerId: invoice.customerId,
+        status: 'active'
+      }
+    });
+
+    if (existingDebt) {
+      // تحديث سجل الدين الموجود
+      debtRecord = await prisma.debt.update({
+        where: { id: existingDebt.id },
+        data: {
+          totalAmount: existingDebt.totalAmount + invoice.totalAmount,
+          remainingAmount: existingDebt.remainingAmount + invoice.totalAmount,
+          notes: `${existingDebt.notes || ''}\n${debtDescription} بتاريخ ${new Date().toLocaleDateString('ar-EG')}`
+        }
+      });
+    } else {
+      // إنشاء سجل دين جديد
+      debtRecord = await prisma.debt.create({
+        data: {
+          customerId: invoice.customerId,
+          totalAmount: invoice.totalAmount,
+          remainingAmount: invoice.totalAmount,
+          status: 'active',
+          notes: debtDescription
+        }
+      });
+    }
+
+    // حذف عناصر الفاتورة
+    if (invoice.items.length > 0) {
+      await prisma.invoiceItem.deleteMany({
+        where: { invoiceId }
+      });
+    }
+
+    // معالجة الصواني المرتبطة - تحديث ملاحظات الصواني وإبقاءها في النظام
+    if (invoice.trayTracking) {
+      await prisma.trayTracking.update({
+        where: { id: invoice.trayTracking.id },
+        data: { 
+          notes: `${invoice.trayTracking.notes || ''}\n تم تحويل الفاتورة المرتبطة إلى دين`,
+          invoiceId: null // فك الارتباط مع الفاتورة التي سيتم حذفها
+        }
+      });
+    }
+
+    // حذف الفاتورة
+    await prisma.invoice.delete({
+      where: { id: invoiceId }
+    });
+
+    // إرجاع معلومات عن الدين
+    return {
+      message: 'تم تحويل الفاتورة إلى دين بنجاح',
+      debtRecord,
+      customerName: invoice.customer?.name || 'غير معروف',
+      invoiceAmount: invoice.totalAmount,
+      originalInvoiceNumber: invoice.invoiceNumber
+    };
+  });
+}
 
 }

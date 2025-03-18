@@ -25,6 +25,7 @@ export class CreateInvoiceDto {
   customerId?: number;
 
   @IsBoolean()
+  @IsOptional()
   paidStatus: boolean;
 
   @IsNumber()
@@ -48,4 +49,12 @@ export class CreateInvoiceDto {
   @IsNumber()
   @IsOptional()
   trayCount?: number;
+
+  @IsBoolean()
+  @IsOptional()
+  isBreak?: boolean;
+
+  @IsNumber()
+  @IsOptional()
+  initialPayment?: number;
 }

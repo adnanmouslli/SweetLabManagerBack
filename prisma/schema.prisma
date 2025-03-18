@@ -22,9 +22,13 @@ model User {
 }
 
 enum Role {
-  MANAGER
-  ADMIN
-  EMPLOYEE
+  MANAGER // صاحب المعمل
+  ADMIN // ادمن لديه جميع الصلاحيات
+  ShiftManager // مدير الوارديات (دفتر اليومية)
+  TreasuryManager // مدير الخزانة
+  TrayManager // مدير الفوارغ
+  EMPLOYEE 
+
 }
 
 model Shift {
@@ -111,7 +115,14 @@ model Item {
   id          Int      @id @default(autoincrement())
   name        String
   type        ItemType
-  unit        String
+
+  units           Json?   // مثال: [{"unit": "حبة", "price": 3800, "factor": 1}, {"unit": "صاج", "price": 76000, "factor": 20}]
+
+  defaultUnit     String   // الوحدة الافتراضية للبيع
+
+  // تكلفة المنتج
+  cost            Float?
+  
   price       Float
   description String?
 
@@ -141,6 +152,8 @@ model Invoice {
   paymentDate     DateTime?
   createdAt       DateTime        @default(now())
   notes           String?
+  isBreak         Boolean         @default(false)
+
 
   fundId Int
   fund   Fund @relation(fields: [fundId], references: [id])

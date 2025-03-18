@@ -5,33 +5,29 @@ const users = [
   {
     username: 'admin',
     password: 'admin123',
-    roles: [Role.ADMIN, Role.MANAGER],
+    roles: [Role.ADMIN],
   },
   {
-    username: 'manager1',
-    password: 'password123',
+    username: 'manager',
+    password: '123',
     roles: [Role.MANAGER],
   },
   {
-    username: 'manager2',
-    password: 'password123',
-    roles: [Role.MANAGER],
+    username: 'user1',
+    password: '123',
+    roles: [Role.ShiftManager],
   },
   {
-    username: 'employee1',
-    password: 'password123',
-    roles: [Role.EMPLOYEE],
+    username: 'user2',
+    password: '123',
+    roles: [Role.TreasuryManager],
   },
   {
-    username: 'employee2',
-    password: 'password123',
-    roles: [Role.EMPLOYEE],
+    username: 'user3',
+    password: '123',
+    roles: [Role.TrayManager],
   },
-  {
-    username: 'employee3',
-    password: 'password123',
-    roles: [Role.EMPLOYEE],
-  },
+
 ];
 
 export async function seedUsers(prisma: PrismaClient) {

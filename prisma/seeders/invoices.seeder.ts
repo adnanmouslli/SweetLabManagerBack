@@ -38,10 +38,10 @@ export async function seedInvoices(prisma: PrismaClient) {
         shiftId: faker.helpers.arrayElement(shifts).id,
         employeeId: faker.helpers.arrayElement(users).id,
         trayCount: faker.number.int({ min: 0, max: 5 }),
-
+        isBreak: invoiceCategory === InvoiceCategory.debt ? faker.datatype.boolean() : false,
       },
     });
-
+    
     // إضافة أصناف للفواتير إذا كانت من نوع products
     if (invoiceCategory === InvoiceCategory.products) {
       const itemCount = faker.number.int({ min: 1, max: 5 });

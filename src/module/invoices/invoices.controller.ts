@@ -50,6 +50,11 @@ export class InvoicesController {
     return this.invoicesService.markAsPaid(+id);
   }
 
+  @Post(':id/convert-to-debt')
+  convertToDebt(@Param('id') id: string) {
+    return this.invoicesService.convertInvoiceToDebt(+id);
+  }
+  
   @Put(':id')
   updateInvoice(@Param('id') id: string, @Body() updateInvoiceDto: UpdateInvoiceDto, @Req() req) {
     return this.invoicesService.updateInvoice(+id, updateInvoiceDto , req.user.id);
@@ -60,6 +65,8 @@ export class InvoicesController {
   async deleteInvoice(@Param('invoiceId') invoiceId: number): Promise<string> {
     return await this.invoicesService.deleteInvoice(+invoiceId);
   }
+
+  
 
 
 }

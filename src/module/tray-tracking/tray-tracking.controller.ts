@@ -9,13 +9,13 @@ export class TrayTrackingController {
 
 
   @Post(':invoiceId/return')
-  @Roles(Role.EMPLOYEE, Role.MANAGER)
+  // @Roles(Role.EMPLOYEE, Role.MANAGER)
   async markTraysAsReturned(@Param('invoiceId') invoiceId: string) {
     return this.trayTrackingService.markTraysAsReturned(+invoiceId);
   }
 
   @Get('pending')
-  @Roles(Role.EMPLOYEE, Role.MANAGER)
+  // @Roles(Role.EMPLOYEE, Role.MANAGER)
   async getPendingTrays() {
     return this.trayTrackingService.getPendingTrays();
   }

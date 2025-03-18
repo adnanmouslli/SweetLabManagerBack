@@ -1,5 +1,19 @@
-import { IsString, IsNumber, IsEnum } from 'class-validator';
+import { IsString, IsNumber, IsEnum, IsOptional, IsDateString, IsArray, ValidateNested, IsNotEmpty } from 'class-validator';
+import { Type } from 'class-transformer';
 import { ItemType } from '@prisma/client';
+
+// نموذج لوحدة القياس
+export class UnitDto {
+  @IsString()
+  @IsNotEmpty()
+  unit: string;
+
+  @IsNumber()
+  price: number;
+
+  @IsNumber()
+  factor: number; // معامل التحويل بالنسبة للوحدة الأساسية (الوحدة الأولى عادة ما تكون معاملها 1)
+}
 
 export class CreateItemDto {
   @IsString()
@@ -9,13 +23,32 @@ export class CreateItemDto {
   type: ItemType;
 
   @IsString()
-  unit: string;
-
-  @IsNumber()
-  price: number;
+  @IsOptional()
+  barcode?: string;
 
   @IsString()
+  @IsOptional()
   description?: string;
+
+
+  // مصفوفة ديناميكية من وحدات القياس
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => UnitDto)
+  units: UnitDto[];
+
+  // الوحدة الافتراضية للبيع
+  @IsString()
+  defaultUnit: string;
+
+  // سعر البيع للوحدة الافتراضية (سيتم حسابه تلقائيًا بناءً على الوحدة الافتراضية)
+  @IsNumber()
+  @IsOptional()
+  price?: number;
+
+  @IsNumber()
+  @IsOptional()
+  cost?: number;
 
   @IsNumber()
   groupId: number;

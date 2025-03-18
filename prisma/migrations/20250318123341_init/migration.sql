@@ -1,5 +1,5 @@
 -- CreateEnum
-CREATE TYPE "Role" AS ENUM ('MANAGER', 'ADMIN', 'EMPLOYEE');
+CREATE TYPE "Role" AS ENUM ('MANAGER', 'ADMIN', 'ShiftManager', 'TreasuryManager', 'TrayManager', 'EMPLOYEE');
 
 -- CreateEnum
 CREATE TYPE "DifferenceStatus" AS ENUM ('surplus', 'deficit');
@@ -91,7 +91,9 @@ CREATE TABLE "items" (
     "id" SERIAL NOT NULL,
     "name" TEXT NOT NULL,
     "type" "ItemType" NOT NULL,
-    "unit" TEXT NOT NULL,
+    "units" JSONB,
+    "defaultUnit" TEXT NOT NULL,
+    "cost" DOUBLE PRECISION,
     "price" DOUBLE PRECISION NOT NULL,
     "description" TEXT,
     "groupId" INTEGER NOT NULL,
@@ -112,6 +114,7 @@ CREATE TABLE "invoices" (
     "paymentDate" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "notes" TEXT,
+    "isBreak" BOOLEAN NOT NULL DEFAULT false,
     "fundId" INTEGER NOT NULL,
     "shiftId" INTEGER NOT NULL,
     "employeeId" INTEGER NOT NULL,

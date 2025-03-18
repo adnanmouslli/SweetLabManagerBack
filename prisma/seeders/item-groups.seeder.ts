@@ -1,4 +1,3 @@
-// prisma/seeders/item-groups.seeder.ts
 import { PrismaClient, ItemType } from '@prisma/client';
 
 const itemGroups = [
