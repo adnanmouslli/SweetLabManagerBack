@@ -49,12 +49,14 @@ export async function seedInvoices(prisma: PrismaClient) {
         const item = faker.helpers.arrayElement(items);
         const quantity = faker.number.float({ min: 1, max: 20, fractionDigits: 1 });
         const unitPrice = item.price;
-        
+       
+
         await prisma.invoiceItem.create({
           data: {
             invoiceId: invoice.id,
             itemId: item.id,
             quantity,
+            unit: "currency",
             unitPrice,
             subTotal: quantity * unitPrice,
           },

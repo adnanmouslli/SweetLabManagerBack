@@ -10,7 +10,9 @@ export class CreateInvoiceItemDto {
 
   @IsNumber()
   unitPrice: number;
-
+  
+  @IsString()
+  unit: string;
 }
 
 export class CreateInvoiceDto {

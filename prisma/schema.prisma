@@ -153,7 +153,7 @@ model Invoice {
   createdAt       DateTime        @default(now())
   notes           String?
   isBreak         Boolean         @default(false)
-
+  
 
   fundId Int
   fund   Fund @relation(fields: [fundId], references: [id])
@@ -190,6 +190,7 @@ model InvoiceItem {
   unitPrice Float
   subTotal  Float
 
+  unit String
   invoiceId Int
   invoice   Invoice @relation(fields: [invoiceId], references: [id])
 

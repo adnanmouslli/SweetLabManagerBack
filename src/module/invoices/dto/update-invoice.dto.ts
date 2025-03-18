@@ -1,5 +1,5 @@
 import { Type } from "class-transformer";
-import { IsArray, IsInt, IsNumber, IsOptional, Min, ValidateNested } from "class-validator";
+import { IsArray, IsInt, IsNumber, IsOptional, IsString, Min, ValidateNested } from "class-validator";
 
 export class UpdateInvoiceDto {
     @IsOptional()
@@ -40,5 +40,8 @@ export class UpdateInvoiceDto {
     @IsNumber()
     @Min(0)
     subTotal: number; // الإجمالي الفرعي
+
+    @IsString()
+    unit: string;
   }
   

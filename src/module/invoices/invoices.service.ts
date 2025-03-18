@@ -53,7 +53,7 @@ export class InvoicesService {
     if (createInvoiceDto.invoiceCategory === 'debt' && !createInvoiceDto.customerId) {
       throw new BadRequestException('يجب تحديد العميل لفواتير الدين');
     }
-  
+    
     // التحقق من وجود حقل initialPayment عندما يكون isBreak = true
     if (createInvoiceDto.isBreak && !createInvoiceDto.initialPayment) {
       throw new BadRequestException('يجب تحديد قيمة الدفعة الأولى عند إنشاء فاتورة كسر');
@@ -104,6 +104,7 @@ export class InvoicesService {
                   create: createInvoiceDto.items.map((item) => ({
                     quantity: item.quantity,
                     unitPrice: item.unitPrice,
+                    unit: item.unit,
                     subTotal: item.quantity * item.unitPrice,
                     itemId: item.itemId,
                   })),
@@ -161,6 +162,8 @@ export class InvoicesService {
                   create: createInvoiceDto.items.map((item) => ({
                     quantity: item.quantity,
                     unitPrice: item.unitPrice,
+                    unit: item.unit,
+
                     subTotal: item.quantity * item.unitPrice,
                     itemId: item.itemId,
                   })),
@@ -233,6 +236,7 @@ export class InvoicesService {
                   create: createInvoiceDto.items.map((item) => ({
                     quantity: item.quantity,
                     unitPrice: item.unitPrice,
+                    unit: item.unit,
                     subTotal: item.quantity * item.unitPrice,
                     itemId: item.itemId,
                   })),
@@ -599,6 +603,8 @@ export class InvoicesService {
           itemId: item.itemId,
           quantity: item.quantity,
           unitPrice: item.unitPrice,
+          unit: item.unit,
+
           subTotal: item.subTotal
         }))
       };
@@ -640,6 +646,7 @@ export class InvoicesService {
               itemId: item.itemId,
               quantity: item.quantity,
               unitPrice: item.unitPrice,
+              unit: item.unit,
               subTotal: item.subTotal
             }))
           }
@@ -853,6 +860,8 @@ export class InvoicesService {
                 create: updateInvoiceDto.items.map((item) => ({
                   quantity: item.quantity,
                   unitPrice: item.unitPrice,
+                  unit: item.unit,
+
                   subTotal: item.quantity * item.unitPrice,
                   itemId: item.itemId,
                 })),
