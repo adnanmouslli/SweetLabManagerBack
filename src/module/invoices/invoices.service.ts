@@ -163,7 +163,6 @@ export class InvoicesService {
                     quantity: item.quantity,
                     unitPrice: item.unitPrice,
                     unit: item.unit,
-
                     subTotal: item.quantity * item.unitPrice,
                     itemId: item.itemId,
                   })),
@@ -1241,6 +1240,7 @@ private calculateRawMaterialStats(invoices) {
           itemName: item.item.name,
           quantity: item.quantity,
           unitPrice: item.unitPrice,
+          unit: item.unit,
           subTotal: item.subTotal,
           invoiceId: invoice.id,
           invoiceNumber: invoice.invoiceNumber,
