@@ -4,6 +4,14 @@ import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { InvoiceCategory, InvoiceType } from '@prisma/client';
 import { FilterInvoiceDto } from './dto/filter-invoice.dto';
 import { UpdateInvoiceDto } from './dto/update-invoice.dto';
+import { TransferHistoryQueryDto } from './dto/transfer-request.dto';
+
+
+enum TransferToMainStatus {
+  PENDING = 'pending',
+  CONFIRMED = 'confirmed',
+  REJECTED = 'rejected',
+}
 
 @Injectable()
 export class InvoicesService {
@@ -710,94 +718,6 @@ export class InvoicesService {
     });
   }
 
-  // async update(id: number, updateInvoiceDto: UpdateInvoiceDto) {
-  //   const existingInvoice = await this.prisma.invoice.findUnique({
-  //     where: { id },
-  //     include: {
-  //       items: true,
-  //     },
-  //   });
-    
-  //   if (!existingInvoice) {
-  //     throw new NotFoundException(`Invoice with ID ${id} not found`);
-  //   }
-  
-  //   return this.prisma.$transaction(async (prisma) => {
-  //     const updateData: any = {};
-  
-  //     if (updateInvoiceDto.invoiceType !== undefined) {
-  //       updateData.invoiceType = updateInvoiceDto.invoiceType;
-  //     }
-  
-  //     if (updateInvoiceDto.invoiceCategory !== undefined) {
-  //       updateData.invoiceCategory = updateInvoiceDto.invoiceCategory;
-  //     }
-  
-  //     if (updateInvoiceDto.customerId !== undefined) {
-  //       updateData.customerId = updateInvoiceDto.customerId;
-  //     }
-  
-  //     if (updateInvoiceDto.paidStatus !== undefined) {
-  //       updateData.paidStatus = updateInvoiceDto.paidStatus;
-  //       updateData.paymentDate = updateInvoiceDto.paidStatus ? new Date() : null;
-  //     }
-  
-  //     if (updateInvoiceDto.totalAmount !== undefined) {
-  //       updateData.totalAmount = updateInvoiceDto.totalAmount;
-  //     }
-  
-  //     if (updateInvoiceDto.discount !== undefined) {
-  //       updateData.discount = updateInvoiceDto.discount;
-  //     }
-  
-  //     if (updateInvoiceDto.notes !== undefined) {
-  //       updateData.notes = updateInvoiceDto.notes;
-  //     }
-  
-  //     if (updateInvoiceDto.fundId !== undefined) {
-  //       updateData.fundId = updateInvoiceDto.fundId;
-  //     }
-  
-  //     if (updateInvoiceDto.items !== undefined) {
-  //       await prisma.invoiceItem.deleteMany({
-  //         where: { invoiceId: id },
-  //       });
-  
-  //       await prisma.invoiceItem.createMany({
-  //         data: updateInvoiceDto.items.map((item) => ({
-  //           invoiceId: id,
-  //           itemId: item.itemId,
-  //           quantity: item.quantity,
-  //           unitPrice: item.unitPrice,
-  //           subTotal: item.quantity * item.unitPrice,
-  //         })),
-  //       });
-  //     }
-
-  //     const updatedInvoice = await prisma.invoice.update({
-  //       where: { id },
-  //       data: updateData,
-  //     });
-
-  //     if (updateInvoiceDto.totalAmount !== undefined && updateInvoiceDto.fundId !== undefined) {
-  //       const balanceAdjustment =
-  //         updateInvoiceDto.invoiceType === 'income'
-  //           ? updateInvoiceDto.totalAmount - (updateInvoiceDto.discount || 0)
-  //           : -(updateInvoiceDto.totalAmount - (updateInvoiceDto.discount || 0));
-  
-  //       await prisma.fund.update({
-  //         where: { id: updateInvoiceDto.fundId },
-  //         data: {
-  //           currentBalance: {
-  //             increment: balanceAdjustment,
-  //           },
-  //         },
-  //       });
-  //     }
-  
-  //     return updatedInvoice;
-  //   });
-  // }
 
   async updateInvoice(invoiceId: number, updateInvoiceDto: UpdateInvoiceDto, employeeId: number) {
     const allowedFields = ['customerId', 'discount', 'items', 'trayCount'];
@@ -1324,6 +1244,429 @@ private calculateRawMaterialStats(invoices) {
     items: itemsArray,
     summary: totalStats
   };
+}
+
+
+
+
+
+// عمليات التحويل بين الصناديق
+async transferFromBoothOrUniversityToGeneral(sourceId: number, amount: number, employeeId: number, notes?: string) {
+  // التحقق من وجود واردية مفتوحة
+  const activeShift = await this.prisma.shift.findFirst({
+    where: {
+      status: 'open',
+    },
+  });
+
+  if (!activeShift) {
+    throw new BadRequestException('لا يوجد واردية مفتوحة');
+  }
+
+  // التحقق من الصندوق المصدر (يجب أن يكون بسطة أو جامعة)
+  const sourceType = await this.prisma.fund.findUnique({
+    where: { id: sourceId },
+  });
+
+  if (!sourceType) {
+    throw new BadRequestException('الصندوق المصدر غير موجود');
+  }
+
+  if (sourceType.fundType !== 'booth' && sourceType.fundType !== 'university') {
+    throw new BadRequestException('صندوق المصدر يجب أن يكون بسطة أو جامعة');
+  }
+
+  // التحقق من الرصيد المتاح في الصندوق المصدر
+  if (sourceType.currentBalance < amount) {
+    throw new BadRequestException(`رصيد الصندوق المصدر غير كافي (${sourceType.currentBalance})`);
+  }
+
+  // البحث عن الصندوق العام
+  const generalFund = await this.prisma.fund.findFirst({
+    where: { fundType: 'general' },
+  });
+
+  if (!generalFund) {
+    throw new BadRequestException('الصندوق العام غير موجود');
+  }
+
+  // إنشاء المعاملة في قاعدة البيانات
+  return this.prisma.$transaction(async (prisma) => {
+    // إنشاء فاتورة صرف من الصندوق المصدر
+    const expenseInvoiceNumber = `TRF-EXP-${Date.now()}`;
+    const expenseInvoice = await prisma.invoice.create({
+      data: {
+        invoiceNumber: expenseInvoiceNumber,
+        invoiceType: 'expense',
+        invoiceCategory: 'direct',
+        totalAmount: amount,
+        discount: 0,
+        paidStatus: true,
+        paymentDate: new Date(),
+        notes: notes || `تحويل من ${sourceType.fundType === 'booth' ? 'البسطة' : 'الجامعة'} إلى الصندوق العام`,
+        fundId: sourceId,
+        shiftId: activeShift.id,
+        employeeId,
+        isBreak: false,
+      },
+    });
+
+    // إنشاء فاتورة دخل في الصندوق العام
+    const incomeInvoiceNumber = `TRF-INC-${Date.now()}`;
+    const incomeInvoice = await prisma.invoice.create({
+      data: {
+        invoiceNumber: incomeInvoiceNumber,
+        invoiceType: 'income',
+        invoiceCategory: 'direct',
+        totalAmount: amount,
+        discount: 0,
+        paidStatus: true,
+        paymentDate: new Date(),
+        notes: notes || `تحويل من ${sourceType.fundType === 'booth' ? 'البسطة' : 'الجامعة'} إلى الصندوق العام`,
+        fundId: generalFund.id,
+        shiftId: activeShift.id,
+        employeeId,
+        isBreak: false,
+      },
+    });
+
+    // تسجيل عملية التحويل في سجل تحويلات الصناديق
+    const transferLog = await prisma.fundTransferLog.create({
+      data: {
+        amount,
+        fromFundId: sourceId,
+        toFundId: generalFund.id,
+        transferredById: employeeId,
+      },
+    });
+
+    // تحديث أرصدة الصناديق
+    await prisma.fund.update({
+      where: { id: sourceId },
+      data: {
+        currentBalance: {
+          decrement: amount,
+        },
+      },
+    });
+
+    await prisma.fund.update({
+      where: { id: generalFund.id },
+      data: {
+        currentBalance: {
+          increment: amount,
+        },
+      },
+    });
+
+    return {
+      success: true,
+      message: 'تم تحويل المبلغ بنجاح',
+      transferAmount: amount,
+      sourceType: sourceType.fundType,
+      expenseInvoice,
+      incomeInvoice,
+      transferLog,
+    };
+  });
+}
+
+async createTransferToMainRequest(amount: number, employeeId: number, notes?: string) {
+  // التحقق من وجود واردية مفتوحة
+  const activeShift = await this.prisma.shift.findFirst({
+    where: {
+      status: 'open',
+    },
+  });
+
+  if (!activeShift) {
+    throw new BadRequestException('لا يوجد واردية مفتوحة');
+  }
+
+  // البحث عن الصندوق العام
+  const generalFund = await this.prisma.fund.findFirst({
+    where: { fundType: 'general' },
+  });
+
+  if (!generalFund) {
+    throw new BadRequestException('الصندوق العام غير موجود');
+  }
+
+  // التحقق من الرصيد المتاح في الصندوق العام
+  if (generalFund.currentBalance < amount) {
+    throw new BadRequestException(`رصيد الصندوق العام غير كافي (${generalFund.currentBalance})`);
+  }
+
+  // البحث عن الخزينة الرئيسية
+  const mainFund = await this.prisma.fund.findFirst({
+    where: { fundType: 'main' },
+  });
+
+  if (!mainFund) {
+    throw new BadRequestException('الخزينة الرئيسية غير موجودة');
+  }
+
+  // إنشاء المعاملة في قاعدة البيانات
+  return this.prisma.$transaction(async (prisma) => {
+    // إنشاء فاتورة صرف من الصندوق العام (مؤقتة - في حالة انتظار)
+    const expenseInvoiceNumber = `TRF-MAIN-EXP-${Date.now()}`;
+    const expenseInvoice = await prisma.invoice.create({
+      data: {
+        invoiceNumber: expenseInvoiceNumber,
+        invoiceType: 'expense',
+        invoiceCategory: 'direct',
+        totalAmount: amount,
+        discount: 0,
+        paidStatus: false, // لن يتم تفعيل الفاتورة حتى التأكيد
+        notes: (notes ? `${notes} - ` : '') + 'طلب تحويل إلى الخزينة الرئيسية - في انتظار التأكيد',
+        fundId: generalFund.id,
+        shiftId: activeShift.id,
+        employeeId,
+        isBreak: false,
+      },
+    });
+
+    // إنشاء فاتورة دخل في الخزينة الرئيسية (مؤقتة - في حالة انتظار)
+    const incomeInvoiceNumber = `TRF-MAIN-INC-${Date.now()}`;
+    const incomeInvoice = await prisma.invoice.create({
+      data: {
+        invoiceNumber: incomeInvoiceNumber,
+        invoiceType: 'income',
+        invoiceCategory: 'direct',
+        totalAmount: amount,
+        discount: 0,
+        paidStatus: false, // لن يتم تفعيل الفاتورة حتى التأكيد
+        notes: (notes ? `${notes} - ` : '') + 'طلب تحويل من الصندوق العام - في انتظار التأكيد',
+        fundId: mainFund.id,
+        shiftId: activeShift.id,
+        employeeId,
+        isBreak: false,
+      },
+    });
+
+    // تسجيل طلب التحويل في جدول طلبات التحويل
+    const transferRequest = await prisma.mainFundTransferRequest.create({
+      data: {
+        amount,
+        status: TransferToMainStatus.PENDING,
+        requestedById: employeeId,
+        notes: notes || 'طلب تحويل من الصندوق العام إلى الخزينة الرئيسية',
+        expenseInvoiceId: expenseInvoice.id,
+        incomeInvoiceId: incomeInvoice.id,
+      },
+    });
+
+    return {
+      success: true,
+      message: 'تم إنشاء طلب التحويل بنجاح، في انتظار التأكيد من أمين الخزينة',
+      transferAmount: amount,
+      status: TransferToMainStatus.PENDING,
+      expenseInvoice,
+      incomeInvoice,
+      transferRequest,
+    };
+  });
+}
+
+async confirmTransferToMain(requestId: number, treasuryManagerId: number, confirm: boolean, rejectionReason?: string) {
+  // البحث عن طلب التحويل
+  const transferRequest = await this.prisma.mainFundTransferRequest.findUnique({
+    where: { id: requestId },
+    include: {
+      requestedBy: true,
+    },
+  });
+
+  if (!transferRequest) {
+    throw new BadRequestException('طلب التحويل غير موجود');
+  }
+
+  if (transferRequest.status !== TransferToMainStatus.PENDING) {
+    throw new BadRequestException('لا يمكن تعديل حالة طلب التحويل - الطلب ليس في حالة الانتظار');
+  }
+
+  // التحقق من صلاحيات المستخدم (يفترض أن هناك وظيفة للتحقق من الصلاحيات)
+  // const hasPermission = await this.checkUserRole(treasuryManagerId, 'TreasuryManager');
+  // if (!hasPermission) {
+  //   throw new BadRequestException('ليس لديك الصلاحية للتأكيد على طلبات التحويل');
+  // }
+
+  return this.prisma.$transaction(async (prisma) => {
+    if (confirm) {
+      // تأكيد طلب التحويل
+      // البحث عن الفواتير المرتبطة
+      const expenseInvoice = await prisma.invoice.findUnique({
+        where: { id: transferRequest.expenseInvoiceId },
+      });
+
+      const incomeInvoice = await prisma.invoice.findUnique({
+        where: { id: transferRequest.incomeInvoiceId },
+      });
+
+      if (!expenseInvoice || !incomeInvoice) {
+        throw new BadRequestException('الفواتير المرتبطة بطلب التحويل غير موجودة');
+      }
+
+      // تحديث حالة الفواتير إلى مدفوعة
+      await prisma.invoice.update({
+        where: { id: expenseInvoice.id },
+        data: {
+          paidStatus: true,
+          paymentDate: new Date(),
+          notes: `${expenseInvoice.notes?.replace('- في انتظار التأكيد', '') || ''} - تمت الموافقة`,
+        },
+      });
+
+      await prisma.invoice.update({
+        where: { id: incomeInvoice.id },
+        data: {
+          paidStatus: true,
+          paymentDate: new Date(),
+          notes: `${incomeInvoice.notes?.replace('- في انتظار التأكيد', '') || ''} - تمت الموافقة`,
+        },
+      });
+
+      // تحديث أرصدة الصناديق
+      await prisma.fund.update({
+        where: { id: expenseInvoice.fundId },
+        data: {
+          currentBalance: {
+            decrement: transferRequest.amount,
+          },
+        },
+      });
+
+      await prisma.fund.update({
+        where: { id: incomeInvoice.fundId },
+        data: {
+          currentBalance: {
+            increment: transferRequest.amount,
+          },
+        },
+      });
+
+      // تسجيل عملية التحويل في سجل تحويلات الصناديق
+      await prisma.fundTransferLog.create({
+        data: {
+          amount: transferRequest.amount,
+          fromFundId: expenseInvoice.fundId,
+          toFundId: incomeInvoice.fundId,
+          transferredById: treasuryManagerId,
+        },
+      });
+
+      // تحديث حالة طلب التحويل
+      await prisma.mainFundTransferRequest.update({
+        where: { id: requestId },
+        data: {
+          status: TransferToMainStatus.CONFIRMED,
+          confirmedById: treasuryManagerId,
+          confirmedAt: new Date(),
+        },
+      });
+
+      return {
+        success: true,
+        message: 'تم تأكيد طلب التحويل بنجاح وتحويل المبلغ إلى الخزينة الرئيسية',
+        transferAmount: transferRequest.amount,
+        status: TransferToMainStatus.CONFIRMED,
+      };
+    } else {
+      // رفض طلب التحويل
+      // حذف الفواتير المؤقتة
+      if (transferRequest.expenseInvoiceId) {
+        await prisma.invoice.delete({
+          where: { id: transferRequest.expenseInvoiceId },
+        });
+      }
+
+      if (transferRequest.incomeInvoiceId) {
+        await prisma.invoice.delete({
+          where: { id: transferRequest.incomeInvoiceId },
+        });
+      }
+
+      // تحديث حالة طلب التحويل
+      await prisma.mainFundTransferRequest.update({
+        where: { id: requestId },
+        data: {
+          status: TransferToMainStatus.REJECTED,
+          confirmedById: treasuryManagerId,
+          confirmedAt: new Date(),
+          rejectionReason: rejectionReason || 'تم رفض الطلب بدون سبب محدد',
+        },
+      });
+
+      return {
+        success: true,
+        message: 'تم رفض طلب التحويل',
+        transferAmount: transferRequest.amount,
+        status: TransferToMainStatus.REJECTED,
+        rejectionReason: rejectionReason || 'تم رفض الطلب بدون سبب محدد',
+      };
+    }
+  });
+}
+
+async getPendingTransferRequests() {
+  return this.prisma.mainFundTransferRequest.findMany({
+    where: {
+      status: TransferToMainStatus.PENDING,
+    },
+    include: {
+      requestedBy: {
+        select: {
+          username: true,
+        },
+      },
+    },
+    orderBy: {
+      requestedAt: 'desc',
+    },
+  });
+}
+
+async getTransferRequestHistory(options?: TransferHistoryQueryDto) {
+  const where: any = {};
+  
+  if (options?.status) {
+    where.status = options.status;
+  }
+  
+  if (options?.startDate || options?.endDate) {
+    where.requestedAt = {};
+    
+    if (options?.startDate) {
+      where.requestedAt.gte = options.startDate;
+    }
+    
+    if (options?.endDate) {
+      where.requestedAt.lte = options.endDate;
+    }
+  }
+  
+  if (options?.requestedById) {
+    where.requestedById = options.requestedById;
+  }
+  
+  return this.prisma.mainFundTransferRequest.findMany({
+    where,
+    include: {
+      requestedBy: {
+        select: {
+          username: true,
+        },
+      },
+      confirmedBy: {
+        select: {
+          username: true,
+        },
+      },
+    },
+    orderBy: {
+      requestedAt: 'desc',
+    },
+  });
 }
 
 }

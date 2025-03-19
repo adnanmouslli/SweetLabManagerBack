@@ -5,6 +5,7 @@
 import { FilterInvoiceDto } from './dto/filter-invoice.dto';
 import { InvoiceCategory, InvoiceType } from '@prisma/client';
 import { UpdateInvoiceDto } from './dto/update-invoice.dto';
+import { ConfirmTransferDto, TransferHistoryQueryDto, TransferToBoothUniversityDto, TransferToMainRequestDto } from './dto/transfer-request.dto';
 
 
 @Controller('invoices')
@@ -72,8 +73,67 @@ export class InvoicesController {
   }
 
 
- 
+// قسم التحويلات
+@Post('transfer/booth-university-to-general')
+transferFromBoothOrUniversityToGeneral(
+  @Body() transferData: TransferToBoothUniversityDto,
+  @Req() req
+) {
+  return this.invoicesService.transferFromBoothOrUniversityToGeneral(
+    transferData.sourceId,
+    transferData.amount,
+    req.user.id,
+    transferData.notes
+  );
+}
+
+@Post('transfer/to-main/request')
+createTransferToMainRequest(
+  @Body() requestData: TransferToMainRequestDto,
+  @Req() req
+) : Promise<any>{
+  return this.invoicesService.createTransferToMainRequest(
+    requestData.amount,
+    req.user.id,
+    requestData.notes
+  );
+}
+
+@Post('transfer/to-main/confirm/:requestId')
+confirmTransferToMain(
+  @Param('requestId') requestId: string,
+  @Body() confirmData: ConfirmTransferDto,
+  @Req() req
+) : Promise<any> {
+  return this.invoicesService.confirmTransferToMain(
+    +requestId,
+    req.user.id,
+    confirmData.confirm,
+    confirmData.rejectionReason
+  );
+}
+
+@Get('transfer/to-main/pending')
+getPendingTransferRequests() {
+  return this.invoicesService.getPendingTransferRequests();
+}
+
+@Get('transfer/to-main/history')
+getTransferRequestHistory(
+  @Query('status') status?: string,
+  @Query('startDate') startDate?: string,
+  @Query('endDate') endDate?: string,
+  @Query('requestedById') requestedById?: string
+) {
+  const queryDto: TransferHistoryQueryDto = {
+    status,
+    startDate: startDate ? new Date(startDate) : undefined,
+    endDate: endDate ? new Date(endDate) : undefined,
+    requestedById: requestedById ? +requestedById : undefined,
+  };
   
+  return this.invoicesService.getTransferRequestHistory(queryDto);
+}
 
 
 }
