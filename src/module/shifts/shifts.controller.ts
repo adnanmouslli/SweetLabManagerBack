@@ -11,7 +11,6 @@ export class ShiftsController {
   constructor(private readonly shiftsService: ShiftsService) {}
 
   @Post()
-  @Roles(Role.EMPLOYEE, Role.MANAGER)
   create(@Body() createShiftDto: CreateShiftDto, @User() user) {
     return this.shiftsService.create(createShiftDto, user);
   }
@@ -22,19 +21,16 @@ export class ShiftsController {
   }
 
   @Put(':id')
-  @Roles(Role.MANAGER)
   update(@Param('id') id: string, @Body() updateShiftDto: UpdateShiftDto) {
     return this.shiftsService.update(+id, updateShiftDto);
   }
 
   @Delete(':id')
-  @Roles(Role.MANAGER)
   remove(@Param('id') id: string) {
     return this.shiftsService.remove(+id);
   }
 
   @Get('close')
-  @Roles(Role.EMPLOYEE, Role.MANAGER)
   closeShift(@Query('differenceStatus') differenceStatus: 'surplus' | 'deficit', @Query('differenceValue') differenceValue: number) {
     if (!differenceStatus || differenceValue === undefined) {
       throw new BadRequestException('يرجى إدخال حالة وقيمة الفرق');
@@ -54,12 +50,10 @@ export class ShiftsController {
   }
   
   @Get('current/summary')
-  @Roles(Role.EMPLOYEE, Role.MANAGER)
   async getCurrentShiftSummary() {
     return this.shiftsService.getCurrentShiftSummary();
   }
   @Get(':id/summary')
-  @Roles(Role.EMPLOYEE, Role.MANAGER)
   async getShiftSummary(@Param('id') id: string) {
     return this.shiftsService.getShiftSummary(+id);
   }
