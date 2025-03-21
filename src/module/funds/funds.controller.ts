@@ -9,19 +9,16 @@ export class FundsController {
   constructor(private readonly fundsService: FundsService) {}
 
   @Post()
-  @Roles(Role.ADMIN)
   create(@Body() createFundDto: CreateFundDto) {
     return this.fundsService.create(createFundDto);
   }
 
   @Get()
-  @Roles(Role.MANAGER, Role.ADMIN)
   findAll() {
     return this.fundsService.findAll();
   }
 
   @Patch(':id/balance')
-  @Roles(Role.MANAGER, Role.ADMIN)
   updateBalance(
     @Param('id') id: string,
     @Body('amount') amount: number
@@ -30,7 +27,6 @@ export class FundsController {
   }
 
   @Post('transfer-to-main')
-  @Roles(Role.MANAGER, Role.ADMIN) // Only managers and admins can transfer
   async transferToMain(
     @Body('amount') amount: number,
     @Req() req
