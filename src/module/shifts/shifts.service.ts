@@ -171,6 +171,17 @@ async closeShift(differenceStatus: 'surplus' | 'deficit', differenceValue: numbe
       throw new BadRequestException('الواردية مغلقة بالفعل');
     }
 
+    // التحقق من وجود طلبات تحويل معلقة من الصندوق العام
+    const pendingTransfers = await this.prisma.pendingShiftTransfer.findMany({
+      where: {
+        status: 'pending'
+      }
+    });
+
+    if (pendingTransfers.length > 0) {
+      throw new BadRequestException('لا يمكن إغلاق الواردية بينما توجد طلبات تحويل معلقة من الصندوق العام. يرجى معالجة هذه الطلبات أولاً.');
+    }
+
     const [generalFund, boothFund, universityFund] = await Promise.all([
       this.prisma.fund.findFirst({ where: { fundType: 'general' } }),
       this.prisma.fund.findFirst({ where: { fundType: 'booth' } }),
@@ -496,4 +507,36 @@ async getShiftInvoicesByFund(shiftId: number) {
 }
 
 
+  /**
+ * التحقق من وجود طلبات تحويل معلقة من الصندوق العام
+ * تستخدم هذه الدالة قبل إغلاق الواردية للتأكد من إمكانية الإغلاق
+ */
+  async checkForPendingTransfers(): Promise<{ hasPendingTransfers: boolean, pendingTransfers?: any[] }> {
+    try {
+      const pendingTransfers = await this.prisma.pendingShiftTransfer.findMany({
+        where: {
+          status: 'pending'
+        },
+        include: {
+          requestedBy: {
+            select: {
+              username: true
+            }
+          }
+        },
+        orderBy: {
+          requestedAt: 'desc'
+        }
+      });
+  
+      return { 
+        hasPendingTransfers: pendingTransfers.length > 0,
+        pendingTransfers: pendingTransfers.length > 0 ? pendingTransfers : undefined
+      };
+    } catch (error) {
+      console.error('Error checking for pending transfers:', error);
+      throw new InternalServerErrorException('حدث خطأ أثناء التحقق من طلبات التحويل المعلقة');
+    }
+  }
+  
 }

@@ -72,6 +72,7 @@ CREATE TABLE "fund_transfer_logs" (
     "toFundId" INTEGER NOT NULL,
     "transferredById" INTEGER NOT NULL,
     "transferredAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "metadata" TEXT,
 
     CONSTRAINT "fund_transfer_logs_pkey" PRIMARY KEY ("id")
 );
@@ -130,6 +131,7 @@ CREATE TABLE "invoice_items" (
     "quantity" DOUBLE PRECISION NOT NULL,
     "unitPrice" DOUBLE PRECISION NOT NULL,
     "subTotal" DOUBLE PRECISION NOT NULL,
+    "unit" TEXT NOT NULL,
     "invoiceId" INTEGER NOT NULL,
     "itemId" INTEGER NOT NULL,
 
@@ -176,6 +178,40 @@ CREATE TABLE "customers" (
     CONSTRAINT "customers_pkey" PRIMARY KEY ("id")
 );
 
+-- CreateTable
+CREATE TABLE "main_fund_transfer_requests" (
+    "id" SERIAL NOT NULL,
+    "amount" DOUBLE PRECISION NOT NULL,
+    "status" TEXT NOT NULL,
+    "requestedById" INTEGER NOT NULL,
+    "confirmedById" INTEGER,
+    "requestedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "confirmedAt" TIMESTAMP(3),
+    "notes" TEXT,
+    "rejectionReason" TEXT,
+    "expenseInvoiceId" INTEGER,
+    "incomeInvoiceId" INTEGER,
+
+    CONSTRAINT "main_fund_transfer_requests_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "pending_shift_transfers" (
+    "id" SERIAL NOT NULL,
+    "transferNumber" TEXT NOT NULL,
+    "amount" DOUBLE PRECISION NOT NULL,
+    "status" TEXT NOT NULL,
+    "requestedById" INTEGER NOT NULL,
+    "requestedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "acceptedById" INTEGER,
+    "acceptedAt" TIMESTAMP(3),
+    "notes" TEXT,
+    "expenseInvoiceId" INTEGER,
+    "incomeInvoiceId" INTEGER,
+
+    CONSTRAINT "pending_shift_transfers_pkey" PRIMARY KEY ("id")
+);
+
 -- CreateIndex
 CREATE UNIQUE INDEX "User_username_key" ON "User"("username");
 
@@ -187,6 +223,15 @@ CREATE UNIQUE INDEX "tray_tracking_invoiceId_key" ON "tray_tracking"("invoiceId"
 
 -- CreateIndex
 CREATE UNIQUE INDEX "customers_phone_key" ON "customers"("phone");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "pending_shift_transfers_transferNumber_key" ON "pending_shift_transfers"("transferNumber");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "pending_shift_transfers_expenseInvoiceId_key" ON "pending_shift_transfers"("expenseInvoiceId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "pending_shift_transfers_incomeInvoiceId_key" ON "pending_shift_transfers"("incomeInvoiceId");
 
 -- AddForeignKey
 ALTER TABLE "shifts" ADD CONSTRAINT "shifts_employeeId_fkey" FOREIGN KEY ("employeeId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -232,3 +277,21 @@ ALTER TABLE "tray_tracking" ADD CONSTRAINT "tray_tracking_invoiceId_fkey" FOREIG
 
 -- AddForeignKey
 ALTER TABLE "debts" ADD CONSTRAINT "debts_customerId_fkey" FOREIGN KEY ("customerId") REFERENCES "customers"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "main_fund_transfer_requests" ADD CONSTRAINT "main_fund_transfer_requests_requestedById_fkey" FOREIGN KEY ("requestedById") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "main_fund_transfer_requests" ADD CONSTRAINT "main_fund_transfer_requests_confirmedById_fkey" FOREIGN KEY ("confirmedById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "pending_shift_transfers" ADD CONSTRAINT "pending_shift_transfers_requestedById_fkey" FOREIGN KEY ("requestedById") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "pending_shift_transfers" ADD CONSTRAINT "pending_shift_transfers_acceptedById_fkey" FOREIGN KEY ("acceptedById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "pending_shift_transfers" ADD CONSTRAINT "pending_shift_transfers_expenseInvoiceId_fkey" FOREIGN KEY ("expenseInvoiceId") REFERENCES "invoices"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "pending_shift_transfers" ADD CONSTRAINT "pending_shift_transfers_incomeInvoiceId_fkey" FOREIGN KEY ("incomeInvoiceId") REFERENCES "invoices"("id") ON DELETE SET NULL ON UPDATE CASCADE;

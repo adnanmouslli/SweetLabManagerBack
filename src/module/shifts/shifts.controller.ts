@@ -64,6 +64,9 @@ export class ShiftsController {
     return await this.shiftsService.getShiftInvoicesByFund(+shiftId);
   }
 
-
+  @Get('check-pending-transfers')
+  async checkPendingTransfers() {
+  return this.shiftsService.checkForPendingTransfers();
+  }
 
 }

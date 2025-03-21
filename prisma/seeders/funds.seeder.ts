@@ -3,19 +3,19 @@ import { PrismaClient, FundType } from '@prisma/client';
 const funds = [
   { 
     fundType: FundType.main, 
-    currentBalance: 50000 
+    currentBalance: 0 
   },
   { 
     fundType: FundType.general, 
-    currentBalance: 10000 
+    currentBalance: 0 
   },
   { 
     fundType: FundType.booth, 
-    currentBalance: 5000 
+    currentBalance: 0 
   },
   { 
     fundType: FundType.university, 
-    currentBalance: 8000 
+    currentBalance: 0 
   }
 ];
 

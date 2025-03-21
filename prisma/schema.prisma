@@ -22,6 +22,9 @@ model User {
 
   transferRequests   MainFundTransferRequest[]
   confirmedTransfers MainFundTransferRequest[] @relation("ConfirmedBy")
+
+  requestedTransfers PendingShiftTransfer[] @relation("RequestedTransfers")
+  acceptedTransfers  PendingShiftTransfer[] @relation("AcceptedTransfers")
 }
 
 enum Role {
@@ -98,6 +101,7 @@ model FundTransferLog {
   toFund        Fund @relation("ToFund", fields: [toFundId], references: [id])
   transferredBy User @relation(fields: [transferredById], references: [id])
 
+  metadata String? 
   @@map("fund_transfer_logs")
 }
 
@@ -106,7 +110,7 @@ model ItemGroup {
   name        String
   type        ItemType
   description String?
-
+  
   items Item[]
 
   @@map("item_groups")
@@ -169,6 +173,9 @@ model Invoice {
   relatedDebt   Debt?         @relation(fields: [relatedDebtId], references: [id])
   trayCount     Int           @default(0)
   trayTracking  TrayTracking?
+
+  expenseTransfer PendingShiftTransfer? @relation("ExpenseInvoiceTransfer")
+  incomeTransfer  PendingShiftTransfer? @relation("IncomeInvoiceTransfer")
 
   @@map("invoices")
 }
@@ -273,4 +280,30 @@ model MainFundTransferRequest {
   incomeInvoiceId  Int? // معرف فاتورة الدخل
 
   @@map("main_fund_transfer_requests")
+}
+
+
+model PendingShiftTransfer {
+  id                Int       @id @default(autoincrement())
+  transferNumber    String    @unique
+  amount            Float
+  status            String    // 'pending', 'accepted', 'rejected'
+  requestedById     Int
+  requestedBy       User      @relation("RequestedTransfers", fields: [requestedById], references: [id])
+  requestedAt       DateTime  @default(now())
+  
+  acceptedById      Int?
+  acceptedBy        User?     @relation("AcceptedTransfers", fields: [acceptedById], references: [id])
+  acceptedAt        DateTime?
+  
+  notes             String?
+  
+  // فواتير اختيارية - قد لا تكون مرتبطة بفاتورة عند التحويل بين الصناديق بعد إغلاق الواردية
+  expenseInvoiceId  Int?      @unique
+  expenseInvoice    Invoice?  @relation("ExpenseInvoiceTransfer", fields: [expenseInvoiceId], references: [id])
+  
+  incomeInvoiceId   Int?      @unique
+  incomeInvoice     Invoice?  @relation("IncomeInvoiceTransfer", fields: [incomeInvoiceId], references: [id])
+
+  @@map("pending_shift_transfers")
 }
