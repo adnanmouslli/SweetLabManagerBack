@@ -9,22 +9,22 @@ const users = [
   },
   {
     username: 'manager',
-    password: '123',
+    password: '123456',
     roles: [Role.MANAGER],
   },
   {
     username: 'user1',
-    password: '123',
+    password: '123456',
     roles: [Role.ShiftManager],
   },
   {
     username: 'user2',
-    password: '123',
+    password: '123456',
     roles: [Role.TreasuryManager],
   },
   {
     username: 'user3',
-    password: '123',
+    password: '123456',
     roles: [Role.TrayManager],
   },
 
