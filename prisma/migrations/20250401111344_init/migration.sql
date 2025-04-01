@@ -20,13 +20,16 @@ CREATE TYPE "ItemType" AS ENUM ('production', 'raw');
 CREATE TYPE "InvoiceType" AS ENUM ('income', 'expense');
 
 -- CreateEnum
-CREATE TYPE "InvoiceCategory" AS ENUM ('products', 'direct', 'debt');
+CREATE TYPE "InvoiceCategory" AS ENUM ('products', 'direct', 'debt', 'advance');
 
 -- CreateEnum
 CREATE TYPE "TrayStatus" AS ENUM ('pending', 'returned');
 
 -- CreateEnum
 CREATE TYPE "DebtStatus" AS ENUM ('active', 'paid');
+
+-- CreateEnum
+CREATE TYPE "AdvanceStatus" AS ENUM ('active', 'completed');
 
 -- CreateTable
 CREATE TABLE "User" (
@@ -121,6 +124,7 @@ CREATE TABLE "invoices" (
     "employeeId" INTEGER NOT NULL,
     "relatedDebtId" INTEGER,
     "trayCount" INTEGER NOT NULL DEFAULT 0,
+    "relatedAdvanceId" INTEGER,
 
     CONSTRAINT "invoices_pkey" PRIMARY KEY ("id")
 );
@@ -212,6 +216,20 @@ CREATE TABLE "pending_shift_transfers" (
     CONSTRAINT "pending_shift_transfers_pkey" PRIMARY KEY ("id")
 );
 
+-- CreateTable
+CREATE TABLE "advances" (
+    "id" SERIAL NOT NULL,
+    "customerId" INTEGER NOT NULL,
+    "totalAmount" DOUBLE PRECISION NOT NULL,
+    "remainingAmount" DOUBLE PRECISION NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "lastPaymentDate" TIMESTAMP(3),
+    "status" "AdvanceStatus" NOT NULL DEFAULT 'active',
+    "notes" TEXT,
+
+    CONSTRAINT "advances_pkey" PRIMARY KEY ("id")
+);
+
 -- CreateIndex
 CREATE UNIQUE INDEX "User_username_key" ON "User"("username");
 
@@ -264,6 +282,9 @@ ALTER TABLE "invoices" ADD CONSTRAINT "invoices_employeeId_fkey" FOREIGN KEY ("e
 ALTER TABLE "invoices" ADD CONSTRAINT "invoices_relatedDebtId_fkey" FOREIGN KEY ("relatedDebtId") REFERENCES "debts"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "invoices" ADD CONSTRAINT "invoices_relatedAdvanceId_fkey" FOREIGN KEY ("relatedAdvanceId") REFERENCES "advances"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "invoice_items" ADD CONSTRAINT "invoice_items_invoiceId_fkey" FOREIGN KEY ("invoiceId") REFERENCES "invoices"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -295,3 +316,6 @@ ALTER TABLE "pending_shift_transfers" ADD CONSTRAINT "pending_shift_transfers_ex
 
 -- AddForeignKey
 ALTER TABLE "pending_shift_transfers" ADD CONSTRAINT "pending_shift_transfers_incomeInvoiceId_fkey" FOREIGN KEY ("incomeInvoiceId") REFERENCES "invoices"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "advances" ADD CONSTRAINT "advances_customerId_fkey" FOREIGN KEY ("customerId") REFERENCES "customers"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
