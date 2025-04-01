@@ -177,6 +177,10 @@ model Invoice {
   expenseTransfer PendingShiftTransfer? @relation("ExpenseInvoiceTransfer")
   incomeTransfer  PendingShiftTransfer? @relation("IncomeInvoiceTransfer")
 
+
+   relatedAdvanceId Int?
+  relatedAdvance   Advance?    @relation("AdvanceInvoices", fields: [relatedAdvanceId], references: [id])
+
   @@map("invoices")
 }
 
@@ -189,6 +193,7 @@ enum InvoiceCategory {
   products
   direct
   debt
+  advance
 }
 
 model InvoiceItem {
@@ -260,7 +265,8 @@ model Customer {
   invoices Invoice[]
   debts    Debt[]
   trays    TrayTracking[]
-
+  advances Advance[]
+  
   @@map("customers")
 }
 
@@ -306,4 +312,27 @@ model PendingShiftTransfer {
   incomeInvoice     Invoice?  @relation("IncomeInvoiceTransfer", fields: [incomeInvoiceId], references: [id])
 
   @@map("pending_shift_transfers")
+}
+
+
+
+model Advance {
+  id              Int          @id @default(autoincrement())
+  customerId      Int
+  customer        Customer     @relation(fields: [customerId], references: [id])
+  totalAmount     Float        // إجمالي مبلغ السلفة الأصلي
+  remainingAmount Float        // المبلغ المتبقي
+  createdAt       DateTime     @default(now())
+  lastPaymentDate DateTime?
+  status          AdvanceStatus @default(active)
+  notes           String?
+
+  relatedInvoices Invoice[]    @relation("AdvanceInvoices")
+
+  @@map("advances")
+}
+
+enum AdvanceStatus {
+  active
+  completed
 }

@@ -380,6 +380,93 @@ export class InvoicesService {
             },
           });
         }
+
+        if (createInvoiceDto.invoiceCategory === 'advance') {
+          if (createInvoiceDto.invoiceType === 'income') {
+            // البحث عن سلفة نشطة للعميل (الآن فاتورة دخل تعني استلام سلفة من العميل)
+            const existingAdvance = await prisma.advance.findFirst({
+              where: {
+                customerId: createInvoiceDto.customerId!,
+                status: 'active',
+              },
+            });
+        
+            if (existingAdvance) {
+              // تحديث السلفة الموجودة
+              const updatedAdvance = await prisma.advance.update({
+                where: { id: existingAdvance.id },
+                data: {
+                  totalAmount: existingAdvance.totalAmount + createInvoiceDto.totalAmount,
+                  remainingAmount: existingAdvance.remainingAmount + createInvoiceDto.totalAmount,
+                  notes: createInvoiceDto.notes || 'تم إضافة سلفة جديدة',
+                },
+              });
+        
+              // ربط الفاتورة بالسلفة الموجودة
+              await prisma.invoice.update({
+                where: { id: invoice.id },
+                data: { relatedAdvanceId: existingAdvance.id },
+              });
+            } else {
+              // إنشاء سجل سلفة جديد
+              const advance = await prisma.advance.create({
+                data: {
+                  customerId: createInvoiceDto.customerId!,
+                  totalAmount: createInvoiceDto.totalAmount,
+                  remainingAmount: createInvoiceDto.totalAmount,
+                  status: 'active',
+                  notes: createInvoiceDto.notes || 'سلفة جديدة',
+                },
+              });
+        
+              // ربط الفاتورة بالسلفة الجديدة
+              await prisma.invoice.update({
+                where: { id: invoice.id },
+                data: { relatedAdvanceId: advance.id },
+              });
+            }
+          } else if (createInvoiceDto.invoiceType === 'expense') {
+            // البحث عن السلفات النشطة للعميل (الآن فاتورة صرف تعني إرجاع السلفة للعميل)
+            const activeAdvance = await prisma.advance.findFirst({
+              where: {
+                customerId: createInvoiceDto.customerId!,
+                status: 'active',
+              },
+              orderBy: {
+                createdAt: 'asc',
+              },
+            });
+        
+            if (!activeAdvance) {
+              throw new BadRequestException('لا يوجد سلفات نشطة لهذا العميل');
+            }
+        
+            // التحقق من أن مبلغ الإرجاع لا يتجاوز المبلغ المتبقي
+            if (createInvoiceDto.totalAmount > activeAdvance.remainingAmount) {
+              throw new BadRequestException('مبلغ الإرجاع يتجاوز المبلغ المتبقي من السلفة');
+            }
+        
+            // تحديث السلفة
+            const newRemainingAmount = activeAdvance.remainingAmount - createInvoiceDto.totalAmount;
+            await prisma.advance.update({
+              where: { id: activeAdvance.id },
+              data: {
+                remainingAmount: newRemainingAmount,
+                lastPaymentDate: new Date(),
+                status: newRemainingAmount <= 0 ? 'completed' : 'active',
+                notes: newRemainingAmount <= 0 
+                  ? `${activeAdvance.notes || ''}\nتم إرجاع السلفة بالكامل بتاريخ ${new Date().toLocaleDateString()}`
+                  : activeAdvance.notes
+              },
+            });
+        
+            // ربط الفاتورة بالسلفة
+            await prisma.invoice.update({
+              where: { id: invoice.id },
+              data: { relatedAdvanceId: activeAdvance.id },
+            });
+          }
+        }
         
         // إرجاع الفاتورة المنشأة
         return {
@@ -808,6 +895,7 @@ export class InvoicesService {
           trayTracking: true, // لجلب الصواني المرتبطة
           fund: true, // لجلب الصندوق المرتبط
           relatedDebt: true, // لجلب الديون المرتبطة
+          relatedAdvance: true, // لجلب السلف المرتبطة
         },
       });
   
@@ -848,6 +936,49 @@ export class InvoicesService {
           });
         }
       }
+
+      // التعامل مع السلفات المرتبطة
+      if (invoice.relatedAdvance) {
+        const advance = await prisma.advance.findUnique({
+          where: { id: invoice.relatedAdvance.id },
+        });
+
+      if (advance) {
+        if (invoice.invoiceType === 'income') {
+          // في حالة حذف فاتورة استلام سلفة، نقلل من المبلغ الكلي والمتبقي
+          const newTotalAmount = advance.totalAmount - invoice.totalAmount;
+          const newRemainingAmount = advance.remainingAmount - invoice.totalAmount;
+          
+          if (newTotalAmount <= 0) {
+            // إذا أصبح المبلغ الكلي صفر أو أقل، نحذف سجل السلفة
+            await prisma.advance.delete({
+              where: { id: advance.id },
+            });
+          } else {
+            // وإلا نحدث السجل
+            await prisma.advance.update({
+              where: { id: advance.id },
+              data: {
+                totalAmount: newTotalAmount,
+                remainingAmount: newRemainingAmount,
+                status: newRemainingAmount <= 0 ? 'completed' : 'active',
+                notes: `${advance.notes || ''}\nتم تعديل السلفة بعد حذف الفاتورة رقم ${invoice.invoiceNumber}`,
+              },
+            });
+          }
+        } else if (invoice.invoiceType === 'expense') {
+          // في حالة حذف فاتورة إرجاع سلفة، نزيد المبلغ المتبقي
+          await prisma.advance.update({
+            where: { id: advance.id },
+            data: {
+              remainingAmount: advance.remainingAmount + invoice.totalAmount,
+              status: 'active', // إعادة تنشيط السلفة إذا كانت مكتملة
+              notes: `${advance.notes || ''}\nتم تعديل السلفة بعد حذف فاتورة الإرجاع رقم ${invoice.invoiceNumber}`,
+            },
+          });
+        }
+      }
+    }
   
       // تحديث رصيد الصندوق
       if (invoice.paidStatus) {

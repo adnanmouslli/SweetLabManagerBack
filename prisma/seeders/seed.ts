@@ -32,11 +32,11 @@ async function main() {
     console.log('🌱 Starting seeding...');
     
     await seedUsers(prisma);
-    await seedItemGroups(prisma);
-    await seedItems(prisma);
+    // await seedItemGroups(prisma);
+    // await seedItems(prisma);
     await seedFunds(prisma);
-    await seedShifts(prisma);
-    await seedCustomers(prisma); // إضافة
+    // await seedShifts(prisma);
+    // await seedCustomers(prisma); // إضافة
     // await seedInvoices(prisma);
     
     console.log('✅ Seeding completed successfully');
