@@ -1,6 +1,7 @@
-import { Controller, Get, Param, UseGuards, ParseIntPipe } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, UseGuards, ParseIntPipe } from '@nestjs/common';
 import { DebtsService } from './debts.service';
 import { JwtAuthGuard, Role, Roles, RolesGuard } from '@/common';
+import { ApplyDiscountDto } from './dto/apply-discount.dto';
 
 @Controller('debts')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -29,5 +30,14 @@ export class DebtsController {
   @Roles(Role.ADMIN, Role.MANAGER, Role.EMPLOYEE)
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.debtsService.findOne(id);
+  }
+
+  @Post(':id/discount')
+  @Roles(Role.ADMIN, Role.MANAGER)
+  applyDiscount(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() discountDto: ApplyDiscountDto
+  ) {
+    return this.debtsService.applyDiscount(id, discountDto);
   }
 }

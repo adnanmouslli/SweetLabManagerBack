@@ -1,6 +1,7 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreatePaymentDto } from './dto/create-payment.dto';
+import { ApplyDiscountDto } from './dto/apply-discount.dto';
 
 @Injectable()
 export class DebtsService {
@@ -127,4 +128,45 @@ export class DebtsService {
     return debt;
   }
   
+  // Add a new method to apply discount to debt
+  async applyDiscount(id: number, discountDto: ApplyDiscountDto) {
+    // Find the debt first
+    const debt = await this.prisma.debt.findUnique({
+      where: { id }
+    });
+
+    if (!debt) {
+      throw new NotFoundException(`الدين غير موجود`);
+    }
+
+    // Validate discount amount - can't exceed remaining amount
+    if (discountDto.discountAmount > debt.remainingAmount) {
+      throw new BadRequestException(`قيمة الخصم تتجاوز المبلغ المتبقي للدين`);
+    }
+
+    // Apply the discount
+    const updatedDebt = await this.prisma.debt.update({
+      where: { id },
+      data: {
+        discount: debt.discount + discountDto.discountAmount,
+        remainingAmount: debt.remainingAmount - discountDto.discountAmount,
+        notes: discountDto.notes 
+          ? `${debt.notes ? debt.notes + ' | ' : ''}تم تطبيق خصم بقيمة ${discountDto.discountAmount}: ${discountDto.notes}`
+          : `${debt.notes ? debt.notes + ' | ' : ''}تم تطبيق خصم بقيمة ${discountDto.discountAmount}`,
+      }
+    });
+
+    // Check if the debt is fully paid after discount
+    if (updatedDebt.remainingAmount <= 0) {
+      await this.prisma.debt.update({
+        where: { id },
+        data: {
+          status: 'paid',
+          lastPaymentDate: new Date()
+        }
+      });
+    }
+
+    return this.findOne(id);
+  }
 }

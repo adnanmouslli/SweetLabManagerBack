@@ -4,6 +4,7 @@ import { CreateShiftDto } from './dto/create-shift.dto';
 import { UpdateShiftDto } from './dto/update-shift.dto';
 import { JwtAuthGuard, Role, Roles, RolesGuard, User } from '@/common';
 import { ShiftStatus, ShiftType } from '@prisma/client';
+import { CloseShiftDto } from './dto/close-shift.dto';
 
 @Controller('shifts')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -30,13 +31,9 @@ export class ShiftsController {
     return this.shiftsService.remove(+id);
   }
 
-  @Get('close')
-  closeShift(@Query('differenceStatus') differenceStatus: 'surplus' | 'deficit', @Query('differenceValue') differenceValue: number) {
-    if (!differenceStatus || differenceValue === undefined) {
-      throw new BadRequestException('يرجى إدخال حالة وقيمة الفرق');
-    }
-  
-    return this.shiftsService.closeShift(differenceStatus, differenceValue);
+  @Post('close')
+  closeShift(@Body() closeShiftDto: CloseShiftDto) {
+    return this.shiftsService.closeShift(closeShiftDto.actualAmount);
   }
   
 

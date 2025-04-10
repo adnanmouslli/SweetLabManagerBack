@@ -156,7 +156,8 @@ async remove(id: number) {
   }
 }
 
-async closeShift(differenceStatus: 'surplus' | 'deficit', differenceValue: number) {
+
+async closeShift(actualAmount: number) {
   try {
     const openShift = await this.prisma.shift.findFirst({
       where: { status: ShiftStatus.open },
@@ -182,6 +183,22 @@ async closeShift(differenceStatus: 'surplus' | 'deficit', differenceValue: numbe
       throw new BadRequestException('لا يمكن إغلاق الواردية بينما توجد طلبات تحويل معلقة من الصندوق العام. يرجى معالجة هذه الطلبات أولاً.');
     }
 
+    // الحصول على ملخص الواردية الحالية للمقارنة
+    const shiftSummary = await this.getCurrentShiftSummary();
+    const expectedAmount = shiftSummary.totalNet;
+
+    // تحديد إذا كان هناك زيادة أو نقصان بناءً على المبلغ الفعلي المستلم
+    let differenceStatus: 'surplus' | 'deficit' | null = null;
+    let differenceValue = 0;
+
+    if (actualAmount > expectedAmount) {
+      differenceStatus = 'surplus'; // زيادة
+      differenceValue = actualAmount - expectedAmount;
+    } else if (actualAmount < expectedAmount) {
+      differenceStatus = 'deficit'; // نقصان
+      differenceValue = expectedAmount - actualAmount;
+    }
+
     const [generalFund, boothFund, universityFund] = await Promise.all([
       this.prisma.fund.findFirst({ where: { fundType: 'general' } }),
       this.prisma.fund.findFirst({ where: { fundType: 'booth' } }),
@@ -195,7 +212,9 @@ async closeShift(differenceStatus: 'surplus' | 'deficit', differenceValue: numbe
     return await this.prisma.$transaction(async (prisma) => {
       const boothBalance = boothFund?.currentBalance || 0;
       const universityBalance = universityFund?.currentBalance || 0;
-      const totalTransfer = boothBalance + universityBalance;
+      
+      // نستخدم المبلغ الفعلي المستلم بدلاً من مجموع الأرصدة
+      const totalTransfer = actualAmount;
 
       if (boothFund) {
         await prisma.fund.update({
@@ -226,7 +245,7 @@ async closeShift(differenceStatus: 'surplus' | 'deficit', differenceValue: numbe
           status: ShiftStatus.closed,
           closeTime: new Date(),
           differenceStatus,
-          differenceValue: Number(differenceValue),
+          differenceValue,
         },
         include: {
           employee: {
@@ -241,10 +260,14 @@ async closeShift(differenceStatus: 'surplus' | 'deficit', differenceValue: numbe
       return {
         message: 'تم إغلاق الواردية وتحويل الأرصدة بنجاح',
         shift: closedShift,
+        expectedAmount,
+        actualAmount,
+        differenceStatus,
+        differenceValue,
         transfers: {
           boothTransfer: boothBalance,
           universityTransfer: universityBalance,
-          totalTransferred: totalTransfer,
+          totalTransferred: actualAmount,
         },
       };
     });
