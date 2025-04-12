@@ -15,6 +15,7 @@ import { ItemGroupsModule } from './module/item-groups/item-groups.module';
 import { TrayTrackingModule } from './module/tray-tracking/tray-tracking.module';
 import { CustomersModule } from './module/customers/customers.module';
 import { AdvancesModule } from './module/advances/advances.module';
+import { CustomerCategoryModule } from './module/customer-category/customer-category.module';
 
 @Module({
   imports: [
@@ -45,7 +46,8 @@ import { AdvancesModule } from './module/advances/advances.module';
     ItemGroupsModule,
     TrayTrackingModule,
     CustomersModule,
-    AdvancesModule
+    AdvancesModule,
+    CustomerCategoryModule
   ],
   providers: [PrismaConfig],
   exports: [PrismaConfig],

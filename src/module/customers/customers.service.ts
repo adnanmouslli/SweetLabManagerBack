@@ -7,7 +7,7 @@ import { UpdateCustomerDto } from './dto/update-customer.dto';
 export class CustomersService {
   constructor(private prisma: PrismaService) {}
 
-  async create(createCustomerDto) {
+  async create(createCustomerDto: CreateCustomerDto) {
     // التحقق من عدم وجود رقم الهاتف مسبقاً
     const existingCustomer = await this.prisma.customer.findUnique({
       where: { phone: createCustomerDto.phone }
@@ -15,6 +15,17 @@ export class CustomersService {
 
     if (existingCustomer) {
       throw new BadRequestException('رقم الهاتف مسجل مسبقاً');
+    }
+
+    // التحقق من وجود الصنف في حالة تحديده
+    if (createCustomerDto.categoryId) {
+      const category = await this.prisma.customerCategory.findUnique({
+        where: { id: createCustomerDto.categoryId }
+      });
+
+      if (!category) {
+        throw new NotFoundException('صنف العملاء المحدد غير موجود');
+      }
     }
 
     return this.prisma.customer.create({
@@ -25,6 +36,7 @@ export class CustomersService {
   findAll() {
     return this.prisma.customer.findMany({
       include: {
+        category: true,
         invoices: {
           include: {
             items: {
@@ -54,10 +66,11 @@ export class CustomersService {
     });
   }
 
-  async findOne(id) {
+  async findOne(id: number) {
     const customer = await this.prisma.customer.findUnique({
       where: { id },
       include: {
+        category: true,
         invoices: {
           include: {
             items: {
@@ -90,7 +103,7 @@ export class CustomersService {
     return customer;
   }
 
-  async update(id, updateCustomerDto) {
+  async update(id: number, updateCustomerDto: UpdateCustomerDto) {
     const customer = await this.prisma.customer.findUnique({
       where: { id }
     });
@@ -110,13 +123,24 @@ export class CustomersService {
       }
     }
 
+    // التحقق من وجود الصنف في حالة تحديثه
+    if (updateCustomerDto.categoryId) {
+      const category = await this.prisma.customerCategory.findUnique({
+        where: { id: updateCustomerDto.categoryId }
+      });
+
+      if (!category) {
+        throw new NotFoundException('صنف العملاء المحدد غير موجود');
+      }
+    }
+
     return this.prisma.customer.update({
       where: { id },
       data: updateCustomerDto
     });
   }
 
-  async remove(id) {
+  async remove(id: number) {
     const customer = await this.prisma.customer.findUnique({
       where: { id },
       include: {
@@ -153,7 +177,7 @@ export class CustomersService {
     });
   }
 
-  async search(query) {
+  async search(query: string) {
     return this.prisma.customer.findMany({
       where: {
         OR: [
@@ -162,6 +186,7 @@ export class CustomersService {
         ]
       },
       include: {
+        category: true,
         debts: {
           where: {
             status: 'active'
@@ -182,6 +207,12 @@ export class CustomersService {
         id: true,
         name: true,
         phone: true,
+        category: {
+          select: {
+            id: true,
+            name: true
+          }
+        },
         debts: {
           where: {
             status: 'active'
@@ -200,12 +231,13 @@ export class CustomersService {
       id: customer.id,
       name: customer.name,
       phone: customer.phone,
+      category: customer.category,
       totalDebt: customer.debts.reduce((sum, debt) => sum + debt.remainingAmount, 0)
     }));
   }
 
-  // تابع جديد لكشف حساب العميل
-  async getCustomerAccountStatement(customerId) {
+  // تابع كشف حساب العميل
+  async getCustomerAccountStatement(customerId: number) {
     // التحقق من وجود العميل
     const customer = await this.prisma.customer.findUnique({
       where: { id: customerId },
@@ -214,6 +246,8 @@ export class CustomersService {
         name: true,
         phone: true,
         notes: true,
+        categoryId: true,
+        category: true,
         createdAt: true,
         updatedAt: true,
       }
@@ -295,13 +329,12 @@ export class CustomersService {
     const monthlyAverage = this.calculateMonthlyAverage(invoices);
 
     // حساب آخر معاملة وأول معاملة
-    const firstTransaction = [...invoices].sort((a, b) => 
+    const sortedInvoices = [...invoices].sort((a, b) => 
       new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-    )[0];
-
-    const lastTransaction = [...invoices].sort((a, b) => 
-      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    )[0];
+    );
+    
+    const firstTransaction = sortedInvoices.length > 0 ? sortedInvoices[0] : null;
+    const lastTransaction = sortedInvoices.length > 0 ? sortedInvoices[sortedInvoices.length - 1] : null;
 
     // إعداد كشف الحساب النهائي
     return {
@@ -451,8 +484,7 @@ export class CustomersService {
 
     // تحويل الكائن إلى مصفوفة وترتيبها حسب الكمية
     return Object.values(groupedItems)
-      // @ts-ignore
-      .sort((a, b) => b.totalQuantity - a.totalQuantity)
+      .sort((a: any, b: any) => b.totalQuantity - a.totalQuantity)
       .slice(0, 5);
   }
 
@@ -481,14 +513,14 @@ export class CustomersService {
 
   private calculateTransactionFrequency(invoices) {
     if (invoices.length <= 1) return "غير محدد";
-
+  
     // ترتيب الفواتير حسب التاريخ
     const sortedInvoices = [...invoices]
       .filter(invoice => invoice.invoiceType === 'income')
       .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
     
     if (sortedInvoices.length <= 1) return "غير محدد";
-
+  
     // حساب المدة بين كل فاتورتين متتاليتين بالأيام
     const intervals = [];
     for (let i = 1; i < sortedInvoices.length; i++) {
@@ -497,10 +529,10 @@ export class CustomersService {
       const daysDiff = this.calculateDaysBetween(prevDate, currentDate);
       intervals.push(daysDiff);
     }
-
+  
     // حساب متوسط المدة بالأيام
     const averageInterval = intervals.reduce((sum, interval) => sum + interval, 0) / intervals.length;
-
+  
     // تحديد تردد المعاملات
     if (averageInterval <= 7) {
       return "أسبوعي";
@@ -516,7 +548,7 @@ export class CustomersService {
       return "سنوي";
     }
   }
-
+  
   private calculateReliabilityScore(invoices, debts) {
     // عوامل مختلفة لتحديد مستوى الموثوقية
     
@@ -564,12 +596,12 @@ export class CustomersService {
     // التأكد من أن النتيجة بين 0 و 100
     return Math.max(0, Math.min(100, reliabilityScore));
   }
-
+  
   private formatDuration(date) {
     const now = new Date();
     const pastDate = new Date(date);
     const diffInDays = this.calculateDaysBetween(pastDate, now);
-
+  
     if (diffInDays < 1) {
       return "اليوم";
     } else if (diffInDays < 2) {
@@ -591,7 +623,7 @@ export class CustomersService {
       return result;
     }
   }
-
+  
   private calculateDaysBetween(startDate, endDate) {
     const start = new Date(startDate);
     const end = new Date(endDate);
