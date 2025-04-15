@@ -153,6 +153,7 @@ model Invoice {
   customer        Customer?       @relation(fields: [customerId], references: [id])
   totalAmount     Float
   discount        Float           @default(0)
+  additionalAmount Float          @default(0)
   paidStatus      Boolean
   paymentDate     DateTime?
   createdAt       DateTime        @default(now())

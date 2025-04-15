@@ -15,8 +15,6 @@ export class CreateCustomerDto {
   notes?: string;
 
   @IsOptional()
-  @IsInt({ message: 'معرف الصنف يجب أن يكون رقمًا صحيحًا' })
-  @Min(1, { message: 'معرف الصنف يجب أن يكون أكبر من 0' })
-  @Type(() => Number)
-  categoryId?: number;
+  @Type(() => String)
+  categoryId?: string;
 }

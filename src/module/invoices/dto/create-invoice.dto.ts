@@ -37,6 +37,15 @@ export class CreateInvoiceDto {
   @IsOptional()
   discount?: number;
 
+
+  @IsNumber()
+  @IsOptional()
+  additionalAmount?: number;
+
+  @IsString()
+  @IsOptional()
+  additionalAmountNotes?: string; 
+
   @IsString()
   @IsOptional()
   notes?: string;

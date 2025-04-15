@@ -6,6 +6,7 @@ import { FilterInvoiceDto } from './dto/filter-invoice.dto';
 import { InvoiceCategory, InvoiceType } from '@prisma/client';
 import { UpdateInvoiceDto } from './dto/update-invoice.dto';
 import { ConfirmTransferDto, TransferHistoryQueryDto, TransferToBoothUniversityDto, TransferToMainRequestDto } from './dto/transfer-request.dto';
+import { ConvertToBreakDto } from './dto/convert-to-break.dto';
 
 
 @Controller('invoices')
@@ -133,6 +134,11 @@ getTransferRequestHistory(
   };
   
   return this.invoicesService.getTransferRequestHistory(queryDto);
+}
+
+@Post(':id/convert-to-break')
+convertToBreak(@Param('id') id: string, @Body() convertToBreakDto: ConvertToBreakDto) {
+  return this.invoicesService.convertToBreak(+id, convertToBreakDto);
 }
 
 

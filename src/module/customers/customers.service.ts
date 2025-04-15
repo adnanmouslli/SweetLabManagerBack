@@ -8,6 +8,12 @@ export class CustomersService {
   constructor(private prisma: PrismaService) {}
 
   async create(createCustomerDto: CreateCustomerDto) {
+    
+    const customerData = {
+      ...createCustomerDto,
+      categoryId: createCustomerDto.categoryId ? parseInt(createCustomerDto.categoryId) : undefined
+    };
+
     // التحقق من عدم وجود رقم الهاتف مسبقاً
     const existingCustomer = await this.prisma.customer.findUnique({
       where: { phone: createCustomerDto.phone }
@@ -20,7 +26,7 @@ export class CustomersService {
     // التحقق من وجود الصنف في حالة تحديده
     if (createCustomerDto.categoryId) {
       const category = await this.prisma.customerCategory.findUnique({
-        where: { id: createCustomerDto.categoryId }
+        where: { id: parseInt(createCustomerDto.categoryId)  }
       });
 
       if (!category) {
@@ -29,7 +35,7 @@ export class CustomersService {
     }
 
     return this.prisma.customer.create({
-      data: createCustomerDto
+      data: customerData
     });
   }
 
@@ -108,6 +114,11 @@ export class CustomersService {
       where: { id }
     });
 
+    const customerData = {
+      ...updateCustomerDto,
+      categoryId: updateCustomerDto.categoryId ? parseInt(updateCustomerDto.categoryId) : undefined
+    };
+
     if (!customer) {
       throw new NotFoundException('العميل غير موجود');
     }
@@ -126,7 +137,7 @@ export class CustomersService {
     // التحقق من وجود الصنف في حالة تحديثه
     if (updateCustomerDto.categoryId) {
       const category = await this.prisma.customerCategory.findUnique({
-        where: { id: updateCustomerDto.categoryId }
+        where: { id: parseInt(updateCustomerDto.categoryId) }
       });
 
       if (!category) {
@@ -136,7 +147,7 @@ export class CustomersService {
 
     return this.prisma.customer.update({
       where: { id },
-      data: updateCustomerDto
+      data: customerData
     });
   }
 

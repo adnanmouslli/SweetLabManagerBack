@@ -55,7 +55,7 @@ export class CustomersController {
   getCustomerAccountStatement(@Param('id', ParseIntPipe) id: number) {
     return this.customersService.getCustomerAccountStatement(id);
   }
-
+    
   @Patch(':id')
   @Roles(Role.ADMIN, Role.MANAGER)
   update(

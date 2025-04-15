@@ -22,7 +22,6 @@ export class ItemGroupsController {
   constructor(private readonly itemGroupsService: ItemGroupsService) {}
 
   @Post()
-  @Roles(Role.MANAGER, Role.ADMIN)
   create(@Body() createItemGroupDto: CreateItemGroupDto) {
     return this.itemGroupsService.create(createItemGroupDto);
   }

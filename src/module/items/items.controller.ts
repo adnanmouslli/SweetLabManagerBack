@@ -1,7 +1,8 @@
-import { Controller, Get, Post, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, UseGuards, Patch, Delete } from '@nestjs/common';
 import { ItemsService } from './items.service';
 import { CreateItemDto } from './dto/create-item.dto';
-import { JwtAuthGuard, Role, Roles, RolesGuard } from '@/common';
+import { UpdateItemDto } from './dto/update-item.dto';
+import { JwtAuthGuard, RolesGuard } from '@/common';
 
 @Controller('items')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -9,7 +10,6 @@ export class ItemsController {
   constructor(private readonly itemsService: ItemsService) {}
 
   @Post()
-  @Roles(Role.MANAGER, Role.ADMIN)
   create(@Body() createItemDto: CreateItemDto) {
     return this.itemsService.create(createItemDto);
   }
@@ -22,5 +22,20 @@ export class ItemsController {
   @Get('group/:id')
   findByGroup(@Param('id') id: string) {
     return this.itemsService.findByGroup(+id);
+  }
+
+  @Get(':id')
+  findOne(@Param('id') id: string) {
+    return this.itemsService.findOne(+id);
+  }
+
+  @Patch(':id')
+  update(@Param('id') id: string, @Body() updateItemDto: UpdateItemDto) {
+    return this.itemsService.update(+id, updateItemDto);
+  }
+
+  @Delete(':id')
+  remove(@Param('id') id: string) {
+    return this.itemsService.remove(+id);
   }
 }

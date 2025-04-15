@@ -5,6 +5,7 @@ import { InvoiceCategory, InvoiceType } from '@prisma/client';
 import { FilterInvoiceDto } from './dto/filter-invoice.dto';
 import { UpdateInvoiceDto } from './dto/update-invoice.dto';
 import { TransferHistoryQueryDto } from './dto/transfer-request.dto';
+import { ConvertToBreakDto } from './dto/convert-to-break.dto';
 
 
 enum TransferToMainStatus {
@@ -75,18 +76,36 @@ export class InvoicesService {
     const invoiceNumber = `INV-${Date.now()}`;
       
     return this.prisma.$transaction(async (prisma) => {
-      const calculatedTotal =
-        createInvoiceDto.items?.reduce(
-          (sum, item) => sum + item.quantity * item.unitPrice,
-          0
-        ) || 0;
-        
-      if (
-        createInvoiceDto.items &&
-        Math.abs(calculatedTotal - (createInvoiceDto.totalAmount || 0)) > 0.01
-      ) {
-        throw new BadRequestException('المجموع الكلي غير صحيح');
-      }
+       // حساب المجموع من العناصر
+       const calculatedItemsTotal =
+       createInvoiceDto.items?.reduce(
+         (sum, item) => sum + item.quantity * item.unitPrice,
+         0
+       ) || 0;
+       
+     // إضافة المبلغ الإضافي (إذا وجد) إلى المجموع المحسوب
+     const additionalAmount = createInvoiceDto.additionalAmount || 0;
+     const calculatedTotal = calculatedItemsTotal + additionalAmount;
+     
+     // التحقق من صحة المجموع الكلي
+     if (
+       createInvoiceDto.items &&
+       Math.abs(calculatedTotal - (createInvoiceDto.totalAmount || 0)) > 0.01
+     ) {
+       throw new BadRequestException('المجموع الكلي غير صحيح');
+     }
+     
+     // إضافة معلومات المبلغ الإضافي إلى الملاحظات إذا وجد
+     let invoiceNotes = createInvoiceDto.notes || '';
+     if (additionalAmount > 0) {
+       const additionalNotes = createInvoiceDto.additionalAmountNotes 
+         ? `مبلغ إضافي (${additionalAmount}): ${createInvoiceDto.additionalAmountNotes}` 
+         : `مبلغ إضافي: ${additionalAmount}`;
+       
+       invoiceNotes = invoiceNotes 
+         ? `${invoiceNotes}\n${additionalNotes}` 
+         : additionalNotes;
+     }
       
       // التعامل مع فاتورة الكسر (isBreak = true)
       if (createInvoiceDto.isBreak === true) {
@@ -101,7 +120,8 @@ export class InvoicesService {
             paidStatus: true,  // فاتورة مدفوعة
             totalAmount: createInvoiceDto.initialPayment, // قيمة الدفعة الأولى
             discount: createInvoiceDto.discount || 0,
-            notes: createInvoiceDto.notes ? `${createInvoiceDto.notes} - دفعة أولى` : 'دفعة أولى',
+            additionalAmount: additionalAmount, // تخزين المبلغ الإضافي
+            notes: invoiceNotes ? `${invoiceNotes} - دفعة أولى` : 'دفعة أولى',
             fundId: createInvoiceDto.fundId,
             shiftId: activeShift.id,
             paymentDate: new Date(),
@@ -159,7 +179,8 @@ export class InvoicesService {
             paidStatus: false, // غير مدفوعة
             totalAmount: remainingAmount,
             discount: 0, // لا خصم على فاتورة الكسر عادة
-            notes: createInvoiceDto.notes ? `${createInvoiceDto.notes} - كسر` : 'كسر',
+            additionalAmount: 0, // لا مبلغ إضافي على فاتورة الكسر
+            notes: invoiceNotes ? `${invoiceNotes} - كسر` : 'كسر',
             fundId: createInvoiceDto.fundId,
             shiftId: activeShift.id,
             paymentDate: null,
@@ -232,7 +253,8 @@ export class InvoicesService {
             paidStatus: createInvoiceDto.paidStatus,
             totalAmount: createInvoiceDto.totalAmount || 0,
             discount: createInvoiceDto.discount || 0,
-            notes: createInvoiceDto.notes || null,
+            additionalAmount: additionalAmount, // تخزين المبلغ الإضافي
+            notes: invoiceNotes || null,
             fundId: createInvoiceDto.fundId,
             shiftId: activeShift.id,
             paymentDate: createInvoiceDto.paidStatus ? new Date() : null,
@@ -807,7 +829,7 @@ export class InvoicesService {
 
 
   async updateInvoice(invoiceId: number, updateInvoiceDto: UpdateInvoiceDto, employeeId: number) {
-    const allowedFields = ['customerId', 'discount', 'items', 'trayCount'];
+    const allowedFields = ['customerId', 'discount', 'items', 'trayCount', 'additionalAmount', 'additionalAmountNotes'];
   
     // تحقق من الحقول المسموح بها فقط
     const updateKeys = Object.keys(updateInvoiceDto);
@@ -852,14 +874,52 @@ export class InvoicesService {
       } else if('trayCount' in updateInvoiceDto && existingInvoice.trayCount > 0 && updateInvoiceDto.trayCount == 0){
         await prisma.trayTracking.deleteMany({ where: { invoiceId: invoiceId } });
       } 
-  
+      
+
+      let notes = existingInvoice.notes || '';
+    // في حالة تحديث المبلغ الإضافي
+    if ('additionalAmount' in updateInvoiceDto) {
+      const additionalAmount = updateInvoiceDto.additionalAmount || 0;
+      const originalAdditionalAmount = existingInvoice.additionalAmount || 0;
+      
+      // إذا كان هناك نص سابق عن المبلغ الإضافي، قم بإزالته
+      const additionalAmountRegex = /مبلغ إضافي(\s*\(\d+(\.\d+)?\))?(: .*)?\n?/g;
+      notes = notes.replace(additionalAmountRegex, '');
+      
+      // إضافة نص جديد عن المبلغ الإضافي إذا كان أكبر من صفر
+      if (additionalAmount > 0) {
+        const additionalNotes = updateInvoiceDto.additionalAmountNotes 
+          ? `مبلغ إضافي (${additionalAmount}): ${updateInvoiceDto.additionalAmountNotes}` 
+          : `مبلغ إضافي: ${additionalAmount}`;
+        
+        notes = notes 
+          ? `${notes}\n${additionalNotes}` 
+          : additionalNotes;
+      }
+      
+      // حساب المجموع الجديد بناءً على عناصر الفاتورة والمبلغ الإضافي
+      let itemsTotal = 0;
+      
+      // استخدام العناصر المحدثة إذا تم توفيرها، وإلا استخدام العناصر الحالية
+      if (updateInvoiceDto.items) {
+        itemsTotal = updateInvoiceDto.items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
+      } else {
+        itemsTotal = existingInvoice.items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
+      }
+      
+      // تحديث إجمالي الفاتورة
+      const newTotalAmount = itemsTotal + additionalAmount;
+      
       // تحديث بيانات الفاتورة
       const updatedInvoice = await prisma.invoice.update({
         where: { id: invoiceId },
         data: {
           // customerId: updateInvoiceDto.customerId || existingInvoice.customerId,
           discount: updateInvoiceDto.discount,
+          additionalAmount: additionalAmount,
+          notes: notes,
           trayCount: updateInvoiceDto.trayCount,
+          totalAmount: newTotalAmount,
           items: updateInvoiceDto.items
             ? {
                 deleteMany: { invoiceId: invoiceId }, // حذف العناصر القديمة
@@ -881,7 +941,8 @@ export class InvoicesService {
       });
   
       return updatedInvoice;
-    });
+    }
+  });
   }
   
 
@@ -1797,6 +1858,203 @@ async getTransferRequestHistory(options?: TransferHistoryQueryDto) {
     orderBy: {
       requestedAt: 'desc',
     },
+  });
+}
+
+
+async convertToBreak(invoiceId: number, convertToBreakDto: ConvertToBreakDto) {
+  const activeShift = await this.prisma.shift.findFirst({
+    where: {
+      status: 'open',
+    },
+  });
+
+  if (!activeShift) {
+    throw new BadRequestException('لا يمكن تحويل الفاتورة - لا يوجد واردية مفتوحة');
+  }
+
+  // الحصول على بيانات الفاتورة الأصلية
+  const originalInvoice = await this.prisma.invoice.findUnique({
+    where: { id: invoiceId },
+    include: {
+      items: {
+        include: {
+          item: true
+        }
+      },
+      fund: true,
+      customer: true,
+      employee: true,
+      trayTracking: true
+    }
+  });
+
+  if (!originalInvoice) {
+    throw new NotFoundException('الفاتورة غير موجودة');
+  }
+
+  // التحقق من أن الفاتورة غير مدفوعة
+  if (originalInvoice.paidStatus) {
+    throw new BadRequestException('لا يمكن تحويل الفاتورة المدفوعة إلى فاتورة كسر');
+  }
+  
+  // التحقق من أن الفاتورة ليست فاتورة كسر بالفعل
+  if (originalInvoice.isBreak) {
+    throw new BadRequestException('الفاتورة هي بالفعل فاتورة كسر');
+  }
+
+  // التحقق من أن قيمة الدفعة الأولى أقل من إجمالي المبلغ
+  if (convertToBreakDto.initialPayment >= originalInvoice.totalAmount) {
+    throw new BadRequestException('قيمة الدفعة الأولى يجب أن تكون أقل من إجمالي المبلغ');
+  }
+
+  // التحقق من أن قيمة الدفعة الأولى أكبر من صفر
+  if (convertToBreakDto.initialPayment <= 0) {
+    throw new BadRequestException('قيمة الدفعة الأولى يجب أن تكون أكبر من صفر');
+  }
+
+  return this.prisma.$transaction(async (prisma) => {
+    const now = Date.now();
+    const newInvoiceNumber = `INV-${now}`;
+    
+    // 1. إنشاء الفاتورة الأولى (المدفوعة) بقيمة الدفعة الأولى
+    const paidInvoice = await prisma.invoice.create({
+      data: {
+        invoiceNumber: `${newInvoiceNumber}-A`,
+        employeeId: originalInvoice.employeeId,
+        invoiceType: originalInvoice.invoiceType,
+        invoiceCategory: originalInvoice.invoiceCategory,
+        customerId: originalInvoice.customerId,
+        paidStatus: true, // فاتورة مدفوعة
+        totalAmount: convertToBreakDto.initialPayment,
+        discount: 0, // لا خصم على الدفعة الأولى عادة
+        additionalAmount: 0, // لا مبلغ إضافي على الدفعة الأولى
+        notes: originalInvoice.notes 
+          ? `${originalInvoice.notes} - تم تحويل الفاتورة ${originalInvoice.invoiceNumber} إلى كسر - دفعة أولى` 
+          : `تم تحويل الفاتورة ${originalInvoice.invoiceNumber} إلى كسر - دفعة أولى`,
+        fundId: originalInvoice.fundId,
+        shiftId: activeShift.id,
+        paymentDate: new Date(),
+        trayCount: 0, // نقل الصواني إلى فاتورة الكسر
+        isBreak: false,
+        
+        // نسخ نفس العناصر من الفاتورة الأصلية
+        items: {
+          create: originalInvoice.items.map(item => ({
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            unit: item.unit,
+            subTotal: item.quantity * item.unitPrice,
+            itemId: item.itemId,
+          }))
+        }
+      },
+      include: {
+        items: {
+          include: {
+            item: true
+          }
+        },
+        employee: {
+          select: {
+            username: true
+          }
+        },
+        customer: true
+      }
+    });
+
+    // 2. إنشاء فاتورة الكسر (غير مدفوعة) بالمبلغ المتبقي
+    const remainingAmount = originalInvoice.totalAmount - convertToBreakDto.initialPayment;
+    
+    const breakInvoice = await prisma.invoice.create({
+      data: {
+        invoiceNumber: `${newInvoiceNumber}-B`,
+        employeeId: originalInvoice.employeeId,
+        invoiceType: originalInvoice.invoiceType,
+        invoiceCategory: originalInvoice.invoiceCategory,
+        customerId: originalInvoice.customerId,
+        paidStatus: false, // فاتورة غير مدفوعة
+        totalAmount: remainingAmount,
+        discount: originalInvoice.discount || 0, // نقل الخصم إلى فاتورة الكسر
+        additionalAmount: originalInvoice.additionalAmount || 0, // نقل المبلغ الإضافي إلى فاتورة الكسر
+        notes: originalInvoice.notes 
+          ? `${originalInvoice.notes} - تم تحويل الفاتورة ${originalInvoice.invoiceNumber} إلى كسر - المبلغ المتبقي` 
+          : `تم تحويل الفاتورة ${originalInvoice.invoiceNumber} إلى كسر - المبلغ المتبقي`,
+        fundId: originalInvoice.fundId,
+        shiftId: activeShift.id,
+        paymentDate: null,
+        trayCount: originalInvoice.trayCount || 0, // نقل الصواني إلى فاتورة الكسر
+        isBreak: true, // تعليم كفاتورة كسر
+        
+        // نسخ نفس العناصر من الفاتورة الأصلية
+        items: {
+          create: originalInvoice.items.map(item => ({
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            unit: item.unit,
+            subTotal: item.quantity * item.unitPrice,
+            itemId: item.itemId,
+          }))
+        }
+      },
+      include: {
+        items: {
+          include: {
+            item: true
+          }
+        },
+        employee: {
+          select: {
+            username: true
+          }
+        },
+        customer: true
+      }
+    });
+
+    // 3. تحديث رصيد الصندوق للدفعة الأولية
+    await prisma.fund.update({
+      where: { id: originalInvoice.fundId },
+      data: {
+        currentBalance: {
+          [originalInvoice.invoiceType === 'income' ? 'increment' : 'decrement']:
+            convertToBreakDto.initialPayment,
+        },
+      },
+    });
+
+    // 4. نقل تتبع الصواني (إن وجد) إلى فاتورة الكسر
+    if (originalInvoice.trayTracking) {
+      await prisma.trayTracking.update({
+        where: { invoiceId: originalInvoice.id },
+        data: {
+          invoiceId: breakInvoice.id,
+          notes: `${originalInvoice.trayTracking.notes || ''} - تم تحويل الفاتورة إلى كسر`,
+        },
+      });
+    }
+
+    // 5. حذف العناصر المرتبطة بالفاتورة الأصلية أولاً
+    await prisma.invoiceItem.deleteMany({
+      where: { invoiceId: originalInvoice.id }
+    });
+    
+    // 6. حذف الفاتورة الأصلية
+    await prisma.invoice.delete({
+      where: { id: originalInvoice.id }
+    });
+
+    // 7. إرجاع تفاصيل الفواتير المنشأة
+    return {
+      success: true,
+      message: 'تم تحويل الفاتورة إلى فاتورة كسر بنجاح',
+      paidInvoice: paidInvoice,
+      breakInvoice: breakInvoice,
+      initialPayment: convertToBreakDto.initialPayment,
+      remainingAmount: remainingAmount,
+      originalInvoiceNumber: originalInvoice.invoiceNumber
+    };
   });
 }
 
