@@ -104,7 +104,6 @@ export class FundsService {
         return {
           fromBalance: updatedGeneralFund.currentBalance,
           toBalance: updatedMainFund.currentBalance
-          
         };
       });
 

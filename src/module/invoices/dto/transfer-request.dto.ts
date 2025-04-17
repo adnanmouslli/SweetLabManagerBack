@@ -4,10 +4,10 @@ export class TransferToBoothUniversityDto {
     notes?: string;
   }
   
-  export class TransferToMainRequestDto {
-    amount: number;
-    notes?: string;
-  }
+export class TransferToMainRequestDto {
+  amount: number;
+  notes?: string;
+}
   
   export class ConfirmTransferDto {
     confirm: boolean;

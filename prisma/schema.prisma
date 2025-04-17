@@ -17,7 +17,8 @@ model User {
 
   shifts   Shift[]
   invoices Invoice[]
-
+  orders   Order[] 
+  
   fundTransfers FundTransferLog[]
 
   transferRequests   MainFundTransferRequest[]
@@ -130,11 +131,13 @@ model Item {
 
   price       Float
   description String?
-
+  
   groupId Int
   group   ItemGroup @relation(fields: [groupId], references: [id])
 
   invoiceItems InvoiceItem[]
+  orderItems OrderItem[]
+
 
   @@map("items")
 }
@@ -168,6 +171,9 @@ model Invoice {
 
   employeeId Int
   employee   User @relation(fields: [employeeId], references: [id])
+
+
+  order Order?
 
   items         InvoiceItem[]
   relatedDebtId Int? // Reference to the debt this invoice is related to
@@ -284,6 +290,7 @@ model Customer {
   debts    Debt[]
   trays    TrayTracking[]
   advances Advance[]
+  orders Order[]
   
   @@map("customers")
 }
@@ -353,4 +360,74 @@ model Advance {
 enum AdvanceStatus {
   active
   completed
+}
+
+model OrderCategory {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  orders Order[]
+
+  @@map("order_categories")
+}
+
+// Modelo de pedidos
+model Order {
+  id              Int         @id @default(autoincrement())
+  orderNumber     String      @unique // Número único del pedido (ej: ORD-1234)
+  customerId      Int
+  customer        Customer    @relation(fields: [customerId], references: [id])
+  totalAmount     Float
+  paidStatus      Boolean     @default(false)
+  status          OrderStatus @default(pending)
+  createdAt       DateTime    @default(now())
+  scheduledFor    DateTime    // Fecha para la que está programado el pedido
+  deliveryDate    DateTime?   // Fecha real de entrega (puede ser nula si aún no se entrega)
+  notes           String?
+  
+  // Relación con la categoría de pedido
+  categoryId      Int
+  category        OrderCategory @relation(fields: [categoryId], references: [id])
+  
+  // Relación con la factura (si se ha generado)
+  invoiceId       Int?       @unique
+  invoice         Invoice?   @relation(fields: [invoiceId], references: [id])
+  
+  // Relación con el usuario que creó el pedido
+  employeeId      Int
+  employee        User        @relation(fields: [employeeId], references: [id])
+  
+  // Elementos del pedido
+  items           OrderItem[]
+
+  @@map("orders")
+}
+
+enum OrderStatus {
+  pending    // En espera
+  processing // En proceso
+  ready      // Listo para entrega
+  delivered  // Entregado
+  cancelled  // Cancelado
+}
+
+
+model OrderItem {
+  id        Int   @id @default(autoincrement())
+  orderId   Int
+  order     Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  
+  itemId    Int
+  item      Item  @relation(fields: [itemId], references: [id])
+  
+  quantity  Float
+  unitPrice Float
+  unit      String
+  subTotal  Float
+  notes     String?
+
+  @@map("order_items")
 }

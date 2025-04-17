@@ -1563,7 +1563,7 @@ async transferFromBoothOrUniversityToGeneral(sourceId: number, amount: number, e
   });
 }
 
-async createTransferToMainRequest(amount: number, employeeId: number, notes?: string) {
+async createTransferToMainRequest(sourceId: number, amount: number, employeeId: number, notes?: string) {
   // التحقق من وجود واردية مفتوحة
   const activeShift = await this.prisma.shift.findFirst({
     where: {
@@ -1575,18 +1575,18 @@ async createTransferToMainRequest(amount: number, employeeId: number, notes?: st
     throw new BadRequestException('لا يوجد واردية مفتوحة');
   }
 
-  // البحث عن الصندوق العام
-  const generalFund = await this.prisma.fund.findFirst({
-    where: { fundType: 'general' },
+  // البحث عن الصندوق المصدر
+  const sourceFund = await this.prisma.fund.findUnique({
+    where: { id: sourceId },
   });
 
-  if (!generalFund) {
-    throw new BadRequestException('الصندوق العام غير موجود');
+  if (!sourceFund) {
+    throw new BadRequestException('الصندوق المصدر غير موجود');
   }
 
-  // التحقق من الرصيد المتاح في الصندوق العام
-  if (generalFund.currentBalance < amount) {
-    throw new BadRequestException(`رصيد الصندوق العام غير كافي (${generalFund.currentBalance})`);
+  // التحقق من الرصيد المتاح في الصندوق المصدر
+  if (sourceFund.currentBalance < amount) {
+    throw new BadRequestException(`رصيد الصندوق المصدر غير كافي (${sourceFund.currentBalance})`);
   }
 
   // البحث عن الخزينة الرئيسية
@@ -1600,7 +1600,7 @@ async createTransferToMainRequest(amount: number, employeeId: number, notes?: st
 
   // إنشاء المعاملة في قاعدة البيانات
   return this.prisma.$transaction(async (prisma) => {
-    // إنشاء فاتورة صرف من الصندوق العام (مؤقتة - في حالة انتظار)
+    // إنشاء فاتورة صرف من الصندوق المصدر (مؤقتة - في حالة انتظار)
     const expenseInvoiceNumber = `TRF-MAIN-EXP-${Date.now()}`;
     const expenseInvoice = await prisma.invoice.create({
       data: {
@@ -1610,8 +1610,8 @@ async createTransferToMainRequest(amount: number, employeeId: number, notes?: st
         totalAmount: amount,
         discount: 0,
         paidStatus: false, // لن يتم تفعيل الفاتورة حتى التأكيد
-        notes: (notes ? `${notes} - ` : '') + 'طلب تحويل إلى الخزينة الرئيسية - في انتظار التأكيد',
-        fundId: generalFund.id,
+        notes: (notes ? `${notes} - ` : '') + `طلب تحويل من ${sourceFund.fundType} إلى الخزينة الرئيسية - في انتظار التأكيد`,
+        fundId: sourceId,
         shiftId: activeShift.id,
         employeeId,
         isBreak: false,
@@ -1628,7 +1628,7 @@ async createTransferToMainRequest(amount: number, employeeId: number, notes?: st
         totalAmount: amount,
         discount: 0,
         paidStatus: false, // لن يتم تفعيل الفاتورة حتى التأكيد
-        notes: (notes ? `${notes} - ` : '') + 'طلب تحويل من الصندوق العام - في انتظار التأكيد',
+        notes: (notes ? `${notes} - ` : '') + `طلب تحويل من ${sourceFund.fundType} - في انتظار التأكيد`,
         fundId: mainFund.id,
         shiftId: activeShift.id,
         employeeId,
@@ -1642,7 +1642,7 @@ async createTransferToMainRequest(amount: number, employeeId: number, notes?: st
         amount,
         status: TransferToMainStatus.PENDING,
         requestedById: employeeId,
-        notes: notes || 'طلب تحويل من الصندوق العام إلى الخزينة الرئيسية',
+        notes: notes || `طلب تحويل من ${sourceFund.fundType} إلى الخزينة الرئيسية`,
         expenseInvoiceId: expenseInvoice.id,
         incomeInvoiceId: incomeInvoice.id,
       },
@@ -1653,6 +1653,7 @@ async createTransferToMainRequest(amount: number, employeeId: number, notes?: st
       message: 'تم إنشاء طلب التحويل بنجاح، في انتظار التأكيد من أمين الخزينة',
       transferAmount: amount,
       status: TransferToMainStatus.PENDING,
+      sourceFund: sourceFund.fundType,
       expenseInvoice,
       incomeInvoice,
       transferRequest,

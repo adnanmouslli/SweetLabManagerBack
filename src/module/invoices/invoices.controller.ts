@@ -88,12 +88,14 @@ transferFromBoothOrUniversityToGeneral(
   );
 }
 
-@Post('transfer/to-main/request')
+@Post('transfer/from/:sourceId/to-main/request')
 createTransferToMainRequest(
+  @Param('sourceId') sourceId: string,
   @Body() requestData: TransferToMainRequestDto,
   @Req() req
-) : Promise<any>{
+): Promise<any> {
   return this.invoicesService.createTransferToMainRequest(
+    +sourceId, 
     requestData.amount,
     req.user.id,
     requestData.notes
