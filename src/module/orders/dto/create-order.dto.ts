@@ -1,41 +1,89 @@
-import { IsString, IsNumber, IsBoolean, IsOptional, IsArray, ValidateNested, IsEnum, IsISO8601, IsInt } from 'class-validator';
 import { Type } from 'class-transformer';
+import { IsArray, IsBoolean, IsDate, IsNotEmpty, IsNumber, IsOptional, IsString, ValidateNested } from 'class-validator';
 import { OrderStatus } from '@prisma/client';
-import { CreateOrderItemDto } from '@/module/order-item/dto/create-order-item.dto';
 
+class OrderItemDto {
+  @IsNumber()
+  itemId: number;
+
+  @IsNumber()
+  quantity: number;
+
+  @IsNumber()
+  unitPrice: number;
+
+  @IsString()
+  unit: string;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
+}
+
+class InvoiceDataDto {
+  @IsOptional()
+  @IsNumber()
+  discount?: number;
+
+  @IsOptional()
+  @IsNumber()
+  additionalAmount?: number;
+
+  @IsOptional()
+  @IsNumber()
+  trayCount?: number;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isBreak?: boolean;
+
+  @IsOptional()
+  @IsNumber()
+  initialPayment?: number;
+}
 
 export class CreateOrderDto {
-  @IsInt()
+  @IsNumber()
   customerId: number;
-  
+
+  @IsNumber()
+  categoryId: number;
+
   @IsNumber()
   totalAmount: number;
-  
-  @IsBoolean()
-  @IsOptional()
-  paidStatus?: boolean;
-  
-  @IsEnum(OrderStatus)
-  @IsOptional()
-  status?: OrderStatus;
-  
-  @IsISO8601()
-  @IsOptional()
-  scheduledFor?: string; 
-  
-  @IsString()
-  @IsOptional()
-  notes?: string;
-  
-  @IsInt()
-  categoryId: number;
-  
+
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => CreateOrderItemDto)
-  items: CreateOrderItemDto[];
-  
-  @IsBoolean()
+  @Type(() => OrderItemDto)
+  items: OrderItemDto[];
+
   @IsOptional()
-  isForToday?: boolean; 
+  @IsBoolean()
+  paidStatus?: boolean;
+
+  @IsOptional()
+  @IsString()
+  status?: OrderStatus;
+
+  @IsOptional()
+  @IsDate()
+  @Type(() => Date)
+  scheduledFor?: Date;
+
+  @IsOptional()
+  @IsBoolean()
+  isForToday?: boolean;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => InvoiceDataDto)
+  invoiceData?: InvoiceDataDto;
 }

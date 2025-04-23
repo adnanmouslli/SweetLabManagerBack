@@ -15,7 +15,7 @@ export class OrdersService {
   ) {}
   
   async create(createOrderDto: CreateOrderDto, employeeId: number) {
-
+    // Verify customer exists
     const customer = await this.prisma.customer.findUnique({
       where: { id: createOrderDto.customerId }
     });
@@ -24,7 +24,7 @@ export class OrdersService {
       throw new BadRequestException('العميل غير موجود');
     }
     
-
+    // Verify category exists
     const category = await this.prisma.orderCategory.findUnique({
       where: { id: createOrderDto.categoryId }
     });
@@ -33,7 +33,7 @@ export class OrdersService {
       throw new BadRequestException('فئة الطلبية غير موجودة');
     }
     
-
+    // Verify all items exist
     for (const item of createOrderDto.items) {
       const existingItem = await this.prisma.item.findUnique({
         where: { id: item.itemId }
@@ -44,30 +44,26 @@ export class OrdersService {
       }
     }
     
-
+    // Validate total amount
     const calculatedTotal = createOrderDto.items.reduce(
       (sum, item) => sum + (item.quantity * item.unitPrice),
       0
     );
     
-
     if (Math.abs(calculatedTotal - createOrderDto.totalAmount) > 0.01) {
       throw new BadRequestException('المجموع الكلي غير صحيح');
     }
     
-
+    // Determine scheduled date
     let scheduledDate: Date;
     
     if (createOrderDto.scheduledFor) {
-
       scheduledDate = new Date(createOrderDto.scheduledFor);
     } else {
-
       const isForToday = createOrderDto.isForToday || false;
       const now = this.createSyriaDate();
       
       if (isForToday) {
-
         scheduledDate = new Date(
           now.getFullYear(),
           now.getMonth(),
@@ -75,7 +71,6 @@ export class OrdersService {
           12, 0, 0 
         );
       } else {
-
         const tomorrow = new Date(now);
         tomorrow.setDate(tomorrow.getDate() + 1);
         tomorrow.setHours(12, 0, 0, 0); 
@@ -86,7 +81,7 @@ export class OrdersService {
     const orderNumber = `ORD-${Date.now()}`;
     
     return this.prisma.$transaction(async (prisma) => {
-
+      // Create order
       const order = await prisma.order.create({
         data: {
           orderNumber,
@@ -125,10 +120,10 @@ export class OrdersService {
         }
       });
       
-      // 2. Si el pedido está marcado como pagado, crear una factura
+      // If order is marked as paid, create an invoice
       let invoice = null;
       if (createOrderDto.paidStatus) {
-        // Buscar la turno (shift) abierto
+        // Find active shift
         const activeShift = await prisma.shift.findFirst({
           where: {
             status: 'open',
@@ -139,6 +134,7 @@ export class OrdersService {
           throw new BadRequestException('لا يوجد واردية مفتوحة، لا يمكن إنشاء فاتورة للطلبية المدفوعة');
         }
         
+        // Find general fund
         const generalFund = await prisma.fund.findFirst({
           where: { fundType: 'general' },
         });
@@ -147,62 +143,277 @@ export class OrdersService {
           throw new BadRequestException('لا يوجد صندوق عام، لا يمكن إنشاء فاتورة للطلبية المدفوعة');
         }
         
-
         const invoiceNumber = `INV-ORD-${Date.now()}`;
         
-        invoice = await prisma.invoice.create({
-          data: {
-            invoiceNumber,
-            employeeId,
-            invoiceType: 'income',
-            invoiceCategory: 'products',
-            customerId: createOrderDto.customerId,
-            paidStatus: true,  
-            totalAmount: createOrderDto.totalAmount,
-            discount: 0,
-            notes: createOrderDto.notes 
-              ? `${createOrderDto.notes} - فاتورة للطلبية رقم ${orderNumber}` 
-              : `فاتورة للطلبية رقم ${orderNumber}`,
-            fundId: generalFund.id,
-            shiftId: activeShift.id,
-            paymentDate: new Date(),
-            items: {
-              create: createOrderDto.items.map(item => ({
+        // Handle break invoice (partial payment)
+        if (createOrderDto.invoiceData?.isBreak) {
+          if (!createOrderDto.invoiceData.initialPayment) {
+            throw new BadRequestException('يجب تحديد قيمة الدفعة الأولى عند إنشاء فاتورة كسر');
+          }
+          
+          if (createOrderDto.invoiceData.initialPayment >= createOrderDto.totalAmount) {
+            throw new BadRequestException('قيمة الدفعة الأولى يجب أن تكون أقل من إجمالي المبلغ');
+          }
+  
+          // Create first invoice (paid, initial payment)
+          const paidInvoice = await prisma.invoice.create({
+            data: {
+              invoiceNumber: `${invoiceNumber}-A`,
+              employeeId,
+              invoiceType: 'income',
+              invoiceCategory: 'products',
+              customerId: createOrderDto.customerId,
+              paidStatus: true,
+              totalAmount: createOrderDto.invoiceData.initialPayment,
+              discount: createOrderDto.invoiceData.discount || 0,
+              additionalAmount: createOrderDto.invoiceData.additionalAmount || 0,
+              notes: createOrderDto.notes 
+                ? `${createOrderDto.notes} - دفعة أولى للطلبية رقم ${orderNumber}` 
+                : `دفعة أولى للطلبية رقم ${orderNumber}`,
+              fundId: generalFund.id,
+              shiftId: activeShift.id,
+              paymentDate: new Date(),
+              trayCount: createOrderDto.invoiceData.trayCount || 0,
+              isBreak: false
+            },
+            include: {
+              customer: true
+            }
+          });
+          
+          // Create invoice items
+          for (const item of createOrderDto.items) {
+            await prisma.invoiceItem.create({
+              data: {
+                invoiceId: paidInvoice.id,
                 itemId: item.itemId,
                 quantity: item.quantity,
                 unitPrice: item.unitPrice,
                 unit: item.unit,
                 subTotal: item.quantity * item.unitPrice
-              }))
-            }
-          },
-          include: {
-            items: {
-              include: {
-                item: true
               }
+            });
+          }
+          
+          // Create second invoice (unpaid, remaining amount)
+          const remainingAmount = createOrderDto.totalAmount - createOrderDto.invoiceData.initialPayment;
+          const breakInvoice = await prisma.invoice.create({
+            data: {
+              invoiceNumber: `${invoiceNumber}-B`,
+              employeeId,
+              invoiceType: 'income',
+              invoiceCategory: 'products',
+              customerId: createOrderDto.customerId,
+              paidStatus: false,
+              totalAmount: remainingAmount,
+              discount: 0,
+              additionalAmount: 0,
+              notes: createOrderDto.notes 
+                ? `${createOrderDto.notes} - كسر للطلبية رقم ${orderNumber}` 
+                : `كسر للطلبية رقم ${orderNumber}`,
+              fundId: generalFund.id,
+              shiftId: activeShift.id,
+              paymentDate: null,
+              trayCount: 0,
+              isBreak: true
             },
-            customer: true
-          }
-        });
-        
-        await prisma.order.update({
-          where: { id: order.id },
-          data: { invoiceId: invoice.id }
-        });
-        
-        await prisma.fund.update({
-          where: { id: generalFund.id },
-          data: {
-            currentBalance: {
-              increment: createOrderDto.totalAmount
+            include: {
+              customer: true
             }
+          });
+          
+          // Create invoice items for break invoice
+          for (const item of createOrderDto.items) {
+            await prisma.invoiceItem.create({
+              data: {
+                invoiceId: breakInvoice.id,
+                itemId: item.itemId,
+                quantity: item.quantity,
+                unitPrice: item.unitPrice,
+                unit: item.unit,
+                subTotal: item.quantity * item.unitPrice
+              }
+            });
           }
-        });
+          
+          // Update order to link to first invoice (paid portion)
+          await prisma.order.update({
+            where: { id: order.id },
+            data: { 
+              invoiceId: paidInvoice.id,
+              paidStatus: false, // Partially paid
+              status: OrderStatus.processing 
+            }
+          });
+          
+          // Update fund balance with initial payment
+          await prisma.fund.update({
+            where: { id: generalFund.id },
+            data: {
+              currentBalance: {
+                increment: createOrderDto.invoiceData.initialPayment
+              }
+            }
+          });
+          
+          // Handle tray tracking if needed
+          if (createOrderDto.invoiceData.trayCount > 0) {
+            await prisma.trayTracking.create({
+              data: {
+                customerId: createOrderDto.customerId,
+                totalTrays: createOrderDto.invoiceData.trayCount,
+                status: 'pending',
+                notes: `تم تسليم ${createOrderDto.invoiceData.trayCount} صاج مع الفاتورة ${paidInvoice.invoiceNumber}`,
+                invoiceId: paidInvoice.id
+              }
+            });
+          }
+          
+          // Get invoices with items
+          const paidInvoiceWithItems = await prisma.invoice.findUnique({
+            where: { id: paidInvoice.id },
+            include: {
+              items: {
+                include: {
+                  item: true
+                }
+              },
+              customer: true
+            }
+          });
+          
+          const breakInvoiceWithItems = await prisma.invoice.findUnique({
+            where: { id: breakInvoice.id },
+            include: {
+              items: {
+                include: {
+                  item: true
+                }
+              },
+              customer: true
+            }
+          });
+          
+          invoice = {
+            paidInvoice: paidInvoiceWithItems,
+            breakInvoice: breakInvoiceWithItems,
+            isBreakInvoice: true
+          };
+        }
+        else {
+          // Create standard invoice with all invoice data
+          const standardInvoice = await prisma.invoice.create({
+            data: {
+              invoiceNumber,
+              employeeId,
+              invoiceType: 'income',
+              invoiceCategory: 'products',
+              customerId: createOrderDto.customerId,
+              paidStatus: true,
+              totalAmount: createOrderDto.totalAmount,
+              discount: createOrderDto.invoiceData?.discount || 0,
+              additionalAmount: createOrderDto.invoiceData?.additionalAmount || 0,
+              notes: createOrderDto.invoiceData?.notes 
+                ? `${createOrderDto.invoiceData.notes} - فاتورة للطلبية رقم ${orderNumber}` 
+                : (createOrderDto.notes 
+                  ? `${createOrderDto.notes} - فاتورة للطلبية رقم ${orderNumber}` 
+                  : `فاتورة للطلبية رقم ${orderNumber}`),
+              fundId: generalFund.id,
+              shiftId: activeShift.id,
+              paymentDate: new Date(),
+              trayCount: createOrderDto.invoiceData?.trayCount || 0,
+              isBreak: false
+            },
+            include: {
+              customer: true
+            }
+          });
+          
+          // Create invoice items
+          for (const item of createOrderDto.items) {
+            await prisma.invoiceItem.create({
+              data: {
+                invoiceId: standardInvoice.id,
+                itemId: item.itemId,
+                quantity: item.quantity,
+                unitPrice: item.unitPrice,
+                unit: item.unit,
+                subTotal: item.quantity * item.unitPrice
+              }
+            });
+          }
+          
+          // Update order with invoice ID
+          await prisma.order.update({
+            where: { id: order.id },
+            data: { 
+              invoiceId: standardInvoice.id,
+              paidStatus: true,
+              status: OrderStatus.delivered
+            }
+          });
+    
+          // Update fund balance
+          await prisma.fund.update({
+            where: { id: generalFund.id },
+            data: {
+              currentBalance: {
+                increment: createOrderDto.totalAmount - (createOrderDto.invoiceData?.discount || 0)
+              }
+            }
+          });
+          
+          // Handle tray tracking if needed
+          if (createOrderDto.invoiceData?.trayCount > 0) {
+            await prisma.trayTracking.create({
+              data: {
+                customerId: createOrderDto.customerId,
+                totalTrays: createOrderDto.invoiceData.trayCount,
+                status: 'pending',
+                notes: `تم تسليم ${createOrderDto.invoiceData.trayCount} صاج مع الفاتورة ${invoiceNumber}`,
+                invoiceId: standardInvoice.id
+              }
+            });
+          }
+          
+          // Get the invoice with items
+          const invoiceWithItems = await prisma.invoice.findUnique({
+            where: { id: standardInvoice.id },
+            include: {
+              items: {
+                include: {
+                  item: true
+                }
+              },
+              customer: true
+            }
+          });
+          
+          invoice = invoiceWithItems;
+        }
       }
       
+      const updatedOrder = await prisma.order.findUnique({
+        where: { id: order.id },
+        include: {
+          customer: true,
+          category: true,
+          employee: {
+            select: {
+              username: true
+            }
+          },
+          items: {
+            include: {
+              item: true
+            }
+          },
+          invoice: true
+        }
+      });
+      
       return {
-        order,
+        order: updatedOrder,
         invoice,
         message: 'تم إنشاء الطلبية بنجاح'
       };
