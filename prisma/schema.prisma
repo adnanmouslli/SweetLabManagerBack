@@ -407,11 +407,11 @@ model Order {
 }
 
 enum OrderStatus {
-  pending    // En espera
-  processing // En proceso
-  ready      // Listo para entrega
-  delivered  // Entregado
-  cancelled  // Cancelado
+  pending    
+  processing 
+  ready      
+  delivered  
+  cancelled  
 }
 
 
