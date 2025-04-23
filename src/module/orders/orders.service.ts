@@ -50,7 +50,7 @@ export class OrdersService {
       0
     );
     
-    if (Math.abs(calculatedTotal - createOrderDto.totalAmount) > 0.01) {
+    if (Math.abs((calculatedTotal - createOrderDto.invoiceData.discount + createOrderDto.invoiceData.additionalAmount)- createOrderDto.totalAmount) > 0.01) {
       throw new BadRequestException('المجموع الكلي غير صحيح');
     }
     
