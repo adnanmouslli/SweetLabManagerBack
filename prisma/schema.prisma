@@ -8,50 +8,309 @@ datasource db {
 }
 
 model User {
-  id        Int      @id @default(autoincrement())
-  username  String   @unique
-  password  String
-  roles     Role[]   @default([EMPLOYEE])
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  shifts   Shift[]
-  invoices Invoice[]
-  orders   Order[] 
-  
-  fundTransfers FundTransferLog[]
-
-  transferRequests   MainFundTransferRequest[]
+  id                 Int                       @id @default(autoincrement())
+  username           String                    @unique
+  password           String
+  roles              Role[]                    @default([EMPLOYEE])
+  createdAt          DateTime                  @default(now())
+  updatedAt          DateTime                  @updatedAt
+  fundTransfers      FundTransferLog[]
+  invoices           Invoice[]
   confirmedTransfers MainFundTransferRequest[] @relation("ConfirmedBy")
-
-  requestedTransfers PendingShiftTransfer[] @relation("RequestedTransfers")
-  acceptedTransfers  PendingShiftTransfer[] @relation("AcceptedTransfers")
-}
-
-enum Role {
-  MANAGER // صاحب المعمل
-  ADMIN // ادمن لديه جميع الصلاحيات
-  ShiftManager // مدير الوارديات (دفتر اليومية)
-  TreasuryManager // مدير الخزانة
-  TrayManager // مدير الفوارغ
-  EMPLOYEE
+  transferRequests   MainFundTransferRequest[]
+  orders             Order[]
+  acceptedTransfers  PendingShiftTransfer[]    @relation("AcceptedTransfers")
+  requestedTransfers PendingShiftTransfer[]    @relation("RequestedTransfers")
+  shifts             Shift[]
 }
 
 model Shift {
-  id        Int         @id @default(autoincrement())
-  shiftType ShiftType
-  status    ShiftStatus @default(open)
-  openTime  DateTime
-  closeTime DateTime?
-
+  id               Int               @id @default(autoincrement())
+  shiftType        ShiftType
+  status           ShiftStatus       @default(open)
+  openTime         DateTime
+  closeTime        DateTime?
   differenceStatus DifferenceStatus?
   differenceValue  Float?
-
-  employeeId Int
-  employee   User      @relation(fields: [employeeId], references: [id])
-  invoices   Invoice[]
+  employeeId       Int
+  invoices         Invoice[]
+  employee         User              @relation(fields: [employeeId], references: [id])
 
   @@map("shifts")
+}
+
+model Fund {
+  id             Int               @id @default(autoincrement())
+  fundType       FundType
+  currentBalance Float             @default(0)
+  lastUpdate     DateTime          @updatedAt
+  transfersFrom  FundTransferLog[] @relation("FromFund")
+  transfersTo    FundTransferLog[] @relation("ToFund")
+  invoices       Invoice[]
+
+  @@map("funds")
+}
+
+model FundTransferLog {
+  id              Int      @id @default(autoincrement())
+  amount          Float
+  fromFundId      Int
+  toFundId        Int
+  transferredById Int
+  transferredAt   DateTime @default(now())
+  metadata        String?
+  fromFund        Fund     @relation("FromFund", fields: [fromFundId], references: [id])
+  toFund          Fund     @relation("ToFund", fields: [toFundId], references: [id])
+  transferredBy   User     @relation(fields: [transferredById], references: [id])
+
+  @@map("fund_transfer_logs")
+}
+
+model ItemGroup {
+  id          Int      @id @default(autoincrement())
+  name        String
+  type        ItemType
+  description String?
+  items       Item[]
+
+  @@map("item_groups")
+}
+
+model Item {
+  id           Int           @id @default(autoincrement())
+  name         String
+  type         ItemType
+  units        Json?
+  defaultUnit  String
+  cost         Float?
+  price        Float
+  description  String?
+  groupId      Int
+  invoiceItems InvoiceItem[]
+  group        ItemGroup     @relation(fields: [groupId], references: [id])
+  orderItems   OrderItem[]
+
+  @@map("items")
+}
+
+model Invoice {
+  id               Int                   @id @default(autoincrement())
+  invoiceNumber    String                @unique
+  invoiceType      InvoiceType
+  invoiceCategory  InvoiceCategory
+  customerId       Int?
+  totalAmount      Float
+  discount         Float                 @default(0)
+  additionalAmount Float                 @default(0)
+  paidStatus       Boolean
+  paymentDate      DateTime?
+  createdAt        DateTime              @default(now())
+  notes            String?
+  isBreak          Boolean               @default(false)
+  fundId           Int
+  shiftId          Int
+  employeeId       Int
+  relatedDebtId    Int?
+  trayCount        Int                   @default(0)
+  relatedAdvanceId Int?
+  items            InvoiceItem[]
+  customer         Customer?             @relation(fields: [customerId], references: [id])
+  employee         User                  @relation(fields: [employeeId], references: [id])
+  fund             Fund                  @relation(fields: [fundId], references: [id])
+  relatedAdvance   Advance?              @relation("AdvanceInvoices", fields: [relatedAdvanceId], references: [id])
+  relatedDebt      Debt?                 @relation(fields: [relatedDebtId], references: [id])
+  shift            Shift                 @relation(fields: [shiftId], references: [id])
+  order            Order?
+  expenseTransfer  PendingShiftTransfer? @relation("ExpenseInvoiceTransfer")
+  incomeTransfer   PendingShiftTransfer? @relation("IncomeInvoiceTransfer")
+  trayTracking     TrayTracking?
+
+  @@map("invoices")
+}
+
+model InvoiceItem {
+  id        Int     @id @default(autoincrement())
+  quantity  Float
+  unitPrice Float
+  subTotal  Float
+  unit      String
+  invoiceId Int
+  itemId    Int
+  invoice   Invoice @relation(fields: [invoiceId], references: [id])
+  item      Item    @relation(fields: [itemId], references: [id])
+
+  @@map("invoice_items")
+}
+
+model TrayTracking {
+  id         Int        @id @default(autoincrement())
+  customerId Int
+  totalTrays Int
+  status     TrayStatus @default(pending)
+  createdAt  DateTime   @default(now())
+  returnedAt DateTime?
+  notes      String?
+  invoiceId  Int        @unique
+  customer   Customer   @relation(fields: [customerId], references: [id])
+  invoice    Invoice    @relation(fields: [invoiceId], references: [id])
+
+  @@map("tray_tracking")
+}
+
+model Debt {
+  id              Int        @id @default(autoincrement())
+  customerId      Int
+  totalAmount     Float
+  remainingAmount Float
+  discount        Float      @default(0)
+  createdAt       DateTime   @default(now())
+  lastPaymentDate DateTime?
+  status          DebtStatus @default(active)
+  notes           String?
+  customer        Customer   @relation(fields: [customerId], references: [id])
+  relatedInvoices Invoice[]
+
+  @@map("debts")
+}
+
+model CustomerCategory {
+  id          Int        @id @default(autoincrement())
+  name        String     @unique
+  description String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  customers   Customer[]
+
+  @@map("customer_categories")
+}
+
+model Customer {
+  id         Int               @id @default(autoincrement())
+  name       String
+  phone      String?            @unique
+  notes      String?
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+  categoryId Int?
+  advances   Advance[]
+  category   CustomerCategory? @relation(fields: [categoryId], references: [id])
+  debts      Debt[]
+  invoices   Invoice[]
+  orders     Order[]
+  trays      TrayTracking[]
+
+  @@map("customers")
+}
+
+model MainFundTransferRequest {
+  id               Int       @id @default(autoincrement())
+  amount           Float
+  status           String
+  requestedById    Int
+  confirmedById    Int?
+  requestedAt      DateTime  @default(now())
+  confirmedAt      DateTime?
+  notes            String?
+  rejectionReason  String?
+  expenseInvoiceId Int?
+  incomeInvoiceId  Int?
+  confirmedBy      User?     @relation("ConfirmedBy", fields: [confirmedById], references: [id])
+  requestedBy      User      @relation(fields: [requestedById], references: [id])
+
+  @@map("main_fund_transfer_requests")
+}
+
+model PendingShiftTransfer {
+  id               Int       @id @default(autoincrement())
+  transferNumber   String    @unique
+  amount           Float
+  status           String
+  requestedById    Int
+  requestedAt      DateTime  @default(now())
+  acceptedById     Int?
+  acceptedAt       DateTime?
+  notes            String?
+  expenseInvoiceId Int?      @unique
+  incomeInvoiceId  Int?      @unique
+  acceptedBy       User?     @relation("AcceptedTransfers", fields: [acceptedById], references: [id])
+  expenseInvoice   Invoice?  @relation("ExpenseInvoiceTransfer", fields: [expenseInvoiceId], references: [id])
+  incomeInvoice    Invoice?  @relation("IncomeInvoiceTransfer", fields: [incomeInvoiceId], references: [id])
+  requestedBy      User      @relation("RequestedTransfers", fields: [requestedById], references: [id])
+
+  @@map("pending_shift_transfers")
+}
+
+model Advance {
+  id              Int           @id @default(autoincrement())
+  customerId      Int
+  totalAmount     Float
+  remainingAmount Float
+  createdAt       DateTime      @default(now())
+  lastPaymentDate DateTime?
+  status          AdvanceStatus @default(active)
+  notes           String?
+  customer        Customer      @relation(fields: [customerId], references: [id])
+  relatedInvoices Invoice[]     @relation("AdvanceInvoices")
+
+  @@map("advances")
+}
+
+model OrderCategory {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  orders      Order[]
+
+  @@map("order_categories")
+}
+
+model Order {
+  id           Int           @id @default(autoincrement())
+  orderNumber  String        @unique
+  customerId   Int
+  totalAmount  Float
+  paidStatus   Boolean       @default(false)
+  status       OrderStatus   @default(pending)
+  createdAt    DateTime      @default(now())
+  scheduledFor DateTime
+  deliveryDate DateTime?
+  notes        String?
+  categoryId   Int
+  invoiceId    Int?          @unique
+  employeeId   Int
+  items        OrderItem[]
+  category     OrderCategory @relation(fields: [categoryId], references: [id])
+  customer     Customer      @relation(fields: [customerId], references: [id])
+  employee     User          @relation(fields: [employeeId], references: [id])
+  invoice      Invoice?      @relation(fields: [invoiceId], references: [id])
+
+  @@map("orders")
+}
+
+model OrderItem {
+  id        Int     @id @default(autoincrement())
+  orderId   Int
+  itemId    Int
+  quantity  Float
+  unitPrice Float
+  unit      String
+  subTotal  Float
+  notes     String?
+  item      Item    @relation(fields: [itemId], references: [id])
+  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@map("order_items")
+}
+
+enum Role {
+  MANAGER
+  ADMIN
+  ShiftManager
+  TreasuryManager
+  TrayManager
+  EMPLOYEE
 }
 
 enum DifferenceStatus {
@@ -69,20 +328,6 @@ enum ShiftStatus {
   closed
 }
 
-model Fund {
-  id             Int      @id @default(autoincrement())
-  fundType       FundType
-  currentBalance Float    @default(0)
-  lastUpdate     DateTime @updatedAt
-
-  invoices Invoice[]
-
-  transfersFrom FundTransferLog[] @relation("FromFund")
-  transfersTo   FundTransferLog[] @relation("ToFund")
-
-  @@map("funds")
-}
-
 enum FundType {
   main
   general
@@ -90,105 +335,9 @@ enum FundType {
   university
 }
 
-model FundTransferLog {
-  id              Int      @id @default(autoincrement())
-  amount          Float
-  fromFundId      Int
-  toFundId        Int
-  transferredById Int
-  transferredAt   DateTime @default(now())
-
-  fromFund      Fund @relation("FromFund", fields: [fromFundId], references: [id])
-  toFund        Fund @relation("ToFund", fields: [toFundId], references: [id])
-  transferredBy User @relation(fields: [transferredById], references: [id])
-
-  metadata String? 
-  @@map("fund_transfer_logs")
-}
-
-model ItemGroup {
-  id          Int      @id @default(autoincrement())
-  name        String
-  type        ItemType
-  description String?
-  
-  items Item[]
-
-  @@map("item_groups")
-}
-
-model Item {
-  id   Int      @id @default(autoincrement())
-  name String
-  type ItemType
-
-  units Json? // مثال: [{"unit": "حبة", "price": 3800, "factor": 1}, {"unit": "صاج", "price": 76000, "factor": 20}]
-
-  defaultUnit String // الوحدة الافتراضية للبيع
-
-  // تكلفة المنتج
-  cost Float?
-
-  price       Float
-  description String?
-  
-  groupId Int
-  group   ItemGroup @relation(fields: [groupId], references: [id])
-
-  invoiceItems InvoiceItem[]
-  orderItems OrderItem[]
-
-
-  @@map("items")
-}
-
 enum ItemType {
   production
   raw
-}
-
-model Invoice {
-  id              Int             @id @default(autoincrement())
-  invoiceNumber   String          @unique
-  invoiceType     InvoiceType
-  invoiceCategory InvoiceCategory
-  customerId      Int?
-  customer        Customer?       @relation(fields: [customerId], references: [id])
-  totalAmount     Float
-  discount        Float           @default(0)
-  additionalAmount Float          @default(0)
-  paidStatus      Boolean
-  paymentDate     DateTime?
-  createdAt       DateTime        @default(now())
-  notes           String?
-  isBreak         Boolean         @default(false)
-
-  fundId Int
-  fund   Fund @relation(fields: [fundId], references: [id])
-
-  shiftId Int
-  shift   Shift @relation(fields: [shiftId], references: [id])
-
-  employeeId Int
-  employee   User @relation(fields: [employeeId], references: [id])
-
-
-  order Order?
-
-  items         InvoiceItem[]
-  relatedDebtId Int? // Reference to the debt this invoice is related to
-  relatedDebt   Debt?         @relation(fields: [relatedDebtId], references: [id])
-  trayCount     Int           @default(0)
-  trayTracking  TrayTracking?
-
-  expenseTransfer PendingShiftTransfer? @relation("ExpenseInvoiceTransfer")
-  incomeTransfer  PendingShiftTransfer? @relation("IncomeInvoiceTransfer")
-
-
-   relatedAdvanceId Int?
-  relatedAdvance   Advance?    @relation("AdvanceInvoices", fields: [relatedAdvanceId], references: [id])
-
-  @@map("invoices")
 }
 
 enum InvoiceType {
@@ -203,58 +352,9 @@ enum InvoiceCategory {
   advance
 }
 
-model InvoiceItem {
-  id        Int   @id @default(autoincrement())
-  quantity  Float
-  unitPrice Float
-  subTotal  Float
-
-  unit      String
-  invoiceId Int
-  invoice   Invoice @relation(fields: [invoiceId], references: [id])
-
-  itemId Int
-  item   Item @relation(fields: [itemId], references: [id])
-
-  @@map("invoice_items")
-}
-
 enum TrayStatus {
   pending
   returned
-}
-
-model TrayTracking {
-  id         Int        @id @default(autoincrement())
-  customerId Int
-  customer   Customer   @relation(fields: [customerId], references: [id])
-  totalTrays Int
-  status     TrayStatus @default(pending)
-  createdAt  DateTime   @default(now())
-  returnedAt DateTime?
-  notes      String?
-
-  invoiceId Int     @unique
-  invoice   Invoice @relation(fields: [invoiceId], references: [id])
-
-  @@map("tray_tracking")
-}
-
-model Debt {
-  id              Int        @id @default(autoincrement())
-  customerId      Int
-  customer        Customer   @relation(fields: [customerId], references: [id])
-  totalAmount     Float // إجمالي مبلغ الدين الأصلي
-  remainingAmount Float // المبلغ المتبقي
-  discount        Float      @default(0) // قيمة الخصم على الدين
-  createdAt       DateTime   @default(now())
-  lastPaymentDate DateTime?
-  status          DebtStatus @default(active)
-  notes           String?
-
-  relatedInvoices Invoice[]
-
-  @@map("debts")
 }
 
 enum DebtStatus {
@@ -262,172 +362,15 @@ enum DebtStatus {
   paid
 }
 
-
-model CustomerCategory {
-  id          Int        @id @default(autoincrement())
-  name        String     @unique
-  description String?
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-  
-  customers   Customer[]
-  
-  @@map("customer_categories")
-}
-
-model Customer {
-  id        Int      @id @default(autoincrement())
-  name      String
-  phone     String   @unique
-  notes     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  categoryId   Int?    
-  category     CustomerCategory? @relation(fields: [categoryId], references: [id])
-
-  invoices Invoice[]
-  debts    Debt[]
-  trays    TrayTracking[]
-  advances Advance[]
-  orders Order[]
-  
-  @@map("customers")
-}
-
-model MainFundTransferRequest {
-  id               Int       @id @default(autoincrement())
-  amount           Float
-  status           String // PENDING, CONFIRMED, REJECTED
-  requestedById    Int
-  requestedBy      User      @relation(fields: [requestedById], references: [id])
-  confirmedById    Int?
-  confirmedBy      User?     @relation("ConfirmedBy", fields: [confirmedById], references: [id])
-  requestedAt      DateTime  @default(now())
-  confirmedAt      DateTime?
-  notes            String?
-  rejectionReason  String?
-  expenseInvoiceId Int? // معرف فاتورة الصرف
-  incomeInvoiceId  Int? // معرف فاتورة الدخل
-  
-  @@map("main_fund_transfer_requests")
-}
-
-
-model PendingShiftTransfer {
-  id                Int       @id @default(autoincrement())
-  transferNumber    String    @unique
-  amount            Float
-  status            String    // 'pending', 'accepted', 'rejected'
-  requestedById     Int
-  requestedBy       User      @relation("RequestedTransfers", fields: [requestedById], references: [id])
-  requestedAt       DateTime  @default(now())
-  
-  acceptedById      Int?
-  acceptedBy        User?     @relation("AcceptedTransfers", fields: [acceptedById], references: [id])
-  acceptedAt        DateTime?
-  
-  notes             String?
-  
-  // فواتير اختيارية - قد لا تكون مرتبطة بفاتورة عند التحويل بين الصناديق بعد إغلاق الواردية
-  expenseInvoiceId  Int?      @unique
-  expenseInvoice    Invoice?  @relation("ExpenseInvoiceTransfer", fields: [expenseInvoiceId], references: [id])
-  
-  incomeInvoiceId   Int?      @unique
-  incomeInvoice     Invoice?  @relation("IncomeInvoiceTransfer", fields: [incomeInvoiceId], references: [id])
-
-  @@map("pending_shift_transfers")
-}
-
-
-
-model Advance {
-  id              Int          @id @default(autoincrement())
-  customerId      Int
-  customer        Customer     @relation(fields: [customerId], references: [id])
-  totalAmount     Float        // إجمالي مبلغ السلفة الأصلي
-  remainingAmount Float        // المبلغ المتبقي
-  createdAt       DateTime     @default(now())
-  lastPaymentDate DateTime?
-  status          AdvanceStatus @default(active)
-  notes           String?
-
-  relatedInvoices Invoice[]    @relation("AdvanceInvoices")
-
-  @@map("advances")
-}
-
 enum AdvanceStatus {
   active
   completed
 }
 
-model OrderCategory {
-  id          Int      @id @default(autoincrement())
-  name        String   @unique
-  description String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  orders Order[]
-
-  @@map("order_categories")
-}
-
-// Modelo de pedidos
-model Order {
-  id              Int         @id @default(autoincrement())
-  orderNumber     String      @unique // Número único del pedido (ej: ORD-1234)
-  customerId      Int
-  customer        Customer    @relation(fields: [customerId], references: [id])
-  totalAmount     Float
-  paidStatus      Boolean     @default(false)
-  status          OrderStatus @default(pending)
-  createdAt       DateTime    @default(now())
-  scheduledFor    DateTime    // Fecha para la que está programado el pedido
-  deliveryDate    DateTime?   // Fecha real de entrega (puede ser nula si aún no se entrega)
-  notes           String?
-  
-  // Relación con la categoría de pedido
-  categoryId      Int
-  category        OrderCategory @relation(fields: [categoryId], references: [id])
-  
-  // Relación con la factura (si se ha generado)
-  invoiceId       Int?       @unique
-  invoice         Invoice?   @relation(fields: [invoiceId], references: [id])
-  
-  // Relación con el usuario que creó el pedido
-  employeeId      Int
-  employee        User        @relation(fields: [employeeId], references: [id])
-  
-  // Elementos del pedido
-  items           OrderItem[]
-
-  @@map("orders")
-}
-
 enum OrderStatus {
-  pending    
-  processing 
-  ready      
-  delivered  
-  cancelled  
-}
-
-
-model OrderItem {
-  id        Int   @id @default(autoincrement())
-  orderId   Int
-  order     Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  
-  itemId    Int
-  item      Item  @relation(fields: [itemId], references: [id])
-  
-  quantity  Float
-  unitPrice Float
-  unit      String
-  subTotal  Float
-  notes     String?
-
-  @@map("order_items")
+  pending
+  processing
+  ready
+  delivered
+  cancelled
 }

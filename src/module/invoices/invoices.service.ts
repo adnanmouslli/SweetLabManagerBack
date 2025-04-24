@@ -85,7 +85,7 @@ export class InvoicesService {
        
      // إضافة المبلغ الإضافي (إذا وجد) إلى المجموع المحسوب
      const additionalAmount = createInvoiceDto.additionalAmount || 0;
-     const calculatedTotal = calculatedItemsTotal + additionalAmount;
+     const calculatedTotal = calculatedItemsTotal + additionalAmount - createInvoiceDto.discount;
      
      // التحقق من صحة المجموع الكلي
      if (

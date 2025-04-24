@@ -8,37 +8,41 @@ export class CustomersService {
   constructor(private prisma: PrismaService) {}
 
   async create(createCustomerDto: CreateCustomerDto) {
-    
+    // Create a base customer data object
     const customerData = {
-      ...createCustomerDto,
+      name: createCustomerDto.name,
+
+      phone: createCustomerDto.phone || '',  // Empty string instead of null
+      notes: createCustomerDto.notes || '',
       categoryId: createCustomerDto.categoryId ? parseInt(createCustomerDto.categoryId) : undefined
     };
-
-    // التحقق من عدم وجود رقم الهاتف مسبقاً
-    const existingCustomer = await this.prisma.customer.findUnique({
-      where: { phone: createCustomerDto.phone }
-    });
-
-    if (existingCustomer) {
-      throw new BadRequestException('رقم الهاتف مسجل مسبقاً');
-    }
-
-    // التحقق من وجود الصنف في حالة تحديده
+  
+    // Validation for category if provided
     if (createCustomerDto.categoryId) {
       const category = await this.prisma.customerCategory.findUnique({
-        where: { id: parseInt(createCustomerDto.categoryId)  }
+        where: { id: parseInt(createCustomerDto.categoryId) }
       });
-
+  
       if (!category) {
         throw new NotFoundException('صنف العملاء المحدد غير موجود');
       }
     }
-
+  
+    // If phone is provided (not empty), check if it already exists
+    if (createCustomerDto.phone && createCustomerDto.phone.trim() !== '') {
+      const existingCustomer = await this.prisma.customer.findUnique({
+        where: { phone: createCustomerDto.phone }
+      });
+  
+      if (existingCustomer) {
+        throw new BadRequestException('رقم الهاتف مسجل مسبقاً');
+      }
+    }
+  
     return this.prisma.customer.create({
       data: customerData
     });
   }
-
   findAll() {
     return this.prisma.customer.findMany({
       include: {

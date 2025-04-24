@@ -6,10 +6,10 @@ export class CreateCustomerDto {
   @IsString({ message: 'اسم العميل يجب أن يكون نصًا' })
   name: string;
 
-  @IsNotEmpty({ message: 'رقم الهاتف مطلوب' })
+  @IsOptional()
   @IsString({ message: 'رقم الهاتف يجب أن يكون نصًا' })
-  phone: string;
-
+  phone?: string;  
+  
   @IsOptional()
   @IsString({ message: 'الملاحظات يجب أن تكون نصًا' })
   notes?: string;

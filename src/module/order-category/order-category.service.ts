@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateOrderCategoryDto } from './dto/create-order-category.dto';
 import { UpdateOrderCategoryDto } from './dto/update-order-category.dto';
+import { tr } from '@faker-js/faker/.';
 
 @Injectable()
 export class OrderCategoriesService {
@@ -190,6 +191,11 @@ export class OrderCategoriesService {
               items: {
                 include: {
                   item: true
+                }
+              },
+              invoice: {
+                select: {
+                  invoiceNumber: true
                 }
               }
             },
