@@ -1,65 +1,109 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CreatePaymentDto } from './dto/create-payment.dto';
 import { ApplyDiscountDto } from './dto/apply-discount.dto';
 
 @Injectable()
 export class DebtsService {
   constructor(private prisma: PrismaService) {}
 
-  findAll() {
-    return this.prisma.debt.findMany({
-      include: {
-        customer: true,
-        relatedInvoices: {
-          include: {
-            items: {
-              include: {
-                item: true
-              }
-            },
-            employee: {
-              select: {
-                username: true
-              }
-            },
-            fund: true
+  async findAll(type: 'customer' | 'employee' = 'customer') {
+    if (type === 'customer') {
+      return this.prisma.debt.findMany({
+        include: {
+          customer: true,
+          relatedInvoices: {
+            include: {
+              items: {
+                include: {
+                  item: true
+                }
+              },
+              employee: {
+                select: {
+                  username: true
+                }
+              },
+              fund: true
+            }
           }
+        },
+        orderBy: {
+          createdAt: 'desc'
         }
-      },
-      orderBy: {
-        createdAt: 'desc'
-      }
-    });
+      });
+    } else {
+      return this.prisma.employeeDebt.findMany({
+        include: {
+          employee: true,
+          relatedInvoices: {
+            include: {
+              employee: {
+                select: {
+                  username: true
+                }
+              },
+              fund: true
+            }
+          }
+        },
+        orderBy: {
+          createdAt: 'desc'
+        }
+      });
+    }
   }
 
-  async getActiveDebts() {
-    return this.prisma.debt.findMany({
-      where: {
-        status: 'active'
-      },
-      include: {
-        customer: true,
-        relatedInvoices: {
-          include: {
-            items: {
-              include: {
-                item: true
-              }
-            },
-            employee: {
-              select: {
-                username: true
-              }
-            },
-            fund: true
+  async getActiveDebts(type: 'customer' | 'employee' = 'customer') {
+    if (type === 'customer') {
+      return this.prisma.debt.findMany({
+        where: {
+          status: 'active'
+        },
+        include: {
+          customer: true,
+          relatedInvoices: {
+            include: {
+              items: {
+                include: {
+                  item: true
+                }
+              },
+              employee: {
+                select: {
+                  username: true
+                }
+              },
+              fund: true
+            }
           }
+        },
+        orderBy: {
+          createdAt: 'desc'
         }
-      },
-      orderBy: {
-        createdAt: 'desc'
-      }
-    });
+      });
+    } else {
+      return this.prisma.employeeDebt.findMany({
+        where: {
+          status: 'active'
+        },
+        include: {
+          employee: true,
+          relatedInvoices: {
+            include: {
+              employee: {
+                select: {
+                  username: true
+                }
+              },
+              fund: true
+            }
+          }
+        },
+        orderBy: {
+          createdAt: 'desc'
+        }
+      });
+    }
   }
 
   async getCustomerDebts(customerId: number) {
@@ -169,4 +213,64 @@ export class DebtsService {
 
     return this.findOne(id);
   }
+
+
+   // الحصول على ديون الموظف
+   async getEmployeeDebts(employeeId: number) {
+    const employee = await this.prisma.employee.findUnique({
+      where: { id: employeeId }
+    });
+
+    if (!employee) {
+      throw new NotFoundException(`الموظف غير موجود`);
+    }
+
+    return this.prisma.employeeDebt.findMany({
+      where: {
+        employeeId,
+      },
+      include: {
+        relatedInvoices: {
+          include: {
+            employee: {
+              select: {
+                username: true
+              }
+            },
+            fund: true
+          }
+        }
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    });
+  }
+
+  // البحث عن دين موظف محدد
+  async findEmployeeDebt(id: number) {
+    const debt = await this.prisma.employeeDebt.findUnique({
+      where: { id },
+      include: {
+        employee: true,
+        relatedInvoices: {
+          include: {
+            employee: {
+              select: {
+                username: true
+              }
+            },
+            fund: true
+          }
+        }
+      }
+    });
+
+    if (!debt) {
+      throw new NotFoundException(`دين الموظف غير موجود`);
+    }
+
+    return debt;
+  }
+  
 }

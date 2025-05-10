@@ -29,6 +29,17 @@ export class InvoicesService {
       throw new BadRequestException('لا يوجد واردية مفتوحة');
     }
     
+    if (createInvoiceDto.invoiceCategory === 'employee' && createInvoiceDto.relatedEmployeeId) {
+      const relatedEmployee = await this.prisma.employee.findUnique({
+        where: { id: createInvoiceDto.relatedEmployeeId }
+      });
+      
+      if (!relatedEmployee) {
+        throw new BadRequestException('الموظف المرتبط غير موجود');
+      }
+    }
+
+    
     const fund = await this.prisma.fund.findUnique({
       where: { id: createInvoiceDto.fundId },
     });
@@ -47,6 +58,8 @@ export class InvoicesService {
         throw new BadRequestException('العميل غير موجود');
       }
     }
+
+    
   
     // التحقق من وجود العميل عند وجود صاجات
     if (
@@ -72,10 +85,28 @@ export class InvoicesService {
     if (createInvoiceDto.isBreak && createInvoiceDto.initialPayment >= createInvoiceDto.totalAmount) {
       throw new BadRequestException('قيمة الدفعة الأولى يجب أن تكون أقل من إجمالي المبلغ');
     }
-  
+    
+
+    if (createInvoiceDto.invoiceCategory === 'employee') {
+      if (!createInvoiceDto.relatedEmployeeId) {
+        throw new BadRequestException('يجب تحديد الموظف المرتبط للفواتير المتعلقة بالموظفين');
+      }
+      
+      // Validate that the employee exists
+      const relatedEmployee = await this.prisma.employee.findUnique({
+        where: { id: createInvoiceDto.relatedEmployeeId }
+      });
+      
+      if (!relatedEmployee) {
+        throw new BadRequestException('الموظف المرتبط غير موجود');
+      }
+    }
+
     const invoiceNumber = `INV-${Date.now()}`;
       
     return this.prisma.$transaction(async (prisma) => {
+      
+
        // حساب المجموع من العناصر
        const calculatedItemsTotal =
        createInvoiceDto.items?.reduce(
@@ -286,7 +317,141 @@ export class InvoicesService {
             customer: true,
           },
         });
-  
+        
+
+        if (createInvoiceDto.invoiceCategory === 'employee' && createInvoiceDto.relatedEmployeeId) {
+       
+          
+          // إضافة معالجة لفاتورة الأجر اليومي
+            if (createInvoiceDto.invoiceType === 'expense' && 
+              createInvoiceDto.employeeInvoiceType === 'salary') {
+            
+            // يمكننا إضافة سجل خاص بالأجر اليومي لتتبعه في المستقبل (اختياري)
+            await prisma.employeeSalaryPayment.create({
+              data: {
+                employeeId: createInvoiceDto.relatedEmployeeId,
+                amount: createInvoiceDto.totalAmount,
+                paymentType: 'daily',
+                notes: createInvoiceDto.notes || 'أجر يومي',
+                invoiceId: invoice.id
+              }
+            });
+          }
+          // Handle employee withdrawals
+          else if (createInvoiceDto.invoiceType === 'expense' && 
+              createInvoiceDto.employeeInvoiceType === 'withdrawal') {
+            await prisma.employeeWithdrawal.create({
+              data: {
+                employeeId: createInvoiceDto.relatedEmployeeId,
+                amount: createInvoiceDto.totalAmount,
+                withdrawalType: 'salary_advance',
+                notes: createInvoiceDto.notes || 'سحب راتب',
+                invoiceId: invoice.id
+              }
+            });
+          } 
+          // Handle employee debt
+          else if (createInvoiceDto.invoiceType === 'expense' && 
+                   createInvoiceDto.employeeInvoiceType === 'debtPayment') {
+            // Check for existing active debt
+            const existingDebt = await prisma.employeeDebt.findFirst({
+              where: {
+                employeeId: createInvoiceDto.relatedEmployeeId,
+                status: 'active'
+              }
+            });
+            
+            if (existingDebt) {
+              // Update existing debt
+              const updatedDebt = await prisma.employeeDebt.update({
+                where: { id: existingDebt.id },
+                data: {
+                  totalAmount: existingDebt.totalAmount + createInvoiceDto.totalAmount,
+                  remainingAmount: existingDebt.remainingAmount + createInvoiceDto.totalAmount,
+                  notes: createInvoiceDto.notes || 'تم إضافة دين جديد'
+                }
+              });
+              
+              // Link invoice to debt
+              await prisma.invoice.update({
+                where: { id: invoice.id },
+                data: { relatedEmployeeDebtId: updatedDebt.id }
+              });
+            } else {
+              // Create new debt
+              const newDebt = await prisma.employeeDebt.create({
+                data: {
+                  employeeId: createInvoiceDto.relatedEmployeeId,
+                  totalAmount: createInvoiceDto.totalAmount,
+                  remainingAmount: createInvoiceDto.totalAmount,
+                  status: 'active',
+                  notes: createInvoiceDto.notes || 'دين جديد'
+                }
+              });
+              
+              // Link invoice to debt
+              await prisma.invoice.update({
+                where: { id: invoice.id },
+                data: { relatedEmployeeDebtId: newDebt.id }
+              });
+            }
+          }
+          // Handle return of withdrawal
+          else if (createInvoiceDto.invoiceType === 'income' && 
+                   createInvoiceDto.employeeInvoiceType === 'return') {
+            // Record negative withdrawal (return)
+            await prisma.employeeWithdrawal.create({
+              data: {
+                employeeId: createInvoiceDto.relatedEmployeeId,
+                amount: -createInvoiceDto.totalAmount, // Negative amount to indicate return
+                withdrawalType: 'return',
+                notes: createInvoiceDto.notes || 'إرجاع سحب',
+                invoiceId: invoice.id
+              }
+            });
+          }
+          // Handle debt payment
+          else if (createInvoiceDto.invoiceType === 'income' && 
+                   createInvoiceDto.employeeInvoiceType === 'debtPayment') {
+            // Find active debt
+            const activeDebt = await prisma.employeeDebt.findFirst({
+              where: {
+                employeeId: createInvoiceDto.relatedEmployeeId,
+                status: 'active'
+              }
+            });
+            
+            if (!activeDebt) {
+              throw new BadRequestException('لا يوجد ديون نشطة لهذا الموظف');
+            }
+            
+            // Verify payment amount
+            if (createInvoiceDto.totalAmount > activeDebt.remainingAmount) {
+              throw new BadRequestException('مبلغ الدفعة يتجاوز المبلغ المتبقي من الدين');
+            }
+            
+            // Update debt
+            const newRemainingAmount = activeDebt.remainingAmount - createInvoiceDto.totalAmount;
+            await prisma.employeeDebt.update({
+              where: { id: activeDebt.id },
+              data: {
+                remainingAmount: newRemainingAmount,
+                lastPaymentDate: new Date(),
+                status: newRemainingAmount <= 0 ? 'paid' : 'active',
+                notes: newRemainingAmount <= 0 
+                  ? `${activeDebt.notes || ''}\nتم سداد الدين بالكامل بتاريخ ${new Date().toLocaleDateString()}`
+                  : activeDebt.notes
+              }
+            });
+            
+            // Link invoice to debt
+            await prisma.invoice.update({
+              where: { id: invoice.id },
+              data: { relatedEmployeeDebtId: activeDebt.id }
+            });
+          }
+        }
+        
         // معالجة الديون
         if (createInvoiceDto.invoiceCategory === 'debt') {
           if (createInvoiceDto.invoiceType === 'expense') {

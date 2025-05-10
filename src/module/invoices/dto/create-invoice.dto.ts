@@ -68,4 +68,14 @@ export class CreateInvoiceDto {
   @IsNumber()
   @IsOptional()
   initialPayment?: number;
+
+  @IsNumber()
+  @IsOptional()
+  relatedEmployeeId?: number;
+  
+  @IsString()
+  @IsOptional()
+  employeeInvoiceType?: 'withdrawal' | 'return' | 'debtPayment' | "salary";
+  
+
 }

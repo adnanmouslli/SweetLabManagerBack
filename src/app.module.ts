@@ -19,6 +19,8 @@ import { CustomerCategoryModule } from './module/customer-category/customer-cate
 import { OrdersModule } from './module/orders/orders.module';
 import { OrderCategoryModule } from './module/order-category/order-category.module';
 import { OrderItemModule } from './module/order-item/order-item.module';
+import { EmployeesModule } from './module/employees/employees.module';
+import { WorkshopsModule } from './module/workshops/workshops.module';
 
 @Module({
   imports: [
@@ -53,7 +55,9 @@ import { OrderItemModule } from './module/order-item/order-item.module';
     CustomerCategoryModule,
     OrdersModule,
     OrderCategoryModule,
-    OrderItemModule
+    OrderItemModule,
+    EmployeesModule,
+    WorkshopsModule
   ],
   providers: [PrismaConfig],
   exports: [PrismaConfig],

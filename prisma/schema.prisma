@@ -40,13 +40,14 @@ model Shift {
 }
 
 model Fund {
-  id             Int               @id @default(autoincrement())
-  fundType       FundType
-  currentBalance Float             @default(0)
-  lastUpdate     DateTime          @updatedAt
-  transfersFrom  FundTransferLog[] @relation("FromFund")
-  transfersTo    FundTransferLog[] @relation("ToFund")
-  invoices       Invoice[]
+  id                  Int                  @id @default(autoincrement())
+  fundType            FundType
+  currentBalance      Float                @default(0)
+  lastUpdate          DateTime             @updatedAt
+  transfersFrom       FundTransferLog[]    @relation("FromFund")
+  transfersTo         FundTransferLog[]    @relation("ToFund")
+  invoices            Invoice[]
+  workshopSettlements WorkshopSettlement[] // تصحيح العلاقة المفقودة
 
   @@map("funds")
 }
@@ -77,53 +78,65 @@ model ItemGroup {
 }
 
 model Item {
-  id           Int           @id @default(autoincrement())
-  name         String
-  type         ItemType
-  units        Json?
-  defaultUnit  String
-  cost         Float?
-  price        Float
-  description  String?
-  groupId      Int
-  invoiceItems InvoiceItem[]
-  group        ItemGroup     @relation(fields: [groupId], references: [id])
-  orderItems   OrderItem[]
+  id                  Int                   @id @default(autoincrement())
+  name                String
+  type                ItemType
+  units               Json?
+  defaultUnit         String
+  cost                Float?
+  price               Float
+  productionRate      Float?
+  description         String?
+  groupId             Int
+  invoiceItems        InvoiceItem[]
+  group               ItemGroup             @relation(fields: [groupId], references: [id])
+  orderItems          OrderItem[]
+  employeeProduction  EmployeeProduction[]
 
   @@map("items")
 }
 
 model Invoice {
-  id               Int                   @id @default(autoincrement())
-  invoiceNumber    String                @unique
-  invoiceType      InvoiceType
-  invoiceCategory  InvoiceCategory
-  customerId       Int?
-  totalAmount      Float
-  discount         Float                 @default(0)
-  additionalAmount Float                 @default(0)
-  paidStatus       Boolean
-  paymentDate      DateTime?
-  createdAt        DateTime              @default(now())
-  notes            String?
-  isBreak          Boolean               @default(false)
-  fundId           Int
-  shiftId          Int
-  employeeId       Int
-  relatedDebtId    Int?
-  trayCount        Int                   @default(0)
-  relatedAdvanceId Int?
-  items            InvoiceItem[]
-  customer         Customer?             @relation(fields: [customerId], references: [id])
-  employee         User                  @relation(fields: [employeeId], references: [id])
-  fund             Fund                  @relation(fields: [fundId], references: [id])
-  relatedAdvance   Advance?              @relation("AdvanceInvoices", fields: [relatedAdvanceId], references: [id])
-  relatedDebt      Debt?                 @relation(fields: [relatedDebtId], references: [id])
-  shift            Shift                 @relation(fields: [shiftId], references: [id])
-  order            Order?
-  expenseTransfer  PendingShiftTransfer? @relation("ExpenseInvoiceTransfer")
-  incomeTransfer   PendingShiftTransfer? @relation("IncomeInvoiceTransfer")
-  trayTracking     TrayTracking?
+  id                    Int                    @id @default(autoincrement())
+  invoiceNumber         String                 @unique
+  invoiceType           InvoiceType
+  invoiceCategory       InvoiceCategory
+  customerId            Int?
+  totalAmount           Float
+  discount              Float                  @default(0)
+  additionalAmount      Float                  @default(0)
+  paidStatus            Boolean
+  paymentDate           DateTime?
+  createdAt             DateTime               @default(now())
+  notes                 String?
+  isBreak               Boolean                @default(false)
+  fundId                Int
+  shiftId               Int
+  employeeId            Int
+  relatedDebtId         Int?
+  trayCount             Int                    @default(0)
+  relatedAdvanceId      Int?
+  items                 InvoiceItem[]
+  customer              Customer?              @relation(fields: [customerId], references: [id])
+  employee              User                   @relation(fields: [employeeId], references: [id])
+  fund                  Fund                   @relation(fields: [fundId], references: [id])
+  relatedAdvance        Advance?               @relation("AdvanceInvoices", fields: [relatedAdvanceId], references: [id])
+  relatedDebt           Debt?                  @relation(fields: [relatedDebtId], references: [id])
+  shift                 Shift                  @relation(fields: [shiftId], references: [id])
+  order                 Order?
+  expenseTransfer       PendingShiftTransfer?  @relation("ExpenseInvoiceTransfer")
+  incomeTransfer        PendingShiftTransfer?  @relation("IncomeInvoiceTransfer")
+  trayTracking          TrayTracking?
+  employeeInvoiceType   String?
+  relatedEmployeeId     Int?
+  relatedEmployee       Employee?              @relation(fields: [relatedEmployeeId], references: [id])
+  relatedEmployeeDebtId Int?
+  relatedEmployeeDebt   EmployeeDebt?          @relation("EmployeeDebtInvoices", fields: [relatedEmployeeDebtId], references: [id])
+  workshopSettlement    WorkshopSettlement?
+  employeeWithdrawals   EmployeeWithdrawal[]   // تصحيح العلاقة المفقودة
+
+
+  salaryPayment EmployeeSalaryPayment?
 
   @@map("invoices")
 }
@@ -187,7 +200,7 @@ model CustomerCategory {
 model Customer {
   id         Int               @id @default(autoincrement())
   name       String
-  phone      String?            @unique
+  phone      String?           @unique
   notes      String?
   createdAt  DateTime          @default(now())
   updatedAt  DateTime          @updatedAt
@@ -304,6 +317,155 @@ model OrderItem {
   @@map("order_items")
 }
 
+// النموذج الجديد للموظفين
+model Employee {
+  id               Int                  @id @default(autoincrement())
+  name             String
+  phone            String?              @unique
+  workType         WorkType
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  workshopId       Int?
+  workshop         Workshop?            @relation(fields: [workshopId], references: [id])
+  invoices         Invoice[]
+  debts            EmployeeDebt[]
+  productionRecords EmployeeProduction[]
+  hourRecords      EmployeeHours[]
+  withdrawals      EmployeeWithdrawal[]
+
+  salaryPayments EmployeeSalaryPayment[]
+
+  @@map("employees")
+}
+
+// نوع عمل الموظف
+enum WorkType {
+  production
+  hourly
+}
+
+// نموذج الورشات
+model Workshop {
+  id                Int                   @id @default(autoincrement())
+  name              String
+  workType          WorkType
+  password          String
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  employees         Employee[]
+  productionRecords WorkshopProduction[]
+  settlements       WorkshopSettlement[]
+
+  @@map("workshops")
+}
+
+// نموذج سجل إنتاج الورشة اليومي
+model WorkshopProduction {
+  id               Int       @id @default(autoincrement())
+  workshopId       Int
+  date             DateTime  @default(now())
+  totalProduction  Float
+  items            Json
+  notes            String?
+  workshop         Workshop  @relation(fields: [workshopId], references: [id])
+
+  @@map("workshop_production")
+}
+
+// نموذج سجل محاسبة الورشة
+model WorkshopSettlement {
+  id            Int       @id @default(autoincrement())
+  workshopId    Int
+  amount        Float
+  paidAmount    Float
+  date          DateTime  @default(now())
+  fundId        Int
+  invoiceId     Int?      @unique  // إضافة unique للعلاقة
+  notes         String?
+  fund          Fund      @relation(fields: [fundId], references: [id])
+  invoice       Invoice?  @relation(fields: [invoiceId], references: [id])
+  workshop      Workshop  @relation(fields: [workshopId], references: [id])
+
+  @@map("workshop_settlements")
+}
+
+// نموذج سجل إنتاج الموظف
+model EmployeeProduction {
+  id             Int       @id @default(autoincrement())
+  employeeId     Int
+  date           DateTime  @default(now())
+  itemId         Int
+  quantity       Float
+  productionRate Float
+  totalAmount    Float
+  notes          String?
+  employee       Employee  @relation(fields: [employeeId], references: [id])
+  item           Item      @relation(fields: [itemId], references: [id])
+
+  @@map("employee_production")
+}
+
+// نموذج سجل ساعات الموظف
+model EmployeeHours {
+  id            Int       @id @default(autoincrement())
+  employeeId    Int
+  date          DateTime  @default(now())
+  hours         Float
+  hourlyRate    Float
+  totalAmount   Float
+  notes         String?
+  employee      Employee  @relation(fields: [employeeId], references: [id])
+
+  @@map("employee_hours")
+}
+
+// نموذج سجل سحوبات الموظف
+model EmployeeWithdrawal {
+  id             Int       @id @default(autoincrement())
+  employeeId     Int
+  amount         Float
+  date           DateTime  @default(now())
+  withdrawalType String
+  invoiceId      Int?      @unique  // إضافة unique للعلاقة
+  notes          String?
+  employee       Employee  @relation(fields: [employeeId], references: [id])
+  invoice        Invoice?  @relation(fields: [invoiceId], references: [id])
+
+  @@map("employee_withdrawals")
+}
+
+// نموذج ديون الموظفين
+model EmployeeDebt {
+  id              Int        @id @default(autoincrement())
+  employeeId      Int
+  totalAmount     Float
+  remainingAmount Float
+  createdAt       DateTime   @default(now())
+  lastPaymentDate DateTime?
+  status          DebtStatus @default(active)
+  notes           String?
+  employee        Employee   @relation(fields: [employeeId], references: [id])
+  relatedInvoices Invoice[]  @relation("EmployeeDebtInvoices")  // تصحيح العلاقة المفقودة
+
+  @@map("employee_debts")
+}
+
+
+// نموذج مدفوعات الأجر للموظف
+model EmployeeSalaryPayment {
+  id           Int       @id @default(autoincrement())
+  employeeId   Int
+  amount       Float
+  date         DateTime  @default(now())
+  paymentType  String    // 'daily', 'weekly', 'monthly', etc.
+  invoiceId    Int       @unique
+  notes        String?
+  employee     Employee  @relation(fields: [employeeId], references: [id])
+  invoice      Invoice   @relation(fields: [invoiceId], references: [id])
+
+  @@map("employee_salary_payments")
+}
+
 enum Role {
   MANAGER
   ADMIN
@@ -350,6 +512,7 @@ enum InvoiceCategory {
   direct
   debt
   advance
+  employee
 }
 
 enum TrayStatus {

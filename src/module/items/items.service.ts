@@ -43,6 +43,7 @@ export class ItemsService {
           defaultUnit: createItemDto.defaultUnit,
           price: createItemDto.price,
           cost: createItemDto.cost,
+          productionRate: createItemDto.productionRate, // إضافة سعر الإنتاج
           groupId: createItemDto.groupId
         },
         include: {
@@ -140,23 +141,25 @@ export class ItemsService {
       }
     }
   
-    // معالجة الوحدات - نحول مصفوفة الوحدات إلى JSON إذا تم توفيرها
+    // تحضير البيانات للتحديث
     const dataToUpdate: any = {};
   
-  // Copiar propiedades simples
-  if (updateItemDto.name !== undefined) dataToUpdate.name = updateItemDto.name;
-  if (updateItemDto.type !== undefined) dataToUpdate.type = updateItemDto.type;
-  if (updateItemDto.barcode !== undefined) dataToUpdate.barcode = updateItemDto.barcode;
-  if (updateItemDto.description !== undefined) dataToUpdate.description = updateItemDto.description;
-  if (updateItemDto.defaultUnit !== undefined) dataToUpdate.defaultUnit = updateItemDto.defaultUnit;
-  if (updateItemDto.price !== undefined) dataToUpdate.price = updateItemDto.price;
-  if (updateItemDto.cost !== undefined) dataToUpdate.cost = updateItemDto.cost;
-  if (updateItemDto.groupId !== undefined) dataToUpdate.groupId = updateItemDto.groupId;
-  
-  // Manejar el campo units como JSON
-  if (updateItemDto.units) {
-    dataToUpdate.units = updateItemDto.units; // Prisma manejará la conversión a JSON
-  }
+    // نسخ الخصائص البسيطة
+    if (updateItemDto.name !== undefined) dataToUpdate.name = updateItemDto.name;
+    if (updateItemDto.type !== undefined) dataToUpdate.type = updateItemDto.type;
+    if (updateItemDto.barcode !== undefined) dataToUpdate.barcode = updateItemDto.barcode;
+    if (updateItemDto.description !== undefined) dataToUpdate.description = updateItemDto.description;
+    if (updateItemDto.defaultUnit !== undefined) dataToUpdate.defaultUnit = updateItemDto.defaultUnit;
+    if (updateItemDto.price !== undefined) dataToUpdate.price = updateItemDto.price;
+    if (updateItemDto.cost !== undefined) dataToUpdate.cost = updateItemDto.cost;
+    if (updateItemDto.productionRate !== undefined) dataToUpdate.productionRate = updateItemDto.productionRate;
+    if (updateItemDto.groupId !== undefined) dataToUpdate.groupId = updateItemDto.groupId;
+    
+    // معالجة الوحدات كـ JSON
+    if (updateItemDto.units) {
+      dataToUpdate.units = updateItemDto.units; // Prisma ستتعامل مع التحويل إلى JSON
+    }
+    
     // تحديث العنصر
     try {
       return await this.prisma.item.update({
@@ -219,5 +222,4 @@ export class ItemsService {
   
     return item;
   }
-
 }

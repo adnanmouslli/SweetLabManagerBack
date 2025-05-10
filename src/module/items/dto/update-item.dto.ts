@@ -40,5 +40,9 @@ export class UpdateItemDto {
 
   @IsNumber()
   @IsOptional()
+  productionRate?: number; // سعر الإنتاج للمنتج
+
+  @IsNumber()
+  @IsOptional()
   groupId?: number;
 }

@@ -1,4 +1,4 @@
-import { IsString, IsNumber, IsEnum, IsOptional, IsDateString, IsArray, ValidateNested, IsNotEmpty } from 'class-validator';
+import { IsString, IsNumber, IsEnum, IsOptional, IsArray, ValidateNested, IsNotEmpty } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ItemType } from '@prisma/client';
 
@@ -30,7 +30,6 @@ export class CreateItemDto {
   @IsOptional()
   description?: string;
 
-
   // مصفوفة ديناميكية من وحدات القياس
   @IsArray()
   @ValidateNested({ each: true })
@@ -49,6 +48,10 @@ export class CreateItemDto {
   @IsNumber()
   @IsOptional()
   cost?: number;
+
+  @IsNumber()
+  @IsOptional()
+  productionRate?: number; // سعر الإنتاج للمنتج
 
   @IsNumber()
   groupId: number;
