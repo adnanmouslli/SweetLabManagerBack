@@ -4,7 +4,7 @@ export class CreateEmployeeWithdrawalDto {
   @IsNumber()
   amount: number;
 
-  @IsEnum(['salary_advance', 'debt', 'other'])
+  @IsEnum(['salary_advance', 'debt'])
   withdrawalType: string;
 
   @IsNumber()
