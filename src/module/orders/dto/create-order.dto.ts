@@ -53,13 +53,15 @@ export class CreateOrderDto {
   @IsNumber()
   categoryId: number;
 
+  @IsOptional() // Making totalAmount optional when useLastOrder is true
   @IsNumber()
-  totalAmount: number;
+  totalAmount?: number;
 
+  @IsOptional() // Making items optional when useLastOrder is true
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => OrderItemDto)
-  items: OrderItemDto[];
+  items?: OrderItemDto[];
 
   @IsOptional()
   @IsBoolean()
@@ -86,4 +88,8 @@ export class CreateOrderDto {
   @ValidateNested()
   @Type(() => InvoiceDataDto)
   invoiceData?: InvoiceDataDto;
+  
+  @IsOptional()
+  @IsBoolean()
+  useLastOrder?: boolean;
 }

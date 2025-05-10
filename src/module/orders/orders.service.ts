@@ -24,6 +24,57 @@ export class OrdersService {
       throw new BadRequestException('العميل غير موجود');
     }
     
+    // If useLastOrder flag is set, find and use the most recent order for this customer
+    if (createOrderDto.useLastOrder) {
+      const lastOrder = await this.prisma.order.findFirst({
+        where: { 
+          customerId: createOrderDto.customerId
+        },
+        orderBy: { 
+          createdAt: 'desc' 
+        },
+        include: {
+          items: {
+            include: {
+              item: true
+            }
+          }
+        }
+      });
+      
+      if (lastOrder) {
+        // Use items from the last order and ignore any items sent from frontend
+        createOrderDto.items = lastOrder.items.map(item => ({
+          itemId: item.itemId,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          unit: item.unit,
+          notes: item.notes
+        }));
+        
+        // Recalculate total amount based on these items (considering discount/additional amount)
+        const rawTotal = createOrderDto.items.reduce(
+          (sum, item) => sum + (item.quantity * item.unitPrice),
+          0
+        );
+        
+        // If total amount is provided and invoiceData exists with discount or additional amount,
+        // let's update the total amount correctly
+        if (createOrderDto.invoiceData) {
+          const discount = createOrderDto.invoiceData.discount || 0;
+          const additionalAmount = createOrderDto.invoiceData.additionalAmount || 0;
+          createOrderDto.totalAmount = rawTotal - discount + additionalAmount;
+        } else {
+          createOrderDto.totalAmount = rawTotal;
+        }
+        
+        console.log('Using last order items. New calculated total:', createOrderDto.totalAmount);
+      } else {
+        // No previous order found
+        throw new BadRequestException('لا توجد طلبية سابقة لهذا العميل');
+      }
+    }
+    
     // Verify category exists
     const category = await this.prisma.orderCategory.findUnique({
       where: { id: createOrderDto.categoryId }
@@ -50,8 +101,29 @@ export class OrdersService {
       0
     );
     
-    if (Math.abs((calculatedTotal - createOrderDto.invoiceData.discount + createOrderDto.invoiceData.additionalAmount)- createOrderDto.totalAmount) > 0.01) {
-      throw new BadRequestException('المجموع الكلي غير صحيح');
+    // Get discount and additional amount values (default to 0 if not provided)
+    const discount = createOrderDto.invoiceData?.discount || 0;
+    const additionalAmount = createOrderDto.invoiceData?.additionalAmount || 0;
+    
+    // More flexible validation that correctly calculates the expected total
+    const expectedTotal = calculatedTotal - discount + additionalAmount;
+    
+    if (Math.abs(expectedTotal - createOrderDto.totalAmount) > 0.01) {
+      console.log('Total amount validation failed:', {
+        calculatedItemsTotal: calculatedTotal,
+        discount: discount,
+        additionalAmount: additionalAmount,
+        expectedTotal: expectedTotal,
+        providedTotal: createOrderDto.totalAmount
+      });
+      
+      // Auto-correct the total amount if useLastOrder is true
+      if (createOrderDto.useLastOrder) {
+        console.log('Auto-correcting total amount due to useLastOrder flag');
+        createOrderDto.totalAmount = expectedTotal;
+      } else {
+        throw new BadRequestException('المجموع الكلي غير صحيح');
+      }
     }
     
     // Determine scheduled date
@@ -418,6 +490,41 @@ export class OrdersService {
         message: 'تم إنشاء الطلبية بنجاح'
       };
     });
+  }
+  
+  // Method to get the last order for a specific customer
+  async getLastOrderForCustomer(customerId: number) {
+    const customer = await this.prisma.customer.findUnique({
+      where: { id: customerId }
+    });
+    
+    if (!customer) {
+      throw new BadRequestException('العميل غير موجود');
+    }
+    
+    const lastOrder = await this.prisma.order.findFirst({
+      where: { 
+        customerId: customerId 
+      },
+      orderBy: { 
+        createdAt: 'desc' 
+      },
+      include: {
+        customer: true,
+        category: true,
+        items: {
+          include: {
+            item: true
+          }
+        }
+      }
+    });
+    
+    if (!lastOrder) {
+      throw new NotFoundException('لا توجد طلبيات سابقة لهذا العميل');
+    }
+    
+    return lastOrder;
   }
   
   async findAll(filterDto: FilterOrdersDto) {
@@ -945,7 +1052,7 @@ export class OrdersService {
             invoiceType: 'income',
             invoiceCategory: 'products',
             customerId: order.customerId,
-            paidStatus: true,
+            paidStatus: invoiceData.paidStatus || true,
             totalAmount: order.totalAmount,
             discount: invoiceData?.discount || 0,
             additionalAmount: invoiceData?.additionalAmount || 0,
@@ -1255,23 +1362,23 @@ export class OrdersService {
 
 
   private createSyriaDate(date?: Date): Date {
-  const syriaDate = date ? new Date(date) : new Date();
-  
-  // Ajustar a la zona horaria de Siria (UTC+3)
-  // Obtener la diferencia en minutos entre la zona horaria local y UTC
-  const localOffset = syriaDate.getTimezoneOffset();
-  
-  // La zona horaria de Siria es UTC+3, que es -180 minutos desde UTC
-  const syriaOffset = -180;
-  
-  // Calcular la diferencia en minutos entre la zona horaria local y la de Siria
-  const offsetDiff = syriaOffset - localOffset;
-  
-  // Ajustar la fecha sumando la diferencia en minutos
-  syriaDate.setMinutes(syriaDate.getMinutes() + offsetDiff);
-  
-  return syriaDate;
-}
+    const syriaDate = date ? new Date(date) : new Date();
+    
+    // Ajustar a la zona horaria de Siria (UTC+3)
+    // Obtener la diferencia en minutos entre la zona horaria local y UTC
+    const localOffset = syriaDate.getTimezoneOffset();
+    
+    // La zona horaria de Siria es UTC+3, que es -180 minutos desde UTC
+    const syriaOffset = -180;
+    
+    // Calcular la diferencia en minutos entre la zona horaria local y la de Siria
+    const offsetDiff = syriaOffset - localOffset;
+    
+    // Ajustar la fecha sumando la diferencia en minutos
+    syriaDate.setMinutes(syriaDate.getMinutes() + offsetDiff);
+    
+    return syriaDate;
+  }
 
 // Función para obtener el inicio de día para una fecha en Siria
 private getStartOfDay(date: Date): Date {

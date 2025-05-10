@@ -17,6 +17,11 @@ import { CreateInvoiceDto } from '../invoices/dto/create-invoice.dto';
       return this.ordersService.create(createOrderDto, req.user.id);
     }
 
+    @Get('last-for-customer/:customerId')
+    getLastOrderForCustomer(@Param('customerId') customerId: string) {
+      return this.ordersService.getLastOrderForCustomer(+customerId);
+    }
+
     @Get()
     findAll(@Query() filterDto: FilterOrdersDto) {
       return this.ordersService.findAll(filterDto);
