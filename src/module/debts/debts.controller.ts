@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, UseGuards, ParseIntPipe } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, UseGuards, ParseIntPipe, Query } from '@nestjs/common';
 import { DebtsService } from './debts.service';
 import { JwtAuthGuard, Role, Roles, RolesGuard } from '@/common';
 import { ApplyDiscountDto } from './dto/apply-discount.dto';
@@ -8,10 +8,11 @@ import { ApplyDiscountDto } from './dto/apply-discount.dto';
 export class DebtsController {
   constructor(private readonly debtsService: DebtsService) {}
 
+// في ملف debts.controller.ts
   @Get()
   @Roles(Role.ADMIN, Role.MANAGER)
-  findAll() {
-    return this.debtsService.findAll();
+  findAll(@Query('type') type: string) {
+    return this.debtsService.findAll(type);
   }
 
   @Get('active')

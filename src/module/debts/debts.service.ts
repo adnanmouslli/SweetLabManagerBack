@@ -6,8 +6,12 @@ import { ApplyDiscountDto } from './dto/apply-discount.dto';
 export class DebtsService {
   constructor(private prisma: PrismaService) {}
 
-  async findAll(type: 'customer' | 'employee' = 'customer') {
-    if (type === 'customer') {
+  async findAll(type) {
+
+    const debtType = type || 'customer';
+
+
+    if (debtType === 'customer') {
       return this.prisma.debt.findMany({
         include: {
           customer: true,
@@ -32,6 +36,8 @@ export class DebtsService {
         }
       });
     } else {
+
+      console.log("empppp")
       return this.prisma.employeeDebt.findMany({
         include: {
           employee: true,
