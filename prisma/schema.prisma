@@ -463,7 +463,7 @@ model EmployeeSalaryPayment {
   invoiceId    Int       @unique
   notes        String?
   employee     Employee  @relation(fields: [employeeId], references: [id])
-  invoice      Invoice   @relation(fields: [invoiceId], references: [id])
+  invoice      Invoice?   @relation(fields: [invoiceId], references: [id])
 
   @@map("employee_salary_payments")
 }

@@ -534,7 +534,7 @@ async getLastSettlementDate(workshopId: number): Promise<Date | null> {
         }
       });
     }
-    
+
   // الحصول على ملخص مالي للورشة
    async getWorkshopSummary(workshopId: number, startDate?: Date | null, endDate?: Date) {
     // إذا لم يتم تحديد تاريخ البداية، استخدم آخر تاريخ محاسبة
