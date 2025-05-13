@@ -65,15 +65,19 @@ export class WorkshopsController {
     return this.workshopsService.addHoursRecord(id, hoursDto);
   }
 
-  @Post(':id/settlement')
-  settleWorkshop(
-    @Param('id', ParseIntPipe) id: number,
-    @Body() settlementDto: CreateWorkshopSettlementDto,
-    @Req() req
-  ) {
-    const currentUserId = req.user.id;
-    return this.workshopsService.settleWorkshop(id, settlementDto, currentUserId);
-  }
+ // في controller
+@Post(':id/settlement')
+async settleWorkshop(
+  @Param('id') id: number,
+  @Body() settlementDto: CreateWorkshopSettlementDto,
+  @Req() req
+) {
+  return this.workshopsService.settleWorkshop(
+    +id,
+    settlementDto,
+    req.user.id
+  );
+}
 
   @Get(':id/summary')
   getWorkshopSummary(

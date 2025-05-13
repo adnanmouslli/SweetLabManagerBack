@@ -1,13 +1,17 @@
-import { IsNumber, IsOptional, IsString } from 'class-validator';
+
+export class ManualDistributionDto {
+  employeeId: number;
+  amount: number;
+  notes?: string;
+}
 
 export class CreateWorkshopSettlementDto {
-  @IsNumber()
-  amount: number; // المبلغ المراد دفعه للورشة
-  
-  @IsNumber()
-  fundId: number; // الصندوق المستخدم للدفع
-  
-  @IsString()
-  @IsOptional()
-  notes?: string; // ملاحظات إضافية
+  fundId: number;
+  amount: number;
+  notes?: string;
+  distributeImmediately?: boolean;
+  distributionType?: 'manual' | 'automatic';
+  manualDistributions?: ManualDistributionDto[];
+  lastSettlementDate?: Date;
+  salaryPaymentType?: string; // لتحديد نوع الدفعة (daily, weekly, monthly, workshop)
 }
