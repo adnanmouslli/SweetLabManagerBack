@@ -321,265 +321,228 @@ export class WorkshopsService {
     });
   }
   
-
-
-
-  // تحديث تابع محاسبة الورشة لدعم التوزيع المباشر
-async settleWorkshop(
-  id: number, 
-  settlementDto: CreateWorkshopSettlementDto, 
-  currentUserId: number
-) {
-  const workshop = await this.prisma.workshop.findUnique({
-    where: { id },
-    include: {
-      employees: true
-    }
-  });
-  
-  if (!workshop) {
-    throw new NotFoundException(`الورشة رقم ${id} غير موجودة`);
-  }
-  
-  const activeShift = await this.prisma.shift.findFirst({
-    where: {
-      status: 'open',
-    },
-  });
-
-  if (!activeShift) {
-    throw new BadRequestException('لا يوجد واردية مفتوحة');
-  }
-  
-  const fund = await this.prisma.fund.findUnique({
-    where: { id: settlementDto.fundId },
-  });
-
-  if (!fund) {
-    throw new BadRequestException('الصندوق غير موجود');
-  }
-  
-  // حساب الملخص المالي للورشة
-  const summary = await this.getWorkshopSummary(id);
-  
-  // هنا نستخدم المبلغ المحدد من قبل المستخدم مباشرة
-  const amountToPay = settlementDto.amount;
-  
-  if (amountToPay <= 0) {
-    throw new BadRequestException('المبلغ المدفوع يجب أن يكون أكبر من صفر');
-  }
-  
-  // التحقق من التوزيع اليدوي إذا كان مطلوباً
-  if (settlementDto.distributionType === 'manual') {
-    if (!settlementDto.manualDistributions || settlementDto.manualDistributions.length === 0) {
-      throw new BadRequestException('يجب تحديد توزيع المبالغ على الموظفين');
-    }
-    
-    // التحقق من أن جميع الموظفين ينتمون للورشة
-    const workshopEmployeeIds = workshop.employees.map(emp => emp.id);
-    const distributionEmployeeIds = settlementDto.manualDistributions.map(dist => dist.employeeId);
-    
-    for (const employeeId of distributionEmployeeIds) {
-      if (!workshopEmployeeIds.includes(employeeId)) {
-        throw new BadRequestException(`الموظف رقم ${employeeId} لا ينتمي لهذه الورشة`);
-      }
-    }
-    
-    // التحقق من مجموع المبالغ
-    const totalDistributed = settlementDto.manualDistributions.reduce((sum, dist) => sum + dist.amount, 0);
-    
-    if (Math.abs(totalDistributed - amountToPay) > 0.01) {
-      throw new BadRequestException(
-        `مجموع المبالغ الموزعة (${totalDistributed}) لا يساوي المبلغ المدفوع (${amountToPay})`
-      );
-    }
-  }
-  
-  return this.prisma.$transaction(async (prisma) => {
-    // إنشاء فاتورة صرف للمحاسبة
-    const invoiceNumber = `WSP-STL-${Date.now()}`;
-    const mainInvoice = await prisma.invoice.create({
-      data: {
-        invoiceNumber,
-        invoiceType: 'expense',
-        invoiceCategory: 'direct',
-        paidStatus: true,
-        totalAmount: amountToPay,
-        notes: settlementDto.notes || `محاسبة ورشة ${workshop.name}`,
-        fundId: settlementDto.fundId,
-        shiftId: activeShift.id,
-        employeeId: currentUserId,
-        paymentDate: new Date(),
-        isBreak: false,
-      }
+async getLastSettlementDate(workshopId: number): Promise<Date | null> {
+    const workshop = await this.prisma.workshop.findUnique({
+      where: { id: workshopId },
+      select: { lastSettlementDate: true }
     });
     
-    // إنشاء سجل المحاسبة
-    const settlement = await prisma.workshopSettlement.create({
-      data: {
-        workshopId: id,
-        amount: summary.netAmount, // المبلغ المستحق
-        paidAmount: amountToPay, // المبلغ المدفوع
-        date: new Date(),
-        fundId: settlementDto.fundId,
-        invoiceId: mainInvoice.id,
-        notes: settlementDto.notes,
-      },
-      include: {
-        fund: true,
-        invoice: true
+    return workshop?.lastSettlementDate || null;
+  }
+
+
+
+   // تحديث تابع محاسبة الورشة لدعم التوزيع المباشر
+  async settleWorkshop(
+      id: number, 
+      settlementDto: CreateWorkshopSettlementDto, 
+      currentUserId: number
+    ) {
+      const workshop = await this.prisma.workshop.findUnique({
+        where: { id },
+        include: {
+          employees: true
+        }
+      });
+      
+      if (!workshop) {
+        throw new NotFoundException(`الورشة رقم ${id} غير موجودة`);
       }
-    });
-    
-    // تحديث رصيد الصندوق
-    await prisma.fund.update({
-      where: { id: settlementDto.fundId },
-      data: {
-        currentBalance: {
-          decrement: amountToPay
+      
+      const activeShift = await this.prisma.shift.findFirst({
+        where: {
+          status: 'open',
+        },
+      });
+
+      if (!activeShift) {
+        throw new BadRequestException('لا يوجد واردية مفتوحة');
+      }
+      
+      const fund = await this.prisma.fund.findUnique({
+        where: { id: settlementDto.fundId },
+      });
+
+      if (!fund) {
+        throw new BadRequestException('الصندوق غير موجود');
+      }
+      
+      // الحصول على تاريخ آخر محاسبة
+      const lastSettlementDate = workshop.lastSettlementDate || null;
+      
+      // حساب الملخص المالي للورشة من تاريخ آخر محاسبة
+      const summary = await this.getWorkshopSummary(id, lastSettlementDate);
+      
+      const amountToPay = settlementDto.amount;
+      
+      if (amountToPay <= 0) {
+        throw new BadRequestException('المبلغ المدفوع يجب أن يكون أكبر من صفر');
+      }
+      
+      // التحقق من التوزيع اليدوي إذا كان مطلوباً
+      if (settlementDto.distributionType === 'manual') {
+        if (!settlementDto.manualDistributions || settlementDto.manualDistributions.length === 0) {
+          throw new BadRequestException('يجب تحديد توزيع المبالغ على الموظفين');
+        }
+        
+        const workshopEmployeeIds = workshop.employees.map(emp => emp.id);
+        const distributionEmployeeIds = settlementDto.manualDistributions.map(dist => dist.employeeId);
+        
+        for (const employeeId of distributionEmployeeIds) {
+          if (!workshopEmployeeIds.includes(employeeId)) {
+            throw new BadRequestException(`الموظف رقم ${employeeId} لا ينتمي لهذه الورشة`);
+          }
+        }
+        
+        const totalDistributed = settlementDto.manualDistributions.reduce((sum, dist) => sum + dist.amount, 0);
+        
+        if (Math.abs(totalDistributed - amountToPay) > 0.01) {
+          throw new BadRequestException(
+            `مجموع المبالغ الموزعة (${totalDistributed}) لا يساوي المبلغ المدفوع (${amountToPay})`
+          );
         }
       }
-    });
-    
-    let distribution = null;
-    
-    // التوزيع المباشر إذا كان مطلوباً
-    if (settlementDto.distributeImmediately) {
-      const settlementRecords = [];
-      const salaryPayments = [];
       
-      if (settlementDto.distributionType === 'manual' && settlementDto.manualDistributions) {
-        // التوزيع اليدوي
-        for (const dist of settlementDto.manualDistributions) {
-          const employee = workshop.employees.find(emp => emp.id === dist.employeeId);
-          const sharePercentage = (dist.amount / amountToPay) * 100;
-          
-          // إنشاء فاتورة داخلية للموظف
-          const employeeInvoiceNumber = `EMP-WKSP-${Date.now()}-${dist.employeeId}`;
-          const employeeInvoice = await prisma.invoice.create({
+      return this.prisma.$transaction(async (prisma) => {
+        try {
+          // إنشاء فاتورة صرف للمحاسبة
+          const invoiceNumber = `WSP-STL-${Date.now()}`;
+          const mainInvoice = await prisma.invoice.create({
             data: {
-              invoiceNumber: employeeInvoiceNumber,
+              invoiceNumber,
               invoiceType: 'expense',
-              invoiceCategory: 'employee',
-              employeeInvoiceType: 'salary',
+              invoiceCategory: 'direct',
               paidStatus: true,
-              totalAmount: dist.amount,
-              notes: dist.notes || `راتب من محاسبة ورشة ${workshop.name}`,
+              totalAmount: amountToPay,
+              notes: settlementDto.notes || `محاسبة ورشة ${workshop.name}`,
               fundId: settlementDto.fundId,
               shiftId: activeShift.id,
               employeeId: currentUserId,
-              relatedEmployeeId: dist.employeeId,
               paymentDate: new Date(),
               isBreak: false,
             }
           });
           
-          // إنشاء سجل الراتب
-          const salaryPayment = await prisma.employeeSalaryPayment.create({
+          // إنشاء سجل المحاسبة
+          const settlement = await prisma.workshopSettlement.create({
             data: {
-              employeeId: dist.employeeId,
-              amount: dist.amount,
+              workshopId: id,
+              amount: summary.netAmount,
+              paidAmount: amountToPay,
               date: new Date(),
-              paymentType: settlementDto.salaryPaymentType || 'workshop', // 'workshop' كنوع خاص بمحاسبة الورش
-              invoiceId: employeeInvoice.id,
-              notes: dist.notes || `توزيع من محاسبة ورشة ${workshop.name}`
+              fundId: settlementDto.fundId,
+              invoiceId: mainInvoice.id,
+              notes: settlementDto.notes,
+            },
+            include: {
+              fund: true,
+              invoice: true
             }
           });
           
-          salaryPayments.push(salaryPayment);
-          
-          
-          
-          settlementRecords.push({
-            employeeName: employee.name
+          // تحديث تاريخ آخر محاسبة في الورشة
+          await prisma.workshop.update({
+            where: { id },
+            data: {
+              lastSettlementDate: new Date()
+            }
           });
+          
+          // تحديث رصيد الصندوق
+          await prisma.fund.update({
+            where: { id: settlementDto.fundId },
+            data: {
+              currentBalance: {
+                decrement: amountToPay
+              }
+            }
+          });
+          
+          let salaryPayments = [];
+          
+          // التوزيع المباشر إذا كان مطلوباً
+          if (settlementDto.distributeImmediately) {
+            if (settlementDto.distributionType === 'manual' && settlementDto.manualDistributions) {
+              // التوزيع اليدوي
+              for (const dist of settlementDto.manualDistributions) {
+                const employee = workshop.employees.find(emp => emp.id === dist.employeeId);
+                
+             
+                
+                const salaryPayment = await prisma.employeeSalaryPayment.create({
+                  data: {
+                    employeeId: dist.employeeId,
+                    amount: dist.amount,
+                    date: new Date(),
+                    paymentType: settlementDto.salaryPaymentType || 'workshop',
+                    invoiceId: null,
+                    notes: dist.notes || `توزيع من محاسبة ورشة ${workshop.name}`
+                  }
+                });
+                
+                salaryPayments.push({
+                  ...salaryPayment,
+                  employeeName: employee.name
+                });
+              }
+            } else {
+              // التوزيع التلقائي بالتساوي
+              const employeeCount = workshop.employees.length;
+              
+              if (employeeCount === 0) {
+                throw new BadRequestException('لا يوجد موظفين في الورشة للتوزيع عليهم');
+              }
+              
+              const sharePerEmployee = amountToPay / employeeCount;
+              
+              for (const employee of workshop.employees) {
+            
+                
+                const salaryPayment = await prisma.employeeSalaryPayment.create({
+                  data: {
+                    employeeId: employee.id,
+                    amount: sharePerEmployee,
+                    date: new Date(),
+                    paymentType: settlementDto.salaryPaymentType || 'workshop',
+                    invoiceId: null,
+                    notes: `توزيع بالتساوي من محاسبة ورشة ${workshop.name}`
+                  }
+                });
+                
+                salaryPayments.push({
+                  ...salaryPayment,
+                  employeeName: employee.name
+                });
+              }
+            }
+          }
+          
+          return {
+            success: true,
+            settlement,
+            invoice: mainInvoice,
+            summary,
+            salaryPayments,
+            lastSettlementDate: lastSettlementDate,
+            newStartDate: new Date()
+          };
+        } catch (error) {
+          console.error('Error in workshop settlement:', error);
+          throw new BadRequestException(
+            error.message || 'حدث خطأ أثناء محاسبة الورشة'
+          );
         }
-      } else {
-
-          // التوزيع بالتساوي
-          const employeeCount = workshop.employees.length;
-          
-          if (employeeCount === 0) {
-            throw new BadRequestException('لا يوجد موظفين في الورشة للتوزيع عليهم');
-          }
-          
-          // حساب حصة كل موظف بالتساوي
-          const sharePerEmployee = amountToPay / employeeCount;
-          const sharePercentage = 100 / employeeCount;
-          
-          // توزيع المبلغ على الموظفين بالتساوي
-          for (const employee of workshop.employees) {
-            // إنشاء فاتورة داخلية للموظف
-            const employeeInvoiceNumber = `EMP-WKSP-${Date.now()}-${employee.id}`;
-            const employeeInvoice = await prisma.invoice.create({
-              data: {
-                invoiceNumber: employeeInvoiceNumber,
-                invoiceType: 'expense',
-                invoiceCategory: 'employee',
-                employeeInvoiceType: 'salary',
-                paidStatus: true,
-                totalAmount: sharePerEmployee,
-                notes: `راتب من محاسبة ورشة ${workshop.name} - توزيع بالتساوي`,
-                fundId: settlementDto.fundId,
-                shiftId: activeShift.id,
-                employeeId: currentUserId,
-                relatedEmployeeId: employee.id,
-                paymentDate: new Date(),
-                isBreak: false,
-              }
-            });
-            
-            // التأكد من وجود الفاتورة قبل إنشاء سجل الراتب
-            if (!employeeInvoice || !employeeInvoice.id) {
-              throw new BadRequestException(`فشل إنشاء الفاتورة للموظف ${employee.name}`);
-            }
-            
-            // إنشاء سجل الراتب
-            const salaryPayment = await prisma.employeeSalaryPayment.create({
-              data: {
-                employeeId: employee.id,
-                amount: sharePerEmployee,
-                date: new Date(),
-                paymentType: settlementDto.salaryPaymentType || 'workshop',
-                invoiceId: employeeInvoice.id,
-                notes: `توزيع بالتساوي من محاسبة ورشة ${workshop.name}`
-              }
-            });
-            
-            salaryPayments.push(salaryPayment);
-            
-                      
-            settlementRecords.push({
-              employeeName: employee.name
-            });
-          }
-        
-       
-      }
-      
-      distribution = {
-        settlementId: settlement.id,
-        workshopId: id,
-        totalAmount: amountToPay,
-        distributionType: settlementDto.distributionType || 'automatic',
-        distributions: settlementRecords,
-        salaryPayments: salaryPayments,
-        distributionDate: new Date()
-      };
+      });
     }
     
-    return {
-      success: true,
-      settlement,
-      invoice: mainInvoice,
-      summary,
-      distribution
-    };
-  });
-}
-
   // الحصول على ملخص مالي للورشة
-  async getWorkshopSummary(workshopId: number, startDate?: Date, endDate?: Date) {
+   async getWorkshopSummary(workshopId: number, startDate?: Date | null, endDate?: Date) {
+    // إذا لم يتم تحديد تاريخ البداية، استخدم آخر تاريخ محاسبة
+    if (!startDate) {
+      const lastSettlementDate = await this.getLastSettlementDate(workshopId);
+      startDate = lastSettlementDate;
+    }
+    
     const workshop = await this.prisma.workshop.findUnique({
       where: { id: workshopId },
       include: {
@@ -588,7 +551,7 @@ async settleWorkshop(
             withdrawals: {
               where: {
                 date: {
-                  gte: startDate,
+                  gte: startDate || new Date(0),
                   lte: endDate || new Date()
                 }
               }
@@ -596,7 +559,7 @@ async settleWorkshop(
             productionRecords: {
               where: {
                 date: {
-                  gte: startDate,
+                  gte: startDate || new Date(0),
                   lte: endDate || new Date()
                 }
               }
@@ -604,7 +567,7 @@ async settleWorkshop(
             hourRecords: {
               where: {
                 date: {
-                  gte: startDate,
+                  gte: startDate || new Date(0),
                   lte: endDate || new Date()
                 }
               }
@@ -619,7 +582,7 @@ async settleWorkshop(
         productionRecords: {
           where: {
             date: {
-              gte: startDate,
+              gte: startDate || new Date(0),
               lte: endDate || new Date()
             }
           }
@@ -644,12 +607,10 @@ async settleWorkshop(
     let totalEarnings = 0;
     
     if (workshop.workType === 'production') {
-      // في حالة ورشة الإنتاج، نستخدم سجلات الإنتاج للورشة
       totalEarnings = workshop.productionRecords.reduce(
         (sum, record) => sum + record.totalProduction, 0
       );
     } else {
-      // في حالة ورشة الساعات، نجمع ساعات جميع الموظفين
       totalEarnings = workshop.employees.reduce(
         (sum, employee) => 
           sum + employee.hourRecords.reduce(
@@ -683,8 +644,8 @@ async settleWorkshop(
       totalDebt,
       netAmount,
       period: {
-        startDate: startDate || 'all',
-        endDate: endDate || 'current'
+        startDate: startDate || 'منذ البداية',
+        endDate: endDate || 'حتى اليوم'
       },
       dailySummary
     };

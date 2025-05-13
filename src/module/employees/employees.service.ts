@@ -56,7 +56,7 @@ export class EmployeesService {
     const employee = await this.prisma.employee.findUnique({
       where: { id },
       include: {
-        workshop: true,
+        workshop: true, // الآن يتضمن lastSettlementDate
         withdrawals: {
           orderBy: {
             date: 'desc'
@@ -80,12 +80,12 @@ export class EmployeesService {
             date: 'desc'
           }
         },
-        invoices: {
-          where: {
-            employeeInvoiceType: 'salary'
+        salaryPayments: {
+          include: {
+            invoice: true
           },
           orderBy: {
-            createdAt: 'desc'
+            date: 'desc'
           }
         }
       }
@@ -95,35 +95,65 @@ export class EmployeesService {
       throw new NotFoundException(`الموظف رقم ${id} غير موجود`);
     }
     
-    // حساب الإحصائيات المالية للموظف
-    const totalWithdrawals = employee.withdrawals.reduce((sum, withdrawal) => sum + withdrawal.amount, 0);
+    const lastSettlementDate = employee.workshop?.lastSettlementDate || null;
     
-    // حساب إجمالي الأجور اليومية المدفوعة
-    const dailySalaries = employee.invoices
-      .filter(inv => inv.employeeInvoiceType === 'salary')
-      .reduce((sum, inv) => sum + inv.totalAmount, 0);
+    // حساب الإحصائيات المالية للموظف منذ آخر محاسبة
+    const totalWithdrawals = employee.withdrawals
+      .filter(w => !lastSettlementDate || w.date > lastSettlementDate)
+      .reduce((sum, withdrawal) => sum + withdrawal.amount, 0);
+    
+    // حساب إجمالي الرواتب المدفوعة منذ آخر محاسبة
+    const totalSalaries = employee.salaryPayments
+      .filter(s => !lastSettlementDate || s.date > lastSettlementDate)
+      .reduce((sum, payment) => sum + payment.amount, 0);
     
     let totalEarnings = 0;
     if (employee.workType === 'production') {
-      totalEarnings = employee.productionRecords.reduce((sum, record) => sum + record.totalAmount, 0);
+      totalEarnings = employee.productionRecords
+        .filter(r => !lastSettlementDate || r.date > lastSettlementDate)
+        .reduce((sum, record) => sum + record.totalAmount, 0);
     } else {
-      totalEarnings = employee.hourRecords.reduce((sum, record) => sum + record.totalAmount, 0);
+      totalEarnings = employee.hourRecords
+        .filter(r => !lastSettlementDate || r.date > lastSettlementDate)
+        .reduce((sum, record) => sum + record.totalAmount, 0);
     }
     
     const activeDebt = employee.debts.find(debt => debt.status === 'active');
     const debtAmount = activeDebt ? activeDebt.remainingAmount : 0;
     
-    // الصافي لا يخصم الأجور اليومية من المستحقات، فقط السحوبات والديون
-    const netAmount = totalEarnings - totalWithdrawals - debtAmount;
+    const netAmount = totalEarnings - totalWithdrawals - debtAmount - totalSalaries;
+    
+    // تجميع الرواتب حسب النوع منذ آخر محاسبة
+    const salariesByType = {
+      daily: employee.salaryPayments
+        .filter(p => p.paymentType === 'daily' && (!lastSettlementDate || p.date > lastSettlementDate))
+        .reduce((sum, p) => sum + p.amount, 0),
+      weekly: employee.salaryPayments
+        .filter(p => p.paymentType === 'weekly' && (!lastSettlementDate || p.date > lastSettlementDate))
+        .reduce((sum, p) => sum + p.amount, 0),
+      monthly: employee.salaryPayments
+        .filter(p => p.paymentType === 'monthly' && (!lastSettlementDate || p.date > lastSettlementDate))
+        .reduce((sum, p) => sum + p.amount, 0),
+      workshop: employee.salaryPayments
+        .filter(p => p.paymentType === 'workshop' && (!lastSettlementDate || p.date > lastSettlementDate))
+        .reduce((sum, p) => sum + p.amount, 0),
+    };
     
     return {
       ...employee,
       financialSummary: {
         totalWithdrawals,
         totalEarnings,
-        dailySalaries,  // إضافة إجمالي الأجور اليومية إلى الملخص المالي
+        totalSalaries,
+        salariesByType,
         debtAmount,
-        netAmount
+        netAmount,
+        lastWorkshopSettlement: lastSettlementDate,
+        periodStart: lastSettlementDate || 'منذ البداية',
+        lastPaymentDate: employee.salaryPayments.length > 0 
+          ? employee.salaryPayments[0].date 
+          : null,
+        paymentsCount: employee.salaryPayments.length
       }
     };
   }
@@ -508,13 +538,22 @@ export class EmployeesService {
   
   // الحصول على ملخص مالي للموظف
   async getFinancialSummary(employeeId: number, startDate?: Date, endDate?: Date) {
+
+    const id = await this.prisma.employee.findFirst({
+       where: { id: employeeId },
+       include: {
+        workshop: true
+       }
+    });
+
     const employee = await this.prisma.employee.findUnique({
       where: { id: employeeId },
       include: {
+        workshop: true,
         withdrawals: {
           where: {
             date: {
-              gte: startDate,
+              gte: startDate || id.workshop.lastSettlementDate || new Date(0),
               lte: endDate || new Date()
             }
           }
@@ -527,7 +566,7 @@ export class EmployeesService {
         productionRecords: {
           where: {
             date: {
-              gte: startDate,
+              gte: startDate || id.workshop?.lastSettlementDate || new Date(0),
               lte: endDate || new Date()
             }
           },
@@ -538,7 +577,7 @@ export class EmployeesService {
         hourRecords: {
           where: {
             date: {
-              gte: startDate,
+              gte: startDate || id.workshop?.lastSettlementDate || new Date(0),
               lte: endDate || new Date()
             }
           }
@@ -565,17 +604,21 @@ export class EmployeesService {
     
     const netAmount = totalEarnings - totalWithdrawals - debtAmount;
     
+    const periodStart = startDate || employee.workshop?.lastSettlementDate || 'منذ البداية';
+    
     return {
       employeeId,
       employeeName: employee.name,
       workType: employee.workType,
+      workshopName: employee.workshop?.name,
+      lastWorkshopSettlement: employee.workshop?.lastSettlementDate,
       totalWithdrawals,
       totalEarnings,
       debtAmount,
       netAmount,
       period: {
-        startDate: startDate || 'all',
-        endDate: endDate || 'current'
+        startDate: periodStart,
+        endDate: endDate || 'حتى اليوم'
       }
     };
   }

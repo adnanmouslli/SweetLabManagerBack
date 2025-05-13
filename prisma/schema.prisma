@@ -319,21 +319,20 @@ model OrderItem {
 
 // النموذج الجديد للموظفين
 model Employee {
-  id               Int                  @id @default(autoincrement())
+  id               Int                   @id @default(autoincrement())
   name             String
-  phone            String?              @unique
+  phone            String?               @unique
   workType         WorkType
-  createdAt        DateTime             @default(now())
-  updatedAt        DateTime             @updatedAt
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
   workshopId       Int?
-  workshop         Workshop?            @relation(fields: [workshopId], references: [id])
+  workshop         Workshop?             @relation(fields: [workshopId], references: [id])
   invoices         Invoice[]
   debts            EmployeeDebt[]
   productionRecords EmployeeProduction[]
   hourRecords      EmployeeHours[]
   withdrawals      EmployeeWithdrawal[]
-
-  salaryPayments EmployeeSalaryPayment[]
+  salaryPayments   EmployeeSalaryPayment[]
 
   @@map("employees")
 }
@@ -344,17 +343,20 @@ enum WorkType {
   hourly
 }
 
+
+
 // نموذج الورشات
 model Workshop {
-  id                Int                   @id @default(autoincrement())
-  name              String
-  workType          WorkType
-  password          String
-  createdAt         DateTime              @default(now())
-  updatedAt         DateTime              @updatedAt
-  employees         Employee[]
-  productionRecords WorkshopProduction[]
-  settlements       WorkshopSettlement[]
+  id                 Int                   @id @default(autoincrement())
+  name               String
+  workType           WorkType
+  password           String
+  lastSettlementDate DateTime?             // تاريخ آخر محاسبة
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  employees          Employee[]
+  productionRecords  WorkshopProduction[]
+  settlements        WorkshopSettlement[]
 
   @@map("workshops")
 }
@@ -376,11 +378,11 @@ model WorkshopProduction {
 model WorkshopSettlement {
   id            Int       @id @default(autoincrement())
   workshopId    Int
-  amount        Float
-  paidAmount    Float
+  amount        Float     // المبلغ المستحق
+  paidAmount    Float     // المبلغ المدفوع
   date          DateTime  @default(now())
   fundId        Int
-  invoiceId     Int?      @unique  // إضافة unique للعلاقة
+  invoiceId     Int?      @unique
   notes         String?
   fund          Fund      @relation(fields: [fundId], references: [id])
   invoice       Invoice?  @relation(fields: [invoiceId], references: [id])
@@ -457,7 +459,7 @@ model EmployeeSalaryPayment {
   employeeId   Int
   amount       Float
   date         DateTime  @default(now())
-  paymentType  String    // 'daily', 'weekly', 'monthly', etc.
+  paymentType  String    // 'daily', 'weekly', 'monthly', 'workshop'
   invoiceId    Int       @unique
   notes        String?
   employee     Employee  @relation(fields: [employeeId], references: [id])
