@@ -121,7 +121,7 @@ export class EmployeesService {
     const activeDebt = employee.debts.find(debt => debt.status === 'active');
     const debtAmount = activeDebt ? activeDebt.remainingAmount : 0;
     
-    const netAmount = totalEarnings - totalWithdrawals - debtAmount - totalSalaries;
+    const netAmount = totalEarnings - totalWithdrawals ;
     
     // تجميع الرواتب حسب النوع منذ آخر محاسبة
     const salariesByType = {

@@ -6,6 +6,7 @@ import { FilterInvoiceDto } from './dto/filter-invoice.dto';
 import { UpdateInvoiceDto } from './dto/update-invoice.dto';
 import { TransferHistoryQueryDto } from './dto/transfer-request.dto';
 import { ConvertToBreakDto } from './dto/convert-to-break.dto';
+import { tr } from '@faker-js/faker/.';
 
 
 enum TransferToMainStatus {
@@ -318,14 +319,30 @@ export class InvoicesService {
           },
         });
         
-
+        
+         if (createInvoiceDto.invoiceType === 'expense' && 
+            createInvoiceDto.invoiceCategory === 'products' && 
+            createInvoiceDto.items) {
+          await this.updateInventoryAndPrices(
+            createInvoiceDto.items.map(item => ({
+              itemId: item.itemId,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice
+            })),
+            employeeId,
+            invoice.id,
+            invoice.invoiceNumber
+          );
+        }
+        
         if (createInvoiceDto.invoiceCategory === 'employee' && createInvoiceDto.relatedEmployeeId) {
        
           
           // إضافة معالجة لفاتورة الأجر اليومي
             if (createInvoiceDto.invoiceType === 'expense' && 
               createInvoiceDto.employeeInvoiceType === 'salary') {
-            
+              
+              console.log("test");
             // يمكننا إضافة سجل خاص بالأجر اليومي لتتبعه في المستقبل (اختياري)
             await prisma.employeeSalaryPayment.create({
               data: {
@@ -667,6 +684,56 @@ export class InvoicesService {
       }
     });
   }
+
+
+  private async updateInventoryAndPrices(invoiceItems: any[], employeeId: number, invoiceId: number, invoiceNumber: string) {
+  for (const invoiceItem of invoiceItems) {
+    // التحقق من أن المادة من النوع الخام
+    const item = await this.prisma.item.findUnique({
+      where: { id: invoiceItem.itemId }
+    });
+    
+    if (item && item.type === 'raw') {
+      // 1. تحديث سعر المنتج في جدول Items بآخر سعر من الفاتورة
+      await this.prisma.item.update({
+        where: { id: invoiceItem.itemId },
+        data: {
+          price: invoiceItem.unitPrice, // تحديث السعر بآخر سعر من الفاتورة
+        }
+      });
+
+      // 2. تحديث أو إنشاء سجل المخزون
+      await this.prisma.inventoryItem.upsert({
+        where: { itemId: invoiceItem.itemId },
+        update: {
+          currentStock: {
+            increment: invoiceItem.quantity
+          },
+          lastUpdated: new Date()
+        },
+        create: {
+          itemId: invoiceItem.itemId,
+          currentStock: invoiceItem.quantity,
+          lastUpdated: new Date()
+        }
+      });
+
+      // 3. تسجيل حركة المخزون
+      await this.prisma.inventoryStockMovement.create({
+        data: {
+          itemId: invoiceItem.itemId,
+          movementType: 'purchase',
+          quantity: invoiceItem.quantity,
+          unitPrice: invoiceItem.unitPrice,
+          totalCost: invoiceItem.quantity * invoiceItem.unitPrice,
+          notes: `شراء مواد خام - فاتورة ${invoiceNumber}`,
+          employeeId: employeeId,
+          invoiceId: invoiceId
+        }
+      });
+    }
+  }
+}
 
   
 
@@ -1122,6 +1189,13 @@ export class InvoicesService {
           fund: true, // لجلب الصندوق المرتبط
           relatedDebt: true, // لجلب الديون المرتبطة
           relatedAdvance: true, // لجلب السلف المرتبطة
+          salaryPayments: true ,
+          employeeWithdrawals: true,
+          relatedEmployeeDebt: true ,
+          expenseTransfer: true ,
+          incomeTransfer: true ,
+          relatedEmployee: true ,
+          workshopSettlement: true
         },
       });
   
@@ -1205,7 +1279,48 @@ export class InvoicesService {
         }
       }
     }
+    
+      if(invoice.salaryPayments) {
+         await prisma.employeeSalaryPayment.deleteMany({
+          where: { invoiceId },
+        });
+      }
+
+      if(invoice.employeeWithdrawals) {
+         await prisma.employeeWithdrawal.deleteMany({
+          where: { invoiceId },
+        });
+      }
+
+      if (invoice.relatedEmployeeDebt) {
+        const debt = await prisma.employeeDebt.findUnique({
+          where: { id: invoice.relatedEmployeeDebt.id },
+        });
   
+        if (debt) {
+          // تقليل المبلغ المتبقي في الدين أو تغييره إلى "نشط"
+          const newRemainingAmount = debt.remainingAmount - invoice.totalAmount;
+          const totalAmount = debt.totalAmount - invoice.totalAmount;
+
+          await prisma.employeeDebt.update({
+            where: { id: debt.id },
+            data: {
+              remainingAmount: newRemainingAmount,
+              totalAmount: totalAmount ,
+              status: newRemainingAmount > 0 ? 'active' : 'paid',
+              notes: `تم تحديث الدين بعد حذف الفاتورة رقم ${invoice.invoiceNumber}`,
+            },
+          });
+        }
+      }
+
+      if(invoice.workshopSettlement) {
+         await prisma.workshopSettlement.deleteMany({
+          where: { invoiceId },
+        });
+      }
+
+      
       // تحديث رصيد الصندوق
       if (invoice.paidStatus) {
         await prisma.fund.update({
@@ -1504,6 +1619,263 @@ async getRawMaterialExpenseInvoices(query?: FilterInvoiceDto) {
     throw new BadRequestException('حدث خطأ أثناء جلب فواتير المواد الأولية');
   }
 }
+
+
+async getInventoryItems() {
+  const inventoryItems = await this.prisma.inventoryItem.findMany({
+    where: {
+      currentStock: {
+        gt: 0
+      }
+    },
+    include: {
+      item: true
+    },
+    orderBy: {
+      item: {
+        name: 'asc'
+      }
+    }
+  });
+
+  // حساب متوسط سعر الشراء لكل مادة
+  const itemsWithAveragePrice = await Promise.all(
+    inventoryItems.map(async (inventoryItem) => {
+      const movements = await this.prisma.inventoryStockMovement.findMany({
+        where: {
+          itemId: inventoryItem.itemId,
+          movementType: 'purchase',
+          unitPrice: { not: null }
+        },
+        orderBy: {
+          createdAt: 'desc'
+        }
+      });
+
+      let averagePrice = 0;
+      if (movements.length > 0) {
+        const totalCost = movements.reduce((sum, movement) => sum + (movement.totalCost || 0), 0);
+        const totalQuantity = movements.reduce((sum, movement) => sum + movement.quantity, 0);
+        averagePrice = totalQuantity > 0 ? totalCost / totalQuantity : 0;
+      }
+
+      return {
+        ...inventoryItem,
+        averageUnitPrice: averagePrice,
+        totalValue: inventoryItem.currentStock * averagePrice
+      };
+    })
+  );
+
+  return itemsWithAveragePrice;
+}
+
+// 2. تابع إجراء الجرد المبسط
+async performInventoryAudit(auditData: { itemId: number; countedStock: number }[], employeeId: number) {
+  return this.prisma.$transaction(async (prisma) => {
+    let totalValueDifference = 0;
+    let totalItemsProcessed = 0;
+    const processedItems = [];
+
+    // معالجة كل مادة في الجرد
+    for (const auditItemData of auditData) {
+      // جلب المادة من المخزون
+      const inventoryItem = await prisma.inventoryItem.findUnique({
+        where: { itemId: auditItemData.itemId },
+        include: { item: true }
+      });
+
+      if (!inventoryItem) {
+        throw new BadRequestException(`المادة رقم ${auditItemData.itemId} غير موجودة في المخزون`);
+      }
+
+      // حساب متوسط سعر الشراء
+      const movements = await prisma.inventoryStockMovement.findMany({
+        where: {
+          itemId: auditItemData.itemId,
+          movementType: 'purchase',
+          unitPrice: { not: null }
+        }
+      });
+
+      let averagePrice = 0;
+      if (movements.length > 0) {
+        const totalCost = movements.reduce((sum, movement) => sum + (movement.totalCost || 0), 0);
+        const totalQuantity = movements.reduce((sum, movement) => sum + movement.quantity, 0);
+        averagePrice = totalQuantity > 0 ? totalCost / totalQuantity : 0;
+      }
+
+      const previousStock = inventoryItem.currentStock;
+      const difference = auditItemData.countedStock - previousStock;
+      const totalValue = difference * averagePrice;
+
+      // تجميع المعلومات للتقرير
+      processedItems.push({
+        itemName: inventoryItem.item.name,
+        itemUnit: inventoryItem.item.units,
+        previousStock,
+        countedStock: auditItemData.countedStock,
+        difference,
+        unitPrice: averagePrice,
+        totalValue
+      });
+
+      totalValueDifference += totalValue;
+      totalItemsProcessed++;
+
+      // تحديث المخزون
+      await prisma.inventoryItem.update({
+        where: { itemId: auditItemData.itemId },
+        data: {
+          currentStock: auditItemData.countedStock,
+          lastUpdated: new Date()
+        }
+      });
+
+      // تسجيل حركة المخزون للجرد (إذا كان هناك فرق)
+      if (difference !== 0) {
+        await prisma.inventoryStockMovement.create({
+          data: {
+            itemId: auditItemData.itemId,
+            movementType: 'inventory',
+            quantity: difference,
+            unitPrice: averagePrice,
+            totalCost: totalValue,
+            notes: difference > 0 
+              ? `زيادة في الجرد: ${Math.abs(difference)} ${inventoryItem.item.units}`
+              : `نقص في الجرد: ${Math.abs(difference)} ${inventoryItem.item.units}`,
+            employeeId
+          }
+        });
+      }
+    }
+
+    // إنشاء سجل الجرد العام (بدون تفاصيل المنتجات)
+    const audit = await prisma.inventoryAudit.create({
+      data: {
+        employeeId,
+        totalItemsCount: totalItemsProcessed,
+        totalValueDifference,
+        notes: `جرد مخزون بتاريخ ${new Date().toLocaleDateString('ar-EG')} - تم جرد ${totalItemsProcessed} مادة`
+      }
+    });
+
+    return {
+      audit,
+      processedItems, // تفاصيل المعالجة للعرض في الواجهة
+      summary: {
+        totalItems: totalItemsProcessed,
+        totalValueDifference,
+        itemsWithIncrease: processedItems.filter(item => item.difference > 0).length,
+        itemsWithDecrease: processedItems.filter(item => item.difference < 0).length,
+        itemsUnchanged: processedItems.filter(item => item.difference === 0).length
+      }
+    };
+  });
+}
+
+// 3. تابع لجلب تاريخ الجرد (مبسط)
+async getInventoryAuditHistory(limit = 10) {
+  return this.prisma.inventoryAudit.findMany({
+    include: {
+      employee: {
+        select: { name: true }
+      }
+    },
+    orderBy: {
+      auditDate: 'desc'
+    },
+    take: limit
+  });
+}
+
+// 4. تابع لجلب تفاصيل جرد محدد (مبسط)
+async getInventoryAuditDetails(auditId: number) {
+  const audit = await this.prisma.inventoryAudit.findUnique({
+    where: { id: auditId },
+    include: {
+      employee: {
+        select: { name: true }
+      }
+    }
+  });
+
+  if (!audit) {
+    throw new NotFoundException('سجل الجرد غير موجود');
+  }
+
+  // جلب حركات المخزون المرتبطة بتاريخ الجرد (تقريبياً)
+  const auditMovements = await this.prisma.inventoryStockMovement.findMany({
+    where: {
+      movementType: 'inventory',
+      employeeId: audit.employeeId,
+      createdAt: {
+        gte: new Date(audit.auditDate.getTime() - 5 * 60 * 1000), // قبل 5 دقائق
+        lte: new Date(audit.auditDate.getTime() + 5 * 60 * 1000)  // بعد 5 دقائق
+      }
+    },
+    include: {
+      item: true
+    },
+    orderBy: {
+      item: { name: 'asc' }
+    }
+  });
+
+  return {
+    ...audit,
+    movements: auditMovements // حركات المخزون التي حدثت أثناء الجرد
+  };
+}
+
+// 5. تابع لجلب حركات المخزون لمادة محددة (نفس الشيء)
+async getItemStockMovements(itemId: number, limit = 50) {
+  return this.prisma.inventoryStockMovement.findMany({
+    where: { itemId },
+    include: {
+      employee: {
+        select: { name: true }
+      },
+      item: true,
+      invoice: {
+        select: {
+          invoiceNumber: true,
+          invoiceType: true
+        }
+      }
+    },
+    orderBy: {
+      createdAt: 'desc'
+    },
+    take: limit
+  });
+}
+
+// 6. تابع لجلب تقرير المخزون الحالي (نفس الشيء)
+async getInventoryReport() {
+  const inventoryItems = await this.getInventoryItems();
+  
+  const totalValue = inventoryItems.reduce((sum, item) => sum + item.totalValue, 0);
+  const totalItems = inventoryItems.length;
+  
+  // المواد التي تحتاج إعادة تموين (أقل من حد معين)
+  const lowStockItems = inventoryItems.filter(item => item.currentStock < 10);
+  
+  return {
+    items: inventoryItems,
+    summary: {
+      totalItems,
+      totalValue,
+      lowStockItemsCount: lowStockItems.length,
+      lowStockItems: lowStockItems.map(item => ({
+        name: item.item.name,
+        currentStock: item.currentStock,
+        unit: item.item.units
+      }))
+    }
+  };
+}
+
 
 // تابع مساعد لحساب إحصاءات المواد الأولية
 private calculateRawMaterialStats(invoices) {

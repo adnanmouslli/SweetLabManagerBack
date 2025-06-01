@@ -93,6 +93,10 @@ model Item {
   orderItems          OrderItem[]
   employeeProduction  EmployeeProduction[]
 
+
+   inventoryItem           InventoryItem?
+  inventoryStockMovements InventoryStockMovement[]
+  
   @@map("items")
 }
 
@@ -136,8 +140,11 @@ model Invoice {
   employeeWithdrawals   EmployeeWithdrawal[]   // تصحيح العلاقة المفقودة
 
 
-  salaryPayment EmployeeSalaryPayment?
+  salaryPayments        EmployeeSalaryPayment[]
 
+  inventoryStockMovements InventoryStockMovement[]
+
+  
   @@map("invoices")
 }
 
@@ -334,6 +341,10 @@ model Employee {
   withdrawals      EmployeeWithdrawal[]
   salaryPayments   EmployeeSalaryPayment[]
 
+
+    inventoryStockMovements InventoryStockMovement[]
+  inventoryAudits         InventoryAudit[]
+
   @@map("employees")
 }
 
@@ -460,12 +471,62 @@ model EmployeeSalaryPayment {
   amount       Float
   date         DateTime  @default(now())
   paymentType  String    // 'daily', 'weekly', 'monthly', 'workshop'
-  invoiceId    Int       @unique
+  invoiceId    Int       // إزالة @unique
   notes        String?
   employee     Employee  @relation(fields: [employeeId], references: [id])
-  invoice      Invoice?   @relation(fields: [invoiceId], references: [id])
+  invoice      Invoice?  @relation(fields: [invoiceId], references: [id])
 
   @@map("employee_salary_payments")
+}
+
+
+// 1. جدول مخزون المواد (الكميات الحالية)
+model InventoryItem {
+  id               Int      @id @default(autoincrement())
+  itemId           Int      @unique
+  currentStock     Float    @default(0)
+  lastUpdated      DateTime @default(now()) @updatedAt
+  
+  // العلاقة الوحيدة
+  item             Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  
+  @@map("inventory_items")
+}
+
+// 2. جدول حركات المخزون (سجل كل الحركات)
+model InventoryStockMovement {
+  id            Int      @id @default(autoincrement())
+  itemId        Int
+  movementType  String   // 'purchase' | 'adjustment' | 'inventory'
+  quantity      Float
+  unitPrice     Float?
+  totalCost     Float?
+  notes         String?
+  createdAt     DateTime @default(now())
+  employeeId    Int
+  invoiceId     Int?
+  
+  // العلاقات البسيطة
+  item          Item      @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  employee      Employee  @relation(fields: [employeeId], references: [id])
+  invoice       Invoice?  @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  
+  @@map("inventory_stock_movements")
+}
+
+// 3. جدول الجرد العام (بدون تفاصيل المنتجات)
+model InventoryAudit {
+  id                   Int      @id @default(autoincrement())
+  auditDate           DateTime @default(now())
+  employeeId          Int
+  totalItemsCount     Int
+  totalValueDifference Float
+  notes               String?
+  
+  // العلاقة الوحيدة
+  employee    Employee @relation(fields: [employeeId], references: [id])
+  
+  @@map("inventory_audits")
 }
 
 enum Role {

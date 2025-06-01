@@ -1,4 +1,4 @@
-  import { Controller, Get, Post, Body, Param, UseGuards, Req, Query, Put, Delete } from '@nestjs/common';
+  import { Controller, Get, Post, Body, Param, UseGuards, Req, Query, Put, Delete, BadRequestException, NotFoundException } from '@nestjs/common';
   import { CreateInvoiceDto } from './dto/create-invoice.dto';
   import { JwtAuthGuard, RolesGuard } from '@/common';
   import { InvoicesService } from './invoices.service';
@@ -7,6 +7,8 @@ import { InvoiceCategory, InvoiceType } from '@prisma/client';
 import { UpdateInvoiceDto } from './dto/update-invoice.dto';
 import { ConfirmTransferDto, TransferHistoryQueryDto, TransferToBoothUniversityDto, TransferToMainRequestDto } from './dto/transfer-request.dto';
 import { ConvertToBreakDto } from './dto/convert-to-break.dto';
+import { InventoryQueryDto } from './dto/Inventory/inventory-query.dto';
+import { InventoryAuditDto } from './dto/Inventory/inventory-audit.dto';
 
 
 @Controller('invoices')
@@ -144,4 +146,132 @@ convertToBreak(@Param('id') id: string, @Body() convertToBreakDto: ConvertToBrea
 }
 
 
+
+// 1. جلب المواد الموجودة في المخزون (فقط التي لها كمية > 0)
+@Get('inventory/items')
+async getInventoryItems() {
+  try {
+    const items = await this.invoicesService.getInventoryItems();
+    return {
+      success: true,
+      data: items,
+      count: items.length,
+      message: 'تم جلب المواد الموجودة في المخزون بنجاح'
+    };
+  } catch (error) {
+    throw new BadRequestException('حدث خطأ أثناء جلب المواد من المخزون');
+  }
+}
+
+// 2. إجراء الجرد
+@Post('inventory/audit')
+async performInventoryAudit(
+  @Body() auditDto: InventoryAuditDto,
+  @Req() req: any
+) {
+  try {
+    const employeeId = req.user?.id;
+    
+    if (!auditDto.items || auditDto.items.length === 0) {
+      throw new BadRequestException('يجب تحديد مواد للجرد');
+    }
+
+    const result = await this.invoicesService.performInventoryAudit(
+      auditDto.items,
+      employeeId
+    );
+
+    return {
+      success: true,
+      data: result,
+      message: 'تم إجراء الجرد بنجاح'
+    };
+  } catch (error) {
+    if (error instanceof BadRequestException) {
+      throw error;
+    }
+    throw new BadRequestException('حدث خطأ أثناء إجراء الجرد');
+  }
+}
+
+// 3. جلب تاريخ الجرد
+@Get('inventory/audit-history')
+async getInventoryAuditHistory(@Query() query: InventoryQueryDto) {
+  try {
+    const history = await this.invoicesService.getInventoryAuditHistory(query.limit);
+    return {
+      success: true,
+      data: history,
+      count: history.length,
+      message: 'تم جلب تاريخ الجرد بنجاح'
+    };
+  } catch (error) {
+    throw new BadRequestException('حدث خطأ أثناء جلب تاريخ الجرد');
+  }
+}
+
+// 4. جلب تفاصيل جرد محدد
+@Get('inventory/audit/:id')
+async getInventoryAuditDetails(@Param('id') id: string) {
+  try {
+    const auditId = parseInt(id);
+    if (isNaN(auditId)) {
+      throw new BadRequestException('معرف الجرد غير صالح');
+    }
+
+    const audit = await this.invoicesService.getInventoryAuditDetails(auditId);
+    return {
+      success: true,
+      data: audit,
+      message: 'تم جلب تفاصيل الجرد بنجاح'
+    };
+  } catch (error) {
+    if (error instanceof BadRequestException || error instanceof NotFoundException) {
+      throw error;
+    }
+    throw new BadRequestException('حدث خطأ أثناء جلب تفاصيل الجرد');
+  }
+}
+
+// 5. جلب حركات المخزون لمادة محددة
+@Get('inventory/movements/:itemId')
+async getItemStockMovements(
+  @Param('itemId') itemId: string,
+  @Query() query: InventoryQueryDto
+) {
+  try {
+    const id = parseInt(itemId);
+    if (isNaN(id)) {
+      throw new BadRequestException('معرف المادة غير صالح');
+    }
+
+    const movements = await this.invoicesService.getItemStockMovements(id, query.limit);
+    return {
+      success: true,
+      data: movements,
+      count: movements.length,
+      message: 'تم جلب حركات المخزون بنجاح'
+    };
+  } catch (error) {
+    if (error instanceof BadRequestException) {
+      throw error;
+    }
+    throw new BadRequestException('حدث خطأ أثناء جلب حركات المخزون');
+  }
+}
+
+// 6. جلب تقرير المخزون الشامل
+@Get('inventory/report')
+async getInventoryReport() {
+  try {
+    const report = await this.invoicesService.getInventoryReport();
+    return {
+      success: true,
+      data: report,
+      message: 'تم جلب تقرير المخزون بنجاح'
+    };
+  } catch (error) {
+    throw new BadRequestException('حدث خطأ أثناء جلب تقرير المخزون');
+  }
+}
 }

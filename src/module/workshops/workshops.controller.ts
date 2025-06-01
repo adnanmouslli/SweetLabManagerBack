@@ -85,9 +85,8 @@ async settleWorkshop(
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string
   ) {
-    const start = startDate ? new Date(startDate) : undefined;
-    const end = endDate ? new Date(endDate) : undefined;
-    return this.workshopsService.getWorkshopSummary(id, start, end);
+
+    return this.workshopsService.getWorkshopSummary(id);
   }
 
   @Post(':id/employees/:employeeId')
