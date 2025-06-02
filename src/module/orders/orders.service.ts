@@ -312,7 +312,7 @@ export class OrdersService {
           await prisma.order.update({
             where: { id: order.id },
             data: { 
-              invoiceId: paidInvoice.id,
+              invoiceId: breakInvoice.id,
               paidStatus: false, // Partially paid
               status: OrderStatus.processing 
             }
@@ -961,7 +961,7 @@ export class OrdersService {
         await prisma.order.update({
           where: { id: order.id },
           data: { 
-            invoiceId: paidInvoice.id,
+            invoiceId: breakInvoice.id,
             paidStatus: false, // Partially paid
             status: OrderStatus.processing 
           }
