@@ -1377,11 +1377,7 @@ async getCurrentShiftInvoices() {
             item: true
           }
         },
-        employee: {
-          select: {
-            username: true
-          }
-        },
+        relatedEmployee: true,
         fund: true,
         customer:true
       },
