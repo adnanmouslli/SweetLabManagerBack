@@ -275,12 +275,14 @@ export class InvoicesService {
       // حالة الفاتورة العادية (عندما isBreak = false أو غير محدد)
       else {
         // إنشاء الفاتورة العادية
+        
         const invoice = await prisma.invoice.create({
           data: {
             invoiceNumber,
             employeeId,
             invoiceType: createInvoiceDto.invoiceType,
             invoiceCategory: createInvoiceDto.invoiceCategory,
+            relatedEmployeeId: createInvoiceDto.relatedEmployeeId,
             customerId: createInvoiceDto.customerId,
             paidStatus: createInvoiceDto.paidStatus,
             totalAmount: createInvoiceDto.totalAmount || 0,
@@ -310,11 +312,7 @@ export class InvoicesService {
                 item: true,
               },
             },
-            employee: {
-              select: {
-                username: true,
-              },
-            },
+            relatedEmployee: true,
             customer: true,
           },
         });
@@ -337,7 +335,6 @@ export class InvoicesService {
         
         if (createInvoiceDto.invoiceCategory === 'employee' && createInvoiceDto.relatedEmployeeId) {
        
-          
           // إضافة معالجة لفاتورة الأجر اليومي
             if (createInvoiceDto.invoiceType === 'expense' && 
               createInvoiceDto.employeeInvoiceType === 'salary') {
