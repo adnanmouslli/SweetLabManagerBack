@@ -24,39 +24,104 @@ export class WorkshopsService {
       throw new BadRequestException('حدث خطأ أثناء إنشاء الورشة');
     }
   }
-  
-  // جلب جميع الورش
-  async findAll() {
-    const workshops = await this.prisma.workshop.findMany({
-      include: {
-        employees: true,
-        productionRecords: {
-          orderBy: {
-            date: 'desc'
+
+async findAll() {
+  const workshops = await this.prisma.workshop.findMany({
+    include: {
+      employees: {
+        include: {
+          withdrawals: {
+            where: {
+              withdrawalType: "salary_advance"
+            }, 
+            orderBy: {
+              date: 'desc'
+            }
           },
-          take: 5
-        },
-        settlements: {
-          orderBy: {
-            date: 'desc'
+          debts: {
+            where: {
+              status: 'active'
+            }
           },
-          take: 5
+          salaryPayments: {
+            include: {
+              invoice: true
+            },
+            orderBy: {
+              date: 'desc'
+            }
+          }
         }
+      },
+      productionRecords: {
+        orderBy: {
+          date: 'desc'
+        },
+        take: 5
+      },
+      settlements: {
+        orderBy: {
+          date: 'desc'
+        },
+        take: 5
       }
-    });
-    
-    const workshopsWithSummary = await Promise.all(
-      workshops.map(async (workshop) => {
-        const summary = await this.getWorkshopSummary(workshop.id);
+    }
+  });
+  
+  const workshopsWithSummary = await Promise.all(
+    workshops.map(async (workshop) => {
+      const summary = await this.getWorkshopSummary(workshop.id);
+      
+      // حساب التفاصيل المالية لكل موظف
+      const employeesWithFinancials = workshop.employees.map(employee => {
+        const lastSettlementDate = workshop.lastSettlementDate || null;
+        
+        // حساب إجمالي السحوبات منذ آخر محاسبة
+        const totalWithdrawals = employee.withdrawals
+          .filter(w => !lastSettlementDate || w.date > lastSettlementDate)
+          .reduce((sum, withdrawal) => sum + withdrawal.amount, 0);
+        
+        // حساب إجمالي الرواتب المدفوعة منذ آخر محاسبة
+        const totalSalaries = employee.salaryPayments
+          .filter(s => !lastSettlementDate || s.date > lastSettlementDate)
+          .reduce((sum, payment) => sum + payment.amount, 0);
+        
+        
+        // حساب الديون النشطة
+        const activeDebt = employee.debts.find(debt => debt.status === 'active');
+        const debtAmount = activeDebt ? activeDebt.remainingAmount : 0;
+        
+      
+        
         return {
-          ...workshop,
-          financialSummary: summary
+          ...employee,
+          financialSummary: {
+            totalWithdrawals,
+            totalSalaries,
+            debtAmount,
+            lastWorkshopSettlement: lastSettlementDate,
+            periodStart: lastSettlementDate || 'منذ البداية',
+            lastPaymentDate: employee.salaryPayments.length > 0 
+              ? employee.salaryPayments[0].date 
+              : null,
+            paymentsCount: employee.salaryPayments.length,
+            // إضافة تفاصيل إضافية
+            withdrawalsCount: employee.withdrawals.length,
+            hasActiveDebt: debtAmount > 0
+          }
         };
-      })
-    );
-    
-    return workshopsWithSummary;
-  }
+      });
+      
+      return {
+        ...workshop,
+        employees: employeesWithFinancials,
+        financialSummary: summary
+      };
+    })
+  );
+  
+  return workshopsWithSummary;
+}
   
   // جلب ورشة محددة
   async findOne(id: number) {

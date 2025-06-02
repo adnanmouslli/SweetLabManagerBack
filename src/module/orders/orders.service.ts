@@ -160,7 +160,7 @@ export class OrdersService {
           customerId: createOrderDto.customerId,
           totalAmount: createOrderDto.totalAmount,
           paidStatus: createOrderDto.paidStatus || false,
-          status: createOrderDto.status || OrderStatus.pending,
+          status: OrderStatus.pending,
           scheduledFor: scheduledDate,
           notes: createOrderDto.notes,
           categoryId: createOrderDto.categoryId,
@@ -415,15 +415,6 @@ export class OrdersService {
             });
           }
           
-          // Update order with invoice ID
-          await prisma.order.update({
-            where: { id: order.id },
-            data: { 
-              invoiceId: standardInvoice.id,
-              paidStatus: true,
-              status: OrderStatus.delivered
-            }
-          });
     
           // Update fund balance
           await prisma.fund.update({
@@ -1045,6 +1036,7 @@ export class OrdersService {
       } 
       else {
         // Create standard invoice
+        
         const invoice = await prisma.invoice.create({
           data: {
             invoiceNumber,
@@ -1052,7 +1044,7 @@ export class OrdersService {
             invoiceType: 'income',
             invoiceCategory: 'products',
             customerId: order.customerId,
-            paidStatus: invoiceData.paidStatus || true,
+            paidStatus: invoiceData.paidStatus,
             totalAmount: order.totalAmount,
             discount: invoiceData?.discount || 0,
             additionalAmount: invoiceData?.additionalAmount || 0,
@@ -1091,8 +1083,7 @@ export class OrdersService {
           where: { id: order.id },
           data: { 
             invoiceId: invoice.id,
-            paidStatus: true, 
-            status: OrderStatus.delivered 
+            paidStatus: invoiceData.paidStatus, 
           },
           include: {
             customer: true,
@@ -1104,17 +1095,20 @@ export class OrdersService {
             }
           }
         });
-  
-        // Update fund balance
-        await prisma.fund.update({
-          where: { id: generalFund.id },
-          data: {
-            currentBalance: {
-              increment: order.totalAmount - (invoiceData?.discount || 0)
-            }
-          }
-        });
         
+        if(invoiceData.paidStatus == true) {
+
+          // Update fund balance
+          await prisma.fund.update({
+            where: { id: generalFund.id },
+            data: {
+              currentBalance: {
+                increment: order.totalAmount - (invoiceData?.discount || 0)
+              }
+            }
+          });
+        }
+          
         // Handle tray tracking if needed
         if (invoiceData?.trayCount > 0) {
           await prisma.trayTracking.create({
