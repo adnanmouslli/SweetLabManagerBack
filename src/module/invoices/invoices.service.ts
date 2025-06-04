@@ -29,6 +29,20 @@ export class InvoicesService {
     if (!activeShift) {
       throw new BadRequestException('لا يوجد واردية مفتوحة');
     }
+
+    // 🔧 إضافة التحقق من وجود المنتجات
+    if (createInvoiceDto.items && createInvoiceDto.items.length > 0) {
+      for (const item of createInvoiceDto.items) {
+        const existingItem = await this.prisma.item.findUnique({
+          where: { id: item.itemId }
+        });
+        
+        if (!existingItem) {
+          throw new BadRequestException(`المنتج رقم ${item.itemId} غير موجود`);
+        }
+      }
+    }
+
     
     if (createInvoiceDto.invoiceCategory === 'employee' && createInvoiceDto.relatedEmployeeId) {
       const relatedEmployee = await this.prisma.employee.findUnique({
@@ -716,18 +730,18 @@ export class InvoicesService {
       });
 
       // 3. تسجيل حركة المخزون
-      await this.prisma.inventoryStockMovement.create({
-        data: {
-          itemId: invoiceItem.itemId,
-          movementType: 'purchase',
-          quantity: invoiceItem.quantity,
-          unitPrice: invoiceItem.unitPrice,
-          totalCost: invoiceItem.quantity * invoiceItem.unitPrice,
-          notes: `شراء مواد خام - فاتورة ${invoiceNumber}`,
-          employeeId: employeeId,
-          invoiceId: invoiceId
-        }
-      });
+      // await this.prisma.inventoryStockMovement.create({
+      //   data: {
+      //     itemId: invoiceItem.itemId,
+      //     movementType: 'purchase',
+      //     quantity: invoiceItem.quantity,
+      //     unitPrice: invoiceItem.unitPrice,
+      //     totalCost: invoiceItem.quantity * invoiceItem.unitPrice,
+      //     notes: `شراء مواد خام - فاتورة ${invoiceNumber}`,
+      //     employeeId: employeeId,
+      //     invoiceId: invoiceId
+      //   }
+      // });
     }
   }
 }
