@@ -551,6 +551,7 @@ enum ShiftType {
 enum ShiftStatus {
   open
   closed
+  partially_closed  
 }
 
 enum FundType {

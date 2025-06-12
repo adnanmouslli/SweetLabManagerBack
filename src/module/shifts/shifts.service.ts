@@ -156,6 +156,176 @@ async remove(id: number) {
   }
 }
 
+async partialCloseShift() {
+    try {
+      const openShift = await this.prisma.shift.findFirst({
+        where: { status: ShiftStatus.open },
+        include: { employee: true }
+      });
+
+      if (!openShift) {
+        throw new NotFoundException('لا توجد واردية مفتوحة');
+      }
+
+      // التحقق من وجود طلبات تحويل معلقة
+      const pendingTransfers = await this.prisma.pendingShiftTransfer.findMany({
+        where: { status: 'pending' }
+      });
+
+      if (pendingTransfers.length > 0) {
+        throw new BadRequestException('لا يمكن إغلاق الواردية بينما توجد طلبات تحويل معلقة. يرجى معالجة هذه الطلبات أولاً.');
+      }
+
+      // إغلاق الواردية جزئياً
+      const partiallyClosedShift = await this.prisma.shift.update({
+        where: { id: openShift.id },
+        data: {
+          status: ShiftStatus.partially_closed,
+          closeTime: new Date()
+        },
+        include: {
+          employee: {
+            select: {
+              id: true,
+              username: true
+            }
+          }
+        }
+      });
+
+      // // الحصول على ملخص الواردية للمراجعة
+      // const shiftSummary = await this.getCurrentShiftSummary();
+
+      return {
+        message: 'تم إغلاق الواردية جزئياً بنجاح. يمكن الآن فتح واردية جديدة.',
+        shift: partiallyClosedShift,
+        // summary: shiftSummary,
+        note: 'يجب إكمال عملية الإغلاق لاحقاً بإدخال المبلغ الفعلي المستلم'
+      };
+
+    } catch (error) {
+      if (error instanceof BadRequestException || error instanceof NotFoundException) {
+        throw error;
+      }
+      console.error('خطأ في الإغلاق الجزئي:', error);
+      throw new InternalServerErrorException('حدث خطأ أثناء الإغلاق الجزئي للواردية');
+    }
+  }
+
+  // دالة جديدة لإكمال إغلاق الواردية
+  async completeShiftClosure(shiftId: number, actualAmount: number) {
+    try {
+      const shift = await this.prisma.shift.findUnique({
+        where: { id: shiftId },
+        include: { employee: true }
+      });
+
+      if (!shift) {
+        throw new NotFoundException('الواردية غير موجودة');
+      }
+
+      if (shift.status !== ShiftStatus.partially_closed) {
+        throw new BadRequestException('يمكن إكمال الإغلاق فقط للوارديات المغلقة جزئياً');
+      }
+
+      // الحصول على ملخص الواردية للمقارنة
+      const shiftSummary = await this.getShiftSummary(shiftId);
+      const expectedAmount = shiftSummary.totalNet;
+
+      // تحديد إذا كان هناك زيادة أو نقصان
+      let differenceStatus: 'surplus' | 'deficit' | null = null;
+      let differenceValue = 0;
+
+      if (actualAmount > expectedAmount) {
+        differenceStatus = 'surplus';
+        differenceValue = actualAmount - expectedAmount;
+      } else if (actualAmount < expectedAmount) {
+        differenceStatus = 'deficit';
+        differenceValue = expectedAmount - actualAmount;
+      }
+
+      const [generalFund, boothFund, universityFund] = await Promise.all([
+        this.prisma.fund.findFirst({ where: { fundType: 'general' } }),
+        this.prisma.fund.findFirst({ where: { fundType: 'booth' } }),
+        this.prisma.fund.findFirst({ where: { fundType: 'university' } })
+      ]);
+
+      if (!generalFund) {
+        throw new BadRequestException('الصندوق العام غير موجود');
+      }
+
+      return await this.prisma.$transaction(async (prisma) => {
+        const boothBalance = boothFund?.currentBalance || 0;
+        const universityBalance = universityFund?.currentBalance || 0;
+
+        // تصفير أرصدة الصناديق الفرعية
+        if (boothFund) {
+          await prisma.fund.update({
+            where: { id: boothFund.id },
+            data: { currentBalance: 0 }
+          });
+        }
+
+        if (universityFund) {
+          await prisma.fund.update({
+            where: { id: universityFund.id },
+            data: { currentBalance: 0 }
+          });
+        }
+
+        // تحويل المبلغ الفعلي للصندوق العام
+        await prisma.fund.update({
+          where: { id: generalFund.id },
+          data: {
+            currentBalance: {
+              increment: actualAmount
+            }
+          }
+        });
+
+        // إكمال إغلاق الواردية
+        const completedShift = await prisma.shift.update({
+          where: { id: shiftId },
+          data: {
+            status: ShiftStatus.closed,
+            differenceStatus,
+            differenceValue
+          },
+          include: {
+            employee: {
+              select: {
+                id: true,
+                username: true
+              }
+            }
+          }
+        });
+
+        return {
+          message: 'تم إكمال إغلاق الواردية وتحويل الأرصدة بنجاح',
+          shift: completedShift,
+          expectedAmount,
+          actualAmount,
+          differenceStatus,
+          differenceValue,
+          transfers: {
+            boothTransfer: boothBalance,
+            universityTransfer: universityBalance,
+            totalTransferred: actualAmount
+          }
+        };
+      });
+
+    } catch (error) {
+      if (error instanceof BadRequestException || error instanceof NotFoundException) {
+        throw error;
+      }
+      console.error('خطأ في إكمال الإغلاق:', error);
+      throw new InternalServerErrorException('حدث خطأ أثناء إكمال إغلاق الواردية');
+    }
+  }
+
+
 
 async closeShift(actualAmount: number) {
   try {
@@ -279,6 +449,51 @@ async closeShift(actualAmount: number) {
     throw new InternalServerErrorException('حدث خطأ أثناء إغلاق الواردية');
   }
 }
+
+ // دالة للحصول على الوارديات المغلقة جزئياً
+  async getPartiallyClosedShifts() {
+    try {
+      return await this.prisma.shift.findMany({
+        where: { status: ShiftStatus.partially_closed },
+        include: {
+          employee: {
+            select: {
+              id: true,
+              username: true
+            }
+          }
+        },
+        orderBy: {
+          closeTime: 'desc'
+        }
+      });
+    } catch (error) {
+      throw new InternalServerErrorException('فشل في جلب الوارديات المغلقة جزئياً');
+    }
+  }
+
+  // دالة للحصول على الواردية النشطة (مفتوحة أو مغلقة جزئياً)
+  async getActiveShift() {
+    try {
+      return await this.prisma.shift.findFirst({
+        where: { 
+          status: { 
+            in: [ShiftStatus.open, ShiftStatus.partially_closed] 
+          } 
+        },
+        include: {
+          employee: {
+            select: {
+              id: true,
+              username: true
+            }
+          }
+        }
+      });
+    } catch (error) {
+      throw new InternalServerErrorException('فشل في جلب الواردية النشطة');
+    }
+  }
 
 
  async findShiftsByStatusOrType(status?: ShiftStatus, shiftType?: ShiftType) {
