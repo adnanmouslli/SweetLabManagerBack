@@ -129,7 +129,9 @@ async findAll() {
       where: { id },
       include: {
         employees: {
+          
           include: {
+            
             withdrawals: {
               where: {
                 withdrawalType: "salary_advance"
@@ -166,7 +168,11 @@ async findAll() {
         settlements: {
           include: {
             fund: true,
-            invoice: true
+            invoice: {
+              include: {
+                employee: true
+              }
+            }
           },
           orderBy: {
             date: 'desc'
