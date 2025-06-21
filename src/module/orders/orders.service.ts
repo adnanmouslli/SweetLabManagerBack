@@ -963,7 +963,7 @@ export class OrdersService {
           data: { 
             invoiceId: breakInvoice.id,
             paidStatus: false, // Partially paid
-            status: OrderStatus.processing 
+            status: OrderStatus.delivered 
           }
         });
         

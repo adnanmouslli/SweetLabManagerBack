@@ -261,16 +261,7 @@ export class EmployeesService {
         }
       });
       
-      // إنشاء سجل السحب
-      const withdrawal = await prisma.employeeWithdrawal.create({
-        data: {
-          employeeId,
-          amount: withdrawalDto.amount,
-          withdrawalType: withdrawalDto.withdrawalType,
-          invoiceId: invoice.id,
-          notes: withdrawalDto.notes
-        }
-      });
+      
       
       // تحديث رصيد الصندوق
       await prisma.fund.update({
@@ -327,13 +318,33 @@ export class EmployeesService {
             }
           });
         }
+        return {
+        success: true,
+        invoice
+      };
+
       }
-      
+      else {
+        // إنشاء سجل السحب
+      const withdrawal = await prisma.employeeWithdrawal.create({
+        data: {
+          employeeId,
+          amount: withdrawalDto.amount,
+          withdrawalType: withdrawalDto.withdrawalType,
+          invoiceId: invoice.id,
+          notes: withdrawalDto.notes
+        }
+      });
+
       return {
         success: true,
         withdrawal,
         invoice
       };
+      
+    }
+      
+      
     });
   }
 
