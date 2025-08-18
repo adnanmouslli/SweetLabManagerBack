@@ -37,95 +37,152 @@ export class FundsService {
   }
 
   async transferToMain(amount: number, userId: number): Promise<TransferResult> {
-    try {
-      if (amount <= 0) {
-        throw new BadRequestException('مبلغ التحويل يجب أن يكون أكبر من صفر');
-      }
+  try {
+    if (amount <= 0) {
+      throw new BadRequestException('مبلغ التحويل يجب أن يكون أكبر من صفر');
+    }
 
-      const [generalFund, mainFund] = await Promise.all([
-        this.prisma.fund.findFirst({ where: { fundType: 'general' } }),
-        this.prisma.fund.findFirst({ where: { fundType: 'main' } })
-      ]);
+    const [generalFund, mainFund] = await Promise.all([
+      this.prisma.fund.findFirst({ where: { fundType: 'general' } }),
+      this.prisma.fund.findFirst({ where: { fundType: 'main' } })
+    ]);
 
-      if (!generalFund || !mainFund) {
-        throw new BadRequestException('الصناديق غير موجودة');
-      }
+    if (!generalFund || !mainFund) {
+      throw new BadRequestException('الصناديق غير موجودة');
+    }
 
-      if (generalFund.currentBalance < amount) {
-        throw new BadRequestException('الرصيد غير كافي في الصندوق العام');
-      }
+    if (generalFund.currentBalance < amount) {
+      throw new BadRequestException('الرصيد غير كافي في الصندوق العام');
+    }
 
-      const user = await this.prisma.user.findUnique({
-        where: { id: userId },
-        select: { username: true }
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { username: true }
+    });
+
+    if (!user) {
+      throw new BadRequestException('المستخدم غير موجود');
+    }
+
+    // التحقق من وجود واردية مفتوحة
+    const activeShift = await this.prisma.shift.findFirst({
+      where: {
+        status: 'open',
+      },
+    });
+
+    const result = await this.prisma.$transaction(async (prisma) => {
+      // تحديث رصيد الصندوق العام (تقليل المبلغ)
+      const updatedGeneralFund = await prisma.fund.update({
+        where: { id: generalFund.id },
+        data: {
+          currentBalance: {
+            decrement: amount
+          }
+        }
       });
 
-      if (!user) {
-        throw new BadRequestException('المستخدم غير موجود');
+      // تحديث رصيد الخزينة الرئيسية (زيادة المبلغ)
+      const updatedMainFund = await prisma.fund.update({
+        where: { id: mainFund.id },
+        data: {
+          currentBalance: {
+            increment: amount
+          }
+        }
+      });
+
+      const transferNumber = `MAIN-TREASURY-${Date.now()}`;
+      let expenseInvoice = null;
+      let incomeInvoice = null;
+
+      // إنشاء فاتورة صرف من الصندوق العام فقط في حال وجود واردية مفتوحة
+      if (activeShift) {
+        expenseInvoice = await prisma.invoice.create({
+          data: {
+            invoiceNumber: `${transferNumber}-EXP`,
+            employeeId: userId,
+            invoiceType: 'expense',
+            invoiceCategory: 'direct',
+            paidStatus: true,
+            totalAmount: amount,
+            discount: 0,
+            notes: `تحويل مباشر من الصندوق العام إلى الخزينة الرئيسية - ${transferNumber}`,
+            fundId: generalFund.id,
+            shiftId: activeShift.id,
+            paymentDate: new Date(),
+            isBreak: false,
+          }
+        });
       }
 
-      const result = await this.prisma.$transaction(async (prisma) => {
-        const updatedGeneralFund = await prisma.fund.update({
-          where: { id: generalFund.id },
-          data: {
-            currentBalance: {
-              decrement: amount
-            }
-          }
-        });
+      // إنشاء فاتورة دخل للخزينة الرئيسية (دون ربطها بواردية)
+      incomeInvoice = await prisma.invoice.create({
+        data: {
+          invoiceNumber: `${transferNumber}-INC`,
+          employeeId: userId,
+          invoiceType: 'income',
+          invoiceCategory: 'direct',
+          paidStatus: true,
+          totalAmount: amount,
+          discount: 0,
+          notes: `تحويل مباشر من الصندوق العام إلى الخزينة الرئيسية - ${transferNumber}`,
+          fundId: mainFund.id,
+          shiftId: activeShift?.id || null, // ربط بالواردية إذا كانت موجودة، وإلا null
+          paymentDate: new Date(),
+          isBreak: false,
+        }
+      });
 
-        // Add to main fund
-        const updatedMainFund = await prisma.fund.update({
-          where: { id: mainFund.id },
-          data: {
-            currentBalance: {
-              increment: amount
-            }
-          }
-        });
-
-        const transferNumber = `MAIN-TREASURY-${Date.now()}`;
-
-        const transferLog = await prisma.fundTransferLog.create({
-          data: {
-            amount,
-            fromFundId: generalFund.id,
-            toFundId: mainFund.id,
-            transferredById: userId,
-            transferredAt: new Date(),
-            metadata: JSON.stringify({
-              type: 'direct_to_main_treasury',
-              transferNumber,
-              notes: 'تحويل مباشر من الصندوق العام إلى الخزينة الرئيسية'
-            })
-          }
-        });
-
-        return {
-          fromBalance: updatedGeneralFund.currentBalance,
-          toBalance: updatedMainFund.currentBalance
-        };
+      // تسجيل عملية التحويل في سجل تحويلات الصناديق
+      const transferLog = await prisma.fundTransferLog.create({
+        data: {
+          amount,
+          fromFundId: generalFund.id,
+          toFundId: mainFund.id,
+          transferredById: userId,
+          transferredAt: new Date(),
+          metadata: JSON.stringify({
+            type: 'direct_to_main_treasury',
+            transferNumber,
+            notes: 'تحويل مباشر من الصندوق العام إلى الخزينة الرئيسية',
+            hasActiveShift: !!activeShift,
+            expenseInvoiceId: expenseInvoice?.id || null,
+            incomeInvoiceId: incomeInvoice?.id || null
+          })
+        }
       });
 
       return {
-        success: true,
-        message: 'تم التحويل بنجاح',
-        transfer: {
-          amount,
-          fromBalance: result.fromBalance,
-          toBalance: result.toBalance,
-          transferredBy: user.username,
-          transferredAt: new Date()
-        }
+        fromBalance: updatedGeneralFund.currentBalance,
+        toBalance: updatedMainFund.currentBalance,
+        expenseInvoice,
+        incomeInvoice,
+        transferLog,
+        hasActiveShift: !!activeShift
       };
+    });
 
-    } catch (error) {
-      if (error instanceof BadRequestException) {
-        throw error;
+    return {
+      success: true,
+      message: 'تم التحويل بنجاح',
+      transfer: {
+        amount,
+        fromBalance: result.fromBalance,
+        toBalance: result.toBalance,
+        transferredBy: user.username,
+        transferredAt: new Date(),
       }
-      throw new InternalServerErrorException('حدث خطأ أثناء عملية التحويل');
+    };
+
+  } catch (error) {
+    if (error instanceof BadRequestException) {
+      throw error;
     }
+    throw new InternalServerErrorException('حدث خطأ أثناء عملية التحويل');
   }
+}
+
 
   /**
    * تحويل مبلغ من الصندوق العام إلى الواردية القادمة

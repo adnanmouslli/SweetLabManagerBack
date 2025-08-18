@@ -125,74 +125,113 @@ async findAll() {
   
   // جلب ورشة محددة
   async findOne(id: number) {
-    const workshop = await this.prisma.workshop.findUnique({
-      where: { id },
-      include: {
-        employees: {
-          
-          include: {
-            
-            withdrawals: {
-              where: {
-                withdrawalType: "salary_advance"
-              }, 
-              orderBy: {
-                date: 'desc'
-              }
-            },
-            productionRecords: {
-              include: {
-                item: true
-              },
-              orderBy: {
-                date: 'desc'
-              }
-            },
-            hourRecords: {
-              orderBy: {
-                date: 'desc'
-              }
-            },
-            debts: {
-              where: {
-                status: 'active'
-              }
-            }
-          }
-        },
-        productionRecords: {
-          orderBy: {
-            date: 'desc'
-          }
-        },
-        settlements: {
-          include: {
-            fund: true,
-            invoice: {
-              include: {
-                employee: true
-              }
+  const workshop = await this.prisma.workshop.findUnique({
+    where: { id },
+    include: {
+      employees: {
+        include: {
+          withdrawals: {
+            where: {
+              withdrawalType: "salary_advance"
+            }, 
+            orderBy: {
+              date: 'desc'
             }
           },
-          orderBy: {
-            date: 'desc'
+          salaryPayments: {
+            include: {
+              invoice: true
+            },
+            orderBy: {
+              date: 'desc'
+            }
+          },
+          productionRecords: {
+            include: {
+              item: true
+            },
+            orderBy: {
+              date: 'desc'
+            }
+          },
+          hourRecords: {
+            orderBy: {
+              date: 'desc'
+            }
+          },
+          debts: {
+            where: {
+              status: 'active'
+            }
           }
         }
+      },
+      productionRecords: {
+        orderBy: {
+          date: 'desc'
+        }
+      },
+      settlements: {
+        include: {
+          fund: true,
+          invoice: {
+            include: {
+              employee: true
+            }
+          }
+        },
+        orderBy: {
+          date: 'desc'
+        }
       }
-    });
-    
-    if (!workshop) {
-      throw new NotFoundException(`الورشة رقم ${id} غير موجودة`);
     }
-    
-    const summary = await this.getWorkshopSummary(id);
-    
+  });
+  
+  if (!workshop) {
+    throw new NotFoundException(`الورشة رقم ${id} غير موجودة`);
+  }
+
+  const summary = await this.getWorkshopSummary(id);
+
+  // تعديل employees لإضافة financialSummary فقط
+  workshop.employees = workshop.employees.map(employee => {
+    const lastSettlementDate = workshop.lastSettlementDate || null;
+
+    const totalWithdrawals = employee.withdrawals
+      .filter(w => !lastSettlementDate || w.date > lastSettlementDate)
+      .reduce((sum, withdrawal) => sum + withdrawal.amount, 0);
+
+    const totalSalaries = employee.salaryPayments
+      .filter(s => !lastSettlementDate || s.date > lastSettlementDate)
+      .reduce((sum, payment) => sum + payment.amount, 0);
+
+    const activeDebt = employee.debts.find(debt => debt.status === 'active');
+    const debtAmount = activeDebt ? activeDebt.remainingAmount : 0;
 
     return {
-      ...workshop,
-      financialSummary: summary
+      ...employee,
+      financialSummary: {
+        totalWithdrawals,
+        totalSalaries,
+        debtAmount,
+        lastWorkshopSettlement: lastSettlementDate,
+        periodStart: lastSettlementDate || 'منذ البداية',
+        lastPaymentDate: employee.salaryPayments.length > 0 
+          ? employee.salaryPayments[0].date 
+          : null,
+        paymentsCount: employee.salaryPayments.length,
+        withdrawalsCount: employee.withdrawals.length,
+        hasActiveDebt: debtAmount > 0
+      }
     };
-  }
+  });
+
+  return {
+    ...workshop,
+    financialSummary: summary
+  };
+}
+
   
   // تحديث بيانات ورشة
   async update(id: number, updateWorkshopDto: UpdateWorkshopDto) {

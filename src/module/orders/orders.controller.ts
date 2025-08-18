@@ -71,4 +71,14 @@ import { CreateInvoiceDto } from '../invoices/dto/create-invoice.dto';
     updateStatus(@Param('id') id: string, @Param('status') status: OrderStatus) {
       return this.ordersService.updateOrderStatus(+id, status);
     }
+
+    @Patch(':id/cancel')
+    cancelOrder(
+      @Param('id') id: string, 
+      @Body() cancelData: { reason?: string },
+      @Req() req
+    ) {
+      return this.ordersService.cancelOrder(+id, req.user.id, cancelData.reason);
+    }
+
   }

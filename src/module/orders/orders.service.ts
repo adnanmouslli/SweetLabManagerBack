@@ -1182,6 +1182,92 @@ export class OrdersService {
   }
   
 
+  async cancelOrder(id: number, employeeId: number, reason?: string) {
+  // التحقق من وجود الطلبية
+  const existingOrder = await this.prisma.order.findUnique({
+    where: { id },
+    include: {
+      invoice: true,
+      items: true
+    }
+  });
+  
+  if (!existingOrder) {
+    throw new NotFoundException(`الطلبية برقم ${id} غير موجودة`);
+  }
+  
+  // التحقق من أن الطلبية ليست ملغاة بالفعل
+  if (existingOrder.status === OrderStatus.cancelled) {
+    throw new BadRequestException('الطلبية ملغاة بالفعل');
+  }
+  
+  // التحقق من أن الطلبية لم يتم تسليمها
+  if (existingOrder.status === OrderStatus.delivered) {
+    throw new BadRequestException('لا يمكن إلغاء طلبية تم تسليمها');
+  }
+  
+  // التحقق من أن الطلبية غير مرتبطة بفاتورة مدفوعة
+  if (existingOrder.invoice && existingOrder.paidStatus) {
+    throw new BadRequestException('لا يمكن إلغاء طلبية مدفوعة ومرتبطة بفاتورة. يجب إلغاء الفاتورة أولاً');
+  }
+  
+  return this.prisma.$transaction(async (prisma) => {
+    // تحديث حالة الطلبية إلى ملغاة
+    const cancelledOrder = await prisma.order.update({
+      where: { id },
+      data: {
+        status: OrderStatus.cancelled,
+        notes: existingOrder.notes 
+          ? `${existingOrder.notes} - تم الإلغاء: ${reason || 'بدون سبب محدد'}`
+          : `تم الإلغاء: ${reason || 'بدون سبب محدد'}`
+      },
+      include: {
+        customer: true,
+        category: true,
+        employee: {
+          select: {
+            username: true
+          }
+        },
+        items: {
+          include: {
+            item: true
+          }
+        },
+        invoice: true
+      }
+    });
+    
+    // إذا كانت الطلبية مرتبطة بفاتورة غير مدفوعة، قم بإلغائها أيضاً
+    if (existingOrder.invoice && !existingOrder.paidStatus) {
+      await prisma.invoice.update({
+        where: { id: existingOrder.invoice.id },
+        data: {
+          notes: existingOrder.invoice.notes 
+            ? `${existingOrder.invoice.notes} - تم إلغاء الفاتورة بسبب إلغاء الطلبية`
+            : 'تم إلغاء الفاتورة بسبب إلغاء الطلبية'
+        }
+      });
+      
+      // حذف عناصر الفاتورة
+      await prisma.invoiceItem.deleteMany({
+        where: { invoiceId: existingOrder.invoice.id }
+      });
+      
+      // حذف الفاتورة
+      await prisma.invoice.delete({
+        where: { id: existingOrder.invoice.id }
+      });
+    }
+    
+    return {
+      ...cancelledOrder,
+      message: 'تم إلغاء الطلبية بنجاح'
+    };
+  });
+}
+
+
   private getStatusArabicName(status: OrderStatus): string {
     const statusNames = {
       [OrderStatus.pending]: 'قيد الانتظار',
