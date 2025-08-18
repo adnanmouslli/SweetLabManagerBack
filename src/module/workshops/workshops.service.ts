@@ -468,7 +468,7 @@ async findAll() {
             invoiceCategory: 'direct',
             paidStatus: true,
             totalAmount: amountToPay,
-            notes: settlementDto.notes || `محاسبة ورشة ${workshop.name}`,
+            notes: `w-${workshop.name}`,
             fundId: settlementDto.fundId,
             shiftId: activeShift.id,
             employeeId: currentUserId,
