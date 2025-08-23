@@ -321,7 +321,6 @@ export class InvoicesService {
             discount: createInvoiceDto.discount || 0,
             additionalAmount: additionalAmount, // تخزين المبلغ الإضافي
             supplierPaymentAmount: createInvoiceDto.supplierPaymentAmount, // حفظ مبلغ الدفع للمورد
-
             notes: invoiceNotes || null,
             fundId: createInvoiceDto.fundId,
             shiftId: activeShift.id,
