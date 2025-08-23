@@ -1,3 +1,5 @@
+import { IsEnum, IsOptional } from "class-validator";
+
 export class TransferToBoothUniversityDto {
     sourceId: number;
     amount: number;
@@ -7,6 +9,9 @@ export class TransferToBoothUniversityDto {
 export class TransferToMainRequestDto {
   amount: number;
   notes?: string;
+
+  @IsOptional()
+  currency?: 'SYP' | 'USD';
 }
   
   export class ConfirmTransferDto {

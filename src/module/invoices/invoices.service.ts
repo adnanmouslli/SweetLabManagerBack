@@ -1,7 +1,7 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
-import { InvoiceCategory, InvoiceType } from '@prisma/client';
+import { FundType, InvoiceCategory, InvoiceType } from '@prisma/client';
 import { FilterInvoiceDto } from './dto/filter-invoice.dto';
 import { UpdateInvoiceDto } from './dto/update-invoice.dto';
 import { TransferHistoryQueryDto } from './dto/transfer-request.dto';
@@ -695,6 +695,249 @@ export class InvoicesService {
       }
     });
   }
+
+async sellUSD(
+  usdAmount: number, 
+  syrAmount: number, 
+  targetFundId: number, 
+  employeeId: number, 
+  notes?: string
+) {
+  // التحقق من وجود واردية مفتوحة
+  const activeShift = await this.prisma.shift.findFirst({
+    where: {
+      status: 'open',
+    },
+  });
+
+  if (!activeShift) {
+    throw new BadRequestException('لا يوجد واردية مفتوحة');
+  }
+
+  // البحث عن صندوق الدولار العام
+  const usdGeneralFund = await this.prisma.fund.findFirst({
+    where: { fundType: FundType.general_usd },
+  });
+
+  if (!usdGeneralFund) {
+    throw new BadRequestException('صندوق الدولار العام غير موجود');
+  }
+
+  // التحقق من الرصيد المتاح في صندوق الدولار
+  if (usdGeneralFund.currentBalance < usdAmount) {
+    throw new BadRequestException(`رصيد الدولار غير كافي (${usdGeneralFund.currentBalance} USD)`);
+  }
+
+  // التحقق من الصندوق المستهدف
+  const targetFund = await this.prisma.fund.findUnique({
+    where: { id: targetFundId },
+  });
+
+  if (!targetFund) {
+    throw new BadRequestException('الصندوق المستهدف غير موجود');
+  }
+
+  // التحقق من أن الصندوق المستهدف من الصناديق السورية المسموحة
+  const allowedFundTypes = ['general', 'booth', 'university'];
+  if (!allowedFundTypes.includes(targetFund.fundType)) {
+    throw new BadRequestException('يجب اختيار صندوق من (العام، البسطة، الجامعة)');
+  }
+
+
+  return this.prisma.$transaction(async (prisma) => {
+    // إنشاء فاتورة صرف من صندوق الدولار العام
+    const usdExpenseInvoiceNumber = `USD-SELL-EXP-${Date.now()}`;
+    const usdExpenseInvoice = await prisma.invoice.create({
+      data: {
+        invoiceNumber: usdExpenseInvoiceNumber,
+        invoiceType: 'expense',
+        invoiceCategory: 'direct',
+        totalAmount: usdAmount,
+        discount: 0,
+        paidStatus: true,
+        paymentDate: new Date(),
+        notes: notes 
+          ? `${notes} - بيع ${usdAmount} = ${syrAmount} SYP`
+          : `بيع ${usdAmount} = ${syrAmount} SYP`,
+        fundId: usdGeneralFund.id,
+        shiftId: activeShift.id,
+        employeeId,
+        isBreak: false,
+      },
+    });
+
+    // إنشاء فاتورة دخل للصندوق المستهدف بالليرة السورية
+    const syrIncomeInvoiceNumber = `USD-SELL-INC-${Date.now()}`;
+    const syrIncomeInvoice = await prisma.invoice.create({
+      data: {
+        invoiceNumber: syrIncomeInvoiceNumber,
+        invoiceType: 'income',
+        invoiceCategory: 'direct',
+        totalAmount: syrAmount,
+        discount: 0,
+        paidStatus: true,
+        paymentDate: new Date(),
+        notes: notes 
+          ? `${notes} - استلام ${syrAmount} SYP مقابل بيع ${usdAmount}`
+          : `استلام ${syrAmount} SYP مقابل بيع ${usdAmount}`,
+        fundId: targetFundId,
+        shiftId: activeShift.id,
+        employeeId,
+        isBreak: false,
+      },
+    });
+
+
+    // تحديث أرصدة الصناديق
+    await prisma.fund.update({
+      where: { id: usdGeneralFund.id },
+      data: {
+        currentBalance: {
+          decrement: usdAmount,
+        },
+      },
+    });
+
+    await prisma.fund.update({
+      where: { id: targetFundId },
+      data: {
+        currentBalance: {
+          increment: syrAmount,
+        },
+      },
+    });
+
+    return {
+      success: true,
+      message: 'تم بيع الدولار بنجاح',
+      usdAmount,
+      syrAmount,
+      usdExpenseInvoice,
+      syrIncomeInvoice,
+    };
+  });
+}
+
+// تابع شراء الدولار (من أحد الصناديق السورية إلى صندوق الدولار العام)
+async buyUSD(
+  usdAmount: number, 
+  syrAmount: number, 
+  sourceFundId: number, 
+  employeeId: number, 
+  notes?: string
+) {
+  // التحقق من وجود واردية مفتوحة
+  const activeShift = await this.prisma.shift.findFirst({
+    where: {
+      status: 'open',
+    },
+  });
+
+  if (!activeShift) {
+    throw new BadRequestException('لا يوجد واردية مفتوحة');
+  }
+
+  // البحث عن صندوق الدولار العام
+  const usdGeneralFund = await this.prisma.fund.findFirst({
+    where: { fundType: FundType.general_usd },
+  });
+
+  if (!usdGeneralFund) {
+    throw new BadRequestException('صندوق الدولار العام غير موجود');
+  }
+
+  // التحقق من الصندوق المصدر
+  const sourceFund = await this.prisma.fund.findUnique({
+    where: { id: sourceFundId },
+  });
+
+  if (!sourceFund) {
+    throw new BadRequestException('الصندوق المصدر غير موجود');
+  }
+
+  // التحقق من أن الصندوق المصدر من الصناديق السورية المسموحة
+  const allowedFundTypes = ['general', 'booth', 'university'];
+  if (!allowedFundTypes.includes(sourceFund.fundType)) {
+    throw new BadRequestException('يجب اختيار صندوق من (العام، البسطة، الجامعة)');
+  }
+
+  // التحقق من الرصيد المتاح في الصندوق المصدر
+  if (sourceFund.currentBalance < syrAmount) {
+    throw new BadRequestException(`رصيد الصندوق المصدر غير كافي (${sourceFund.currentBalance} SYP)`);
+  }
+
+  return this.prisma.$transaction(async (prisma) => {
+    // إنشاء فاتورة صرف من الصندوق السوري
+    const syrExpenseInvoiceNumber = `USD-BUY-EXP-${Date.now()}`;
+    const syrExpenseInvoice = await prisma.invoice.create({
+      data: {
+        invoiceNumber: syrExpenseInvoiceNumber,
+        invoiceType: 'expense',
+        invoiceCategory: 'direct',
+        totalAmount: syrAmount,
+        discount: 0,
+        paidStatus: true,
+        paymentDate: new Date(),
+        notes: notes 
+          ? `${notes} - شراء ${usdAmount} = ${syrAmount} SYP`
+          : `شراء ${usdAmount} = ${syrAmount} SYP`,
+        fundId: sourceFundId,
+        shiftId: activeShift.id,
+        employeeId,
+        isBreak: false,
+      },
+    });
+
+    // إنشاء فاتورة دخل لصندوق الدولار العام
+    const usdIncomeInvoiceNumber = `USD-BUY-INC-${Date.now()}`;
+    const usdIncomeInvoice = await prisma.invoice.create({
+      data: {
+        invoiceNumber: usdIncomeInvoiceNumber,
+        invoiceType: 'income',
+        invoiceCategory: 'direct',
+        totalAmount: usdAmount,
+        discount: 0,
+        paidStatus: true,
+        paymentDate: new Date(),
+        notes: notes 
+          ? `${notes} - استلام ${usdAmount} USD مقابل دفع ${syrAmount}`
+          : `استلام ${usdAmount} USD مقابل دفع ${syrAmount}`,
+        fundId: usdGeneralFund.id,
+        shiftId: activeShift.id,
+        employeeId,
+        isBreak: false,
+      },
+    });
+
+    // تحديث أرصدة الصناديق
+    await prisma.fund.update({
+      where: { id: sourceFundId },
+      data: {
+        currentBalance: {
+          decrement: syrAmount,
+        },
+      },
+    });
+
+    await prisma.fund.update({
+      where: { id: usdGeneralFund.id },
+      data: {
+        currentBalance: {
+          increment: usdAmount,
+        },
+      },
+    });
+
+    return {
+      success: true,
+      message: 'تم شراء الدولار بنجاح',
+      usdAmount,
+      syrAmount,
+      syrExpenseInvoice,
+      usdIncomeInvoice,
+    };
+  });
+}
 
 
   private async updateInventoryAndPrices(invoiceItems: any[], employeeId: number, invoiceId: number, invoiceNumber: string) {
@@ -2107,7 +2350,15 @@ async transferFromBoothOrUniversityToGeneral(sourceId: number, amount: number, e
   });
 }
 
-async createTransferToMainRequest(sourceId: number, amount: number, employeeId: number, notes?: string) {
+// تحديث التابع في InvoicesService
+
+async createTransferToMainRequest(
+  sourceId: number, 
+  amount: number, 
+  employeeId: number, 
+  notes?: string,
+  currency: 'SYP' | 'USD' = 'SYP' // القيمة الافتراضية هي الليرة السورية
+) {
   // التحقق من وجود واردية مفتوحة
   const activeShift = await this.prisma.shift.findFirst({
     where: {
@@ -2119,33 +2370,61 @@ async createTransferToMainRequest(sourceId: number, amount: number, employeeId: 
     throw new BadRequestException('لا يوجد واردية مفتوحة');
   }
 
-  // البحث عن الصندوق المصدر
-  const sourceFund = await this.prisma.fund.findUnique({
-    where: { id: sourceId },
-  });
+  let sourceFund, mainFund;
 
-  if (!sourceFund) {
-    throw new BadRequestException('الصندوق المصدر غير موجود');
+  if (currency === 'USD') {
+    // للدولار: البحث عن صندوق الدولار العام كمصدر
+    sourceFund = await this.prisma.fund.findFirst({
+      where: { fundType: 'general_usd' },
+    });
+
+    if (!sourceFund) {
+      throw new BadRequestException('صندوق الدولار العام غير موجود');
+    }
+
+    // البحث عن خزينة الدولار الرئيسية كوجهة
+    mainFund = await this.prisma.fund.findFirst({
+      where: { fundType: 'main_usd' },
+    });
+
+    if (!mainFund) {
+      throw new BadRequestException('خزينة الدولار الرئيسية غير موجودة');
+    }
+  } else {
+    // للليرة السورية: البحث عن الصندوق المصدر باستخدام sourceId
+    sourceFund = await this.prisma.fund.findUnique({
+      where: { id: sourceId },
+    });
+
+    if (!sourceFund) {
+      throw new BadRequestException('الصندوق المصدر غير موجود');
+    }
+
+    // البحث عن الخزينة الرئيسية
+    mainFund = await this.prisma.fund.findFirst({
+      where: { fundType: 'main' },
+    });
+
+    if (!mainFund) {
+      throw new BadRequestException('الخزينة الرئيسية غير موجودة');
+    }
   }
 
   // التحقق من الرصيد المتاح في الصندوق المصدر
   if (sourceFund.currentBalance < amount) {
-    throw new BadRequestException(`رصيد الصندوق المصدر غير كافي (${sourceFund.currentBalance})`);
-  }
-
-  // البحث عن الخزينة الرئيسية
-  const mainFund = await this.prisma.fund.findFirst({
-    where: { fundType: 'main' },
-  });
-
-  if (!mainFund) {
-    throw new BadRequestException('الخزينة الرئيسية غير موجودة');
+    throw new BadRequestException(
+      `رصيد الصندوق المصدر غير كافي (${sourceFund.currentBalance} ${currency})`
+    );
   }
 
   // إنشاء المعاملة في قاعدة البيانات
   return this.prisma.$transaction(async (prisma) => {
+    const currencyText = currency === 'USD' ? 'الدولار' : 'الليرة السورية';
+    const sourceFundText = currency === 'USD' ? 'صندوق الدولار العام' : sourceFund.fundType;
+    const mainFundText = currency === 'USD' ? 'خزينة الدولار الرئيسية' : 'الخزينة الرئيسية';
+
     // إنشاء فاتورة صرف من الصندوق المصدر (مؤقتة - في حالة انتظار)
-    const expenseInvoiceNumber = `TRF-MAIN-EXP-${Date.now()}`;
+    const expenseInvoiceNumber = `TRF-MAIN-EXP-${currency}-${Date.now()}`;
     const expenseInvoice = await prisma.invoice.create({
       data: {
         invoiceNumber: expenseInvoiceNumber,
@@ -2154,8 +2433,9 @@ async createTransferToMainRequest(sourceId: number, amount: number, employeeId: 
         totalAmount: amount,
         discount: 0,
         paidStatus: false, // لن يتم تفعيل الفاتورة حتى التأكيد
-        notes: (notes ? `${notes} - ` : '') + `طلب تحويل من ${sourceFund.fundType} إلى الخزينة الرئيسية - في انتظار التأكيد`,
-        fundId: sourceId,
+        notes: (notes ? `${notes} - ` : '') + 
+               `طلب تحويل ${amount} ${currency} من ${sourceFundText} إلى ${mainFundText} - في انتظار التأكيد`,
+        fundId: sourceFund.id,
         shiftId: activeShift.id,
         employeeId,
         isBreak: false,
@@ -2163,7 +2443,7 @@ async createTransferToMainRequest(sourceId: number, amount: number, employeeId: 
     });
 
     // إنشاء فاتورة دخل في الخزينة الرئيسية (مؤقتة - في حالة انتظار)
-    const incomeInvoiceNumber = `TRF-MAIN-INC-${Date.now()}`;
+    const incomeInvoiceNumber = `TRF-MAIN-INC-${currency}-${Date.now()}`;
     const incomeInvoice = await prisma.invoice.create({
       data: {
         invoiceNumber: incomeInvoiceNumber,
@@ -2172,7 +2452,8 @@ async createTransferToMainRequest(sourceId: number, amount: number, employeeId: 
         totalAmount: amount,
         discount: 0,
         paidStatus: false, // لن يتم تفعيل الفاتورة حتى التأكيد
-        notes: (notes ? `${notes} - ` : '') + `طلب تحويل من ${sourceFund.fundType} - في انتظار التأكيد`,
+        notes: (notes ? `${notes} - ` : '') + 
+               `طلب تحويل ${amount} ${currency} من ${sourceFundText} - في انتظار التأكيد`,
         fundId: mainFund.id,
         shiftId: activeShift.id,
         employeeId,
@@ -2186,7 +2467,7 @@ async createTransferToMainRequest(sourceId: number, amount: number, employeeId: 
         amount,
         status: TransferToMainStatus.PENDING,
         requestedById: employeeId,
-        notes: notes || `طلب تحويل من ${sourceFund.fundType} إلى الخزينة الرئيسية`,
+        notes: notes || `طلب تحويل ${amount} ${currency} من ${sourceFundText} إلى ${mainFundText}`,
         expenseInvoiceId: expenseInvoice.id,
         incomeInvoiceId: incomeInvoice.id,
       },
@@ -2194,10 +2475,12 @@ async createTransferToMainRequest(sourceId: number, amount: number, employeeId: 
 
     return {
       success: true,
-      message: 'تم إنشاء طلب التحويل بنجاح، في انتظار التأكيد من أمين الخزينة',
+      message: `تم إنشاء طلب التحويل بنجاح، في انتظار التأكيد من أمين الخزينة`,
       transferAmount: amount,
+      currency,
       status: TransferToMainStatus.PENDING,
-      sourceFund: sourceFund.fundType,
+      sourceFund: sourceFundText,
+      targetFund: mainFundText,
       expenseInvoice,
       incomeInvoice,
       transferRequest,

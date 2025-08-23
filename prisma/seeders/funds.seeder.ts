@@ -17,6 +17,16 @@ const funds = [
     fundType: FundType.university, 
     currentBalance: 0 
   }
+  ,
+  { 
+    fundType: FundType.main_usd, 
+    currentBalance: 0 
+  }
+  ,
+  { 
+    fundType: FundType.general_usd, 
+    currentBalance: 0 
+  }
 ];
 
 export async function seedFunds(prisma: PrismaClient) {

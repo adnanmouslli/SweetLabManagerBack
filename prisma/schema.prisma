@@ -559,6 +559,8 @@ enum FundType {
   general
   booth
   university
+  main_usd
+  general_usd
 }
 
 enum ItemType {

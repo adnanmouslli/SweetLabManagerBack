@@ -9,6 +9,7 @@ import { ConfirmTransferDto, TransferHistoryQueryDto, TransferToBoothUniversityD
 import { ConvertToBreakDto } from './dto/convert-to-break.dto';
 import { InventoryQueryDto } from './dto/Inventory/inventory-query.dto';
 import { InventoryAuditDto } from './dto/Inventory/inventory-audit.dto';
+import { BuyUSDDto, SellUSDDto } from './dto/currency-exchange.dto';
 
 
 @Controller('invoices')
@@ -100,7 +101,8 @@ createTransferToMainRequest(
     +sourceId, 
     requestData.amount,
     req.user.id,
-    requestData.notes
+    requestData.notes,
+    requestData.currency || 'SYP'
   );
 }
 
@@ -274,4 +276,62 @@ async getInventoryReport() {
     throw new BadRequestException('حدث خطأ أثناء جلب تقرير المخزون');
   }
 }
+
+
+// مسار بيع الدولار
+@Post('currency/sell-usd')
+async sellUSD(
+  @Body() sellUSDDto: SellUSDDto,
+  @Req() req: any
+) {
+  try {
+    const result = await this.invoicesService.sellUSD(
+      sellUSDDto.usdAmount,
+      sellUSDDto.syrAmount,
+      sellUSDDto.targetFundId,
+      req.user.id,
+      sellUSDDto.notes
+    );
+
+    return {
+      success: true,
+      data: result,
+      message: 'تم بيع الدولار بنجاح'
+    };
+  } catch (error) {
+    if (error instanceof BadRequestException) {
+      throw error;
+    }
+    throw new BadRequestException('حدث خطأ أثناء عملية بيع الدولار');
+  }
+}
+
+// مسار شراء الدولار
+@Post('currency/buy-usd')
+async buyUSD(
+  @Body() buyUSDDto: BuyUSDDto,
+  @Req() req: any
+) {
+  try {
+    const result = await this.invoicesService.buyUSD(
+      buyUSDDto.usdAmount,
+      buyUSDDto.syrAmount,
+      buyUSDDto.sourceFundId,
+      req.user.id,
+      buyUSDDto.notes
+    );
+
+    return {
+      success: true,
+      data: result,
+      message: 'تم شراء الدولار بنجاح'
+    };
+  } catch (error) {
+    if (error instanceof BadRequestException) {
+      throw error;
+    }
+    throw new BadRequestException('حدث خطأ أثناء عملية شراء الدولار');
+  }
+}
+
 }
