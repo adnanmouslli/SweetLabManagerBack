@@ -77,5 +77,8 @@ export class CreateInvoiceDto {
   @IsOptional()
   employeeInvoiceType?: 'withdrawal' | 'return' | 'debtPayment' | "salary";
   
+  @IsNumber()
+  @IsOptional()
+  supplierPaymentAmount?: number; // المبلغ المدفوع للمورد (للموردين فقط)
 
 }

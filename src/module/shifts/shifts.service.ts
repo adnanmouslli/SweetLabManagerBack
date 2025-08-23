@@ -637,15 +637,20 @@ async getCurrentShiftSummary(): Promise<ShiftSummary> {
 
         // Calculate totals only for paid invoices and subtract discounts
         const incomeTotal = fundInvoices
-          .filter(invoice => 
-            invoice.invoiceType === InvoiceType.income && 
-            invoice.paidStatus === true
-          ) 
-          .reduce((sum, invoice) => {
-
-            const actualAmount = invoice.totalAmount - invoice.discount;
-            return sum + actualAmount;
-          }, 0);
+        .filter(invoice => 
+          invoice.invoiceType === InvoiceType.income && 
+          invoice.paidStatus === true
+        ) 
+        .reduce((sum, invoice) => {
+          // استخدام supplierPaymentAmount إذا وجد، وإلا استخدام totalAmount
+          let actualAmount;
+          if (invoice.supplierPaymentAmount > 0) {
+            actualAmount = invoice.supplierPaymentAmount - (invoice.discount || 0);
+          } else {
+            actualAmount = invoice.totalAmount - (invoice.discount || 0);
+          }
+          return sum + actualAmount;
+        }, 0);
 
           // console.log("incomeTotal" , incomeTotal);
 
@@ -656,7 +661,12 @@ async getCurrentShiftSummary(): Promise<ShiftSummary> {
           )
           .reduce((sum, invoice) => {
             // Subtract discount from total amount
-            const actualAmount = invoice.totalAmount - invoice.discount;
+            let actualAmount;
+            if (invoice.supplierPaymentAmount > 0) {
+              actualAmount = invoice.supplierPaymentAmount - (invoice.discount || 0);
+            } else {
+              actualAmount = invoice.totalAmount - (invoice.discount || 0);
+            }
             return sum + actualAmount;
           }, 0);
 

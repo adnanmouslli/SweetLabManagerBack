@@ -2,6 +2,7 @@ import { Injectable, BadRequestException, NotFoundException } from '@nestjs/comm
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateCustomerDto, CustomerType } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
+import { SupplierPaymentDto } from './dto/supplier-payment.dto';
 
 @Injectable()
 export class CustomersService {
@@ -232,6 +233,7 @@ export class CustomersService {
         name: true,
         phone: true,
         customerType: true,
+        supplierBalance: true,
         category: {
           select: {
             id: true,
@@ -257,6 +259,7 @@ export class CustomersService {
       name: customer.name,
       phone: customer.phone,
       customerType: customer.customerType,
+      supplierBalance: customer.supplierBalance,
       category: customer.category,
       totalDebt: customer.debts.reduce((sum, debt) => sum + debt.remainingAmount, 0)
     }));
@@ -777,7 +780,183 @@ export class CustomersService {
       phone: supplier.phone,
       category: supplier.category,
       customerType: supplier.customerType,
+      supplierBalance: supplier.supplierBalance,
       totalDebt: supplier.debts.reduce((sum, debt) => sum + debt.remainingAmount, 0)
     }));
+  }
+
+  // دوال جديدة لإدارة رصيد الموردين
+  async updateSupplierBalance(supplierId: number, amount: number, operation: 'add' | 'subtract') {
+    // التحقق من وجود المورد
+    const supplier = await this.prisma.customer.findUnique({
+      where: { id: supplierId }
+    });
+
+    if (!supplier) {
+      throw new NotFoundException('المورد غير موجود');
+    }
+
+    if (supplier.customerType !== CustomerType.SUPPLIER) {
+      throw new BadRequestException('العميل المحدد ليس مورداً');
+    }
+
+    // حساب الرصيد الجديد
+    const newBalance = operation === 'add' 
+      ? supplier.supplierBalance + amount
+      : supplier.supplierBalance - amount;
+    
+    // التأكد من عدم وجود رصيد سالب غير منطقي
+    if (operation === 'subtract' && newBalance < 0) {
+      throw new BadRequestException('لا يمكن أن يكون الرصيد أقل من الصفر');
+    }
+
+    // تحديث رصيد المورد
+    return await this.prisma.customer.update({
+      where: { id: supplierId },
+      data: { supplierBalance: newBalance }
+    });
+  }
+
+  async paySupplierBalance(supplierId: number, paymentDto: SupplierPaymentDto, employeeId: number) {
+    return this.prisma.$transaction(async (prisma) => {
+      // التحقق من وجود المورد
+      const supplier = await prisma.customer.findUnique({
+        where: { id: supplierId }
+      });
+
+      if (!supplier) {
+        throw new NotFoundException('المورد غير موجود');
+      }
+
+      if (supplier.customerType !== CustomerType.SUPPLIER) {
+        throw new BadRequestException('العميل المحدد ليس مورداً');
+      }
+
+      // التحقق من الرصيد المتاح
+      if (paymentDto.paymentAmount > supplier.supplierBalance) {
+        throw new BadRequestException(`المبلغ المطلوب دفعه (${paymentDto.paymentAmount}) أكبر من الرصيد المتاح (${supplier.supplierBalance})`);
+      }
+
+      // التحقق من وجود الصندوق
+      const fund = await prisma.fund.findUnique({
+        where: { id: paymentDto.fundId }
+      });
+
+      if (!fund) {
+        throw new BadRequestException('الصندوق غير موجود');
+      }
+
+      // البحث عن الوردية المفتوحة
+      const activeShift = await prisma.shift.findFirst({
+        where: {
+          employeeId: employeeId,
+          status: 'open'
+        }
+      });
+
+      if (!activeShift) {
+        throw new BadRequestException('لا توجد وردية مفتوحة للموظف الحالي');
+      }
+
+      // إنشاء فاتورة دفع رصيد المورد
+      const invoiceNumber = `INV-${Date.now()}`;
+      const invoice = await prisma.invoice.create({
+        data: {
+          invoiceNumber,
+          invoiceType: 'expense',
+          invoiceCategory: 'direct',
+          customerId: supplierId,
+          totalAmount: paymentDto.paymentAmount,
+          paidStatus: true,
+          paymentDate: new Date(),
+          notes: `دفع رصيد مورد - ${paymentDto.notes || ''}`,
+          fundId: paymentDto.fundId,
+          shiftId: activeShift.id,
+          employeeId: employeeId
+        }
+      });
+
+      // تحديث رصيد المورد
+      const newSupplierBalance = supplier.supplierBalance - paymentDto.paymentAmount;
+      await prisma.customer.update({
+        where: { id: supplierId },
+        data: { supplierBalance: newSupplierBalance }
+      });
+
+      // تحديث رصيد الصندوق
+      await prisma.fund.update({
+        where: { id: paymentDto.fundId },
+        data: {
+          currentBalance: {
+            decrement: paymentDto.paymentAmount
+          }
+        }
+      });
+
+      return {
+        invoice,
+        newSupplierBalance,
+        message: 'تم دفع رصيد المورد بنجاح'
+      };
+    });
+  }
+
+  async getSupplierBalance(supplierId: number) {
+    const supplier = await this.prisma.customer.findUnique({
+      where: { id: supplierId },
+      select: {
+        id: true,
+        name: true,
+        customerType: true,
+        supplierBalance: true,
+        phone: true
+      }
+    });
+
+    if (!supplier) {
+      throw new NotFoundException('المورد غير موجود');
+    }
+
+    if (supplier.customerType !== CustomerType.SUPPLIER) {
+      throw new BadRequestException('العميل المحدد ليس مورداً');
+    }
+
+    return supplier;
+  }
+
+  async getSuppliersBalanceReport() {
+    const suppliers = await this.prisma.customer.findMany({
+      where: {
+        customerType: CustomerType.SUPPLIER
+      },
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        supplierBalance: true,
+        category: {
+          select: {
+            id: true,
+            name: true
+          }
+        }
+      },
+      orderBy: {
+        supplierBalance: 'desc'
+      }
+    });
+
+    const totalBalance = suppliers.reduce((sum, supplier) => sum + supplier.supplierBalance, 0);
+    const suppliersWithBalance = suppliers.filter(supplier => supplier.supplierBalance > 0);
+
+    return {
+      suppliers,
+      summary: {
+        totalSuppliers: suppliers.length,
+        suppliersWithBalance: suppliersWithBalance.length,
+        totalBalance,
+        averageBalance: suppliers.length > 0 ? totalBalance / suppliers.length : 0
+      }
+    };
   }
 }

@@ -6,11 +6,16 @@ export async function seedCustomers(prisma: PrismaClient) {
 
   const customers = [];
   for (let i = 0; i < 20; i++) {
+    const customerType = faker.helpers.arrayElement(['CUSTOMER', 'SUPPLIER']);
     customers.push({
       name: faker.person.fullName(),
       phone: faker.phone.number(),
       notes: faker.helpers.arrayElement([null, faker.lorem.sentence()]),
-      customerType: faker.helpers.arrayElement(['CUSTOMER', 'SUPPLIER']),
+      customerType: customerType,
+      // إضافة رصيد عشوائي للموردين فقط
+      supplierBalance: customerType === 'SUPPLIER' 
+        ? faker.number.float({ min: 0, max: 5000, fractionDigits: 2 })
+        : 0,
       createdAt: faker.date.recent({ days: 60 }),
       updatedAt: faker.date.recent({ days: 30 }),
     });

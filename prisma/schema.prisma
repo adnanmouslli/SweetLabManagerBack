@@ -109,6 +109,7 @@ model Invoice {
   totalAmount           Float
   discount              Float                  @default(0)
   additionalAmount      Float                  @default(0)
+  supplierPaymentAmount      Float                  @default(0)
   paidStatus            Boolean
   paymentDate           DateTime?
   createdAt             DateTime               @default(now())
@@ -205,20 +206,21 @@ model CustomerCategory {
 }
 
 model Customer {
-  id           Int               @id @default(autoincrement())
-  name         String
-  phone        String?           @unique
-  notes        String?
-  customerType CustomerType      @default(CUSTOMER)
-  createdAt    DateTime          @default(now())
-  updatedAt    DateTime          @updatedAt
-  categoryId   Int?
-  advances     Advance[]
-  category     CustomerCategory? @relation(fields: [categoryId], references: [id])
-  debts        Debt[]
-  invoices     Invoice[]
-  orders       Order[]
-  trays        TrayTracking[]
+  id              Int               @id @default(autoincrement())
+  name            String
+  phone           String?           @unique
+  notes           String?
+  customerType    CustomerType      @default(CUSTOMER)
+  supplierBalance Float             @default(0) // رصيد المورد (للموردين فقط)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  categoryId      Int?
+  advances        Advance[]
+  category        CustomerCategory? @relation(fields: [categoryId], references: [id])
+  debts           Debt[]
+  invoices        Invoice[]
+  orders          Order[]
+  trays           TrayTracking[]
 
   @@map("customers")
 }

@@ -8,11 +8,13 @@ import {
   Delete,
   Query,
   UseGuards,
-  ParseIntPipe
+  ParseIntPipe,
+  Request
 } from '@nestjs/common';
 import { CustomersService } from './customers.service';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
+import { SupplierPaymentDto } from './dto/supplier-payment.dto';
 import { JwtAuthGuard, Role, Roles, RolesGuard } from '@/common';
 
 @Controller('customers')
@@ -21,55 +23,46 @@ export class CustomersController {
   constructor(private readonly customersService: CustomersService) {}
 
   @Post()
-  @Roles(Role.ADMIN, Role.MANAGER)
   create(@Body() createCustomerDto: CreateCustomerDto) {
     return this.customersService.create(createCustomerDto);
   }
 
   @Get()
-  @Roles(Role.ADMIN, Role.MANAGER, Role.EMPLOYEE)
   findAll() {
     return this.customersService.findAll();
   }
 
   @Get('search')
-  @Roles(Role.ADMIN, Role.MANAGER, Role.EMPLOYEE)
   search(@Query('q') query: string) {
     return this.customersService.search(query);
   }
 
   @Get('list')
-  @Roles(Role.ADMIN, Role.MANAGER, Role.EMPLOYEE)
   getCustomersList() {
     return this.customersService.getCustomersList();
   }
 
   @Get('customers/list')
-  @Roles(Role.ADMIN, Role.MANAGER, Role.EMPLOYEE)
   getOnlyCustomersList() {
     return this.customersService.getOnlyCustomersList();
   }
 
   @Get('suppliers/list')
-  @Roles(Role.ADMIN, Role.MANAGER, Role.EMPLOYEE)
   getSuppliersList() {
     return this.customersService.getSuppliersList();
   }
 
   @Get('customers')
-  @Roles(Role.ADMIN, Role.MANAGER, Role.EMPLOYEE)
   findCustomers() {
     return this.customersService.findCustomers();
   }
 
   @Get('suppliers')
-  @Roles(Role.ADMIN, Role.MANAGER, Role.EMPLOYEE)
   findSuppliers() {
     return this.customersService.findSuppliers();
   }
 
   @Get(':id')
-  @Roles(Role.ADMIN, Role.MANAGER, Role.EMPLOYEE)
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.customersService.findOne(id);
   }
@@ -81,7 +74,6 @@ export class CustomersController {
   }
     
   @Patch(':id')
-  @Roles(Role.ADMIN, Role.MANAGER)
   update(
     @Param('id', ParseIntPipe) id: number, 
     @Body() updateCustomerDto: UpdateCustomerDto
@@ -90,8 +82,28 @@ export class CustomersController {
   }
 
   @Delete(':id')
-  @Roles(Role.ADMIN)
   remove(@Param('id', ParseIntPipe) id: number) {
     return this.customersService.remove(id);
+  }
+
+  // Endpoints جديدة لإدارة رصيد الموردين
+  @Get('suppliers/balance-report')
+  getSuppliersBalanceReport() {
+    return this.customersService.getSuppliersBalanceReport();
+  }
+
+  @Get(':id/supplier-balance')
+  @Roles(Role.ADMIN, Role.MANAGER, Role.EMPLOYEE)
+  getSupplierBalance(@Param('id', ParseIntPipe) id: number) {
+    return this.customersService.getSupplierBalance(id);
+  }
+
+  @Post(':id/supplier-payment')
+  paySupplierBalance(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() paymentDto: SupplierPaymentDto,
+    @Request() req
+  ) {
+    return this.customersService.paySupplierBalance(id, paymentDto, req.user.id);
   }
 }

@@ -6,6 +6,7 @@ import { FilterInvoiceDto } from './dto/filter-invoice.dto';
 import { UpdateInvoiceDto } from './dto/update-invoice.dto';
 import { TransferHistoryQueryDto } from './dto/transfer-request.dto';
 import { ConvertToBreakDto } from './dto/convert-to-break.dto';
+import { CustomerType } from '../customers/dto/create-customer.dto';
 import { tr } from '@faker-js/faker/.';
 
 
@@ -71,6 +72,23 @@ export class InvoicesService {
   
       if (!customer) {
         throw new BadRequestException('العميل غير موجود');
+      }
+
+      // التحقق من صحة بيانات المورد للفواتير المتعلقة بالموردين
+      if (createInvoiceDto.invoiceType === 'expense' && 
+          createInvoiceDto.invoiceCategory === 'products' && 
+          customer.customerType === CustomerType.SUPPLIER &&
+          createInvoiceDto.supplierPaymentAmount !== undefined) {
+        
+        // التحقق من أن مبلغ الدفع للمورد لا يتجاوز المبلغ الإجمالي
+        if (createInvoiceDto.supplierPaymentAmount > createInvoiceDto.totalAmount) {
+          throw new BadRequestException('مبلغ الدفع للمورد لا يمكن أن يتجاوز المبلغ الإجمالي للفاتورة');
+        }
+
+        // التحقق من أن مبلغ الدفع للمورد ليس سالباً
+        if (createInvoiceDto.supplierPaymentAmount < 0) {
+          throw new BadRequestException('مبلغ الدفع للمورد لا يمكن أن يكون سالباً');
+        }
       }
     }
 
@@ -302,6 +320,8 @@ export class InvoicesService {
             totalAmount: createInvoiceDto.totalAmount || 0,
             discount: createInvoiceDto.discount || 0,
             additionalAmount: additionalAmount, // تخزين المبلغ الإضافي
+            supplierPaymentAmount: createInvoiceDto.supplierPaymentAmount, // حفظ مبلغ الدفع للمورد
+
             notes: invoiceNotes || null,
             fundId: createInvoiceDto.fundId,
             shiftId: activeShift.id,
@@ -579,10 +599,64 @@ export class InvoicesService {
               invoiceId: invoice.id
             }
           });
-        }
+        }        
+
         
-        // تحديث رصيد الصندوق فقط إذا كانت الفاتورة مدفوعة
-        if (createInvoiceDto.paidStatus && createInvoiceDto.totalAmount) {
+        // معالجة رصيد المورد للفواتير المتعلقة بالموردين
+        if (createInvoiceDto.customerId && 
+            createInvoiceDto.invoiceType === 'expense' && 
+            createInvoiceDto.invoiceCategory === 'products' &&
+            createInvoiceDto.supplierPaymentAmount !== undefined) {
+          
+          // جلب بيانات العميل للتحقق من نوعه
+          const customer = await prisma.customer.findUnique({
+            where: { id: createInvoiceDto.customerId }
+          });
+
+          if (customer && customer.customerType === CustomerType.SUPPLIER) {
+            // حساب المبلغ المتبقي الذي سيضاف لرصيد المورد
+            const remainingAmount = createInvoiceDto.totalAmount - createInvoiceDto.supplierPaymentAmount;
+            
+            if (remainingAmount > 0) {
+              // تحديث رصيد المورد
+              await prisma.customer.update({
+                where: { id: createInvoiceDto.customerId },
+                data: {
+                  supplierBalance: {
+                    increment: remainingAmount
+                  }
+                }
+              });
+            }
+
+            // تحديث رصيد الصندوق بالمبلغ المدفوع فقط (إذا كانت الفاتورة مدفوعة)
+            if (createInvoiceDto.paidStatus && createInvoiceDto.supplierPaymentAmount > 0) {
+              await prisma.fund.update({
+                where: { id: createInvoiceDto.fundId },
+                data: {
+                  currentBalance: {
+                    decrement: createInvoiceDto.supplierPaymentAmount - (createInvoiceDto.discount || 0),
+                  },
+                },
+              });
+            }
+
+            // إضافة ملاحظة عن تقسيم المبلغ
+            if (remainingAmount > 0) {
+              const supplierNote = `المبلغ المدفوع للمورد: ${createInvoiceDto.supplierPaymentAmount} - المبلغ المضاف للرصيد: ${remainingAmount}`;
+              await prisma.invoice.update({
+                where: { id: invoice.id },
+                data: {
+                  notes: invoice.notes 
+                    ? `${invoice.notes}\n${supplierNote}`
+                    : supplierNote
+                }
+              });
+            }
+          }
+        } 
+        // المعالجة العادية لرصيد الصندوق للفواتير الأخرى
+        else if (createInvoiceDto.paidStatus && createInvoiceDto.totalAmount) {
           await prisma.fund.update({
             where: { id: createInvoiceDto.fundId },
             data: {
@@ -729,19 +803,7 @@ export class InvoicesService {
         }
       });
 
-      // 3. تسجيل حركة المخزون
-      // await this.prisma.inventoryStockMovement.create({
-      //   data: {
-      //     itemId: invoiceItem.itemId,
-      //     movementType: 'purchase',
-      //     quantity: invoiceItem.quantity,
-      //     unitPrice: invoiceItem.unitPrice,
-      //     totalCost: invoiceItem.quantity * invoiceItem.unitPrice,
-      //     notes: `شراء مواد خام - فاتورة ${invoiceNumber}`,
-      //     employeeId: employeeId,
-      //     invoiceId: invoiceId
-      //   }
-      // });
+    
     }
   }
 }

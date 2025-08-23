@@ -27,11 +27,16 @@ export class UpdateInvoiceDto {
     @Type(() => InvoiceItemDto)
     items?: InvoiceItemDto[]; // العناصر المرتبطة بالفاتورة
   
-    @IsOptional()
-    @IsInt()
-    @Min(0)
-    trayCount?: number; // عدد الصواني
-  }
+      @IsOptional()
+  @IsInt()
+  @Min(0)
+  trayCount?: number; // عدد الصواني
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  supplierPaymentAmount?: number; // المبلغ المدفوع للمورد (للموردين فقط)
+}
   
   export class InvoiceItemDto {
     @IsInt()
