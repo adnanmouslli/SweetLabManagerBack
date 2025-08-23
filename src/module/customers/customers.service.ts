@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CreateCustomerDto } from './dto/create-customer.dto';
+import { CreateCustomerDto, CustomerType } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
 
 @Injectable()
@@ -9,15 +9,20 @@ export class CustomersService {
 
   async create(createCustomerDto: CreateCustomerDto) {
   // Create a base customer data object
-  const customerData = {
+  const customerData: any = {
     name: createCustomerDto.name,
     // استخدام null بدلاً من سلسلة فارغة
     phone: createCustomerDto.phone && createCustomerDto.phone.trim() !== '' 
            ? createCustomerDto.phone.trim() 
            : null,
     notes: createCustomerDto.notes || '',
-    categoryId: createCustomerDto.categoryId ? parseInt(createCustomerDto.categoryId) : undefined
+    customerType: createCustomerDto.customerType || CustomerType.CUSTOMER,
   };
+
+  // إضافة categoryId فقط إذا تم تحديده
+  if (createCustomerDto.categoryId) {
+    customerData.categoryId = parseInt(createCustomerDto.categoryId);
+  }
 
   // Validation for category if provided
   if (createCustomerDto.categoryId) {
@@ -226,6 +231,7 @@ export class CustomersService {
         id: true,
         name: true,
         phone: true,
+        customerType: true,
         category: {
           select: {
             id: true,
@@ -250,6 +256,7 @@ export class CustomersService {
       id: customer.id,
       name: customer.name,
       phone: customer.phone,
+      customerType: customer.customerType,
       category: customer.category,
       totalDebt: customer.debts.reduce((sum, debt) => sum + debt.remainingAmount, 0)
     }));
@@ -648,5 +655,129 @@ export class CustomersService {
     const end = new Date(endDate);
     const diffInTime = end.getTime() - start.getTime();
     return Math.floor(diffInTime / (1000 * 60 * 60 * 24));
+  }
+
+  // دوال جديدة للبحث عن الزبائن والموردين بشكل منفصل
+  async findCustomers() {
+    return this.prisma.customer.findMany({
+      where: {
+        customerType: CustomerType.CUSTOMER
+      },
+      include: {
+        category: true,
+        invoices: {
+          include: {
+            items: {
+              include: {
+                item: true
+              }
+            }
+          },
+          orderBy: {
+            createdAt: 'desc'
+          }
+        },
+        trays: {
+          where: {
+            status: 'pending'
+          }
+        },
+        debts: {
+          where: {
+            status: 'active'
+          }
+        }
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    });
+  }
+
+  async findSuppliers() {
+    return this.prisma.customer.findMany({
+      where: {
+        customerType: CustomerType.SUPPLIER
+      },
+      include: {
+        category: true,
+        invoices: {
+          include: {
+            items: {
+              include: {
+                item: true
+              }
+            }
+          },
+          orderBy: {
+            createdAt: 'desc'
+          }
+        },
+        debts: {
+          where: {
+            status: 'active'
+          }
+        }
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    });
+  }
+
+  async getOnlyCustomersList() {
+    const customers = await this.prisma.customer.findMany({
+      where: {
+        customerType: CustomerType.CUSTOMER
+      },
+      include: {
+        category: true,
+        debts: {
+          where: {
+            status: 'active'
+          }
+        }
+      },
+      orderBy: {
+        name: 'asc'
+      }
+    });
+
+    return customers.map(customer => ({
+      id: customer.id,
+      name: customer.name,
+      phone: customer.phone,
+      category: customer.category,
+      customerType: customer.customerType,
+      totalDebt: customer.debts.reduce((sum, debt) => sum + debt.remainingAmount, 0)
+    }));
+  }
+
+  async getSuppliersList() {
+    const suppliers = await this.prisma.customer.findMany({
+      where: {
+        customerType: CustomerType.SUPPLIER
+      },
+      include: {
+        category: true,
+        debts: {
+          where: {
+            status: 'active'
+          }
+        }
+      },
+      orderBy: {
+        name: 'asc'
+      }
+    });
+
+    return suppliers.map(supplier => ({
+      id: supplier.id,
+      name: supplier.name,
+      phone: supplier.phone,
+      category: supplier.category,
+      customerType: supplier.customerType,
+      totalDebt: supplier.debts.reduce((sum, debt) => sum + debt.remainingAmount, 0)
+    }));
   }
 }

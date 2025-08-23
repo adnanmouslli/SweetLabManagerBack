@@ -1,5 +1,10 @@
-import { IsNotEmpty, IsOptional, IsString, IsInt, Min } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, IsInt, Min, IsEnum } from 'class-validator';
 import { Type } from 'class-transformer';
+
+export enum CustomerType {
+  CUSTOMER = 'CUSTOMER',
+  SUPPLIER = 'SUPPLIER'
+}
 
 export class CreateCustomerDto {
   @IsNotEmpty({ message: 'اسم العميل مطلوب' })
@@ -13,6 +18,10 @@ export class CreateCustomerDto {
   @IsOptional()
   @IsString({ message: 'الملاحظات يجب أن تكون نصًا' })
   notes?: string;
+
+  @IsOptional()
+  @IsEnum(CustomerType, { message: 'نوع العميل يجب أن يكون CUSTOMER أو SUPPLIER' })
+  customerType?: CustomerType;
 
   @IsOptional()
   @Type(() => String)

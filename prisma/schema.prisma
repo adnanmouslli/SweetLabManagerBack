@@ -205,19 +205,20 @@ model CustomerCategory {
 }
 
 model Customer {
-  id         Int               @id @default(autoincrement())
-  name       String
-  phone      String?           @unique
-  notes      String?
-  createdAt  DateTime          @default(now())
-  updatedAt  DateTime          @updatedAt
-  categoryId Int?
-  advances   Advance[]
-  category   CustomerCategory? @relation(fields: [categoryId], references: [id])
-  debts      Debt[]
-  invoices   Invoice[]
-  orders     Order[]
-  trays      TrayTracking[]
+  id           Int               @id @default(autoincrement())
+  name         String
+  phone        String?           @unique
+  notes        String?
+  customerType CustomerType      @default(CUSTOMER)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  categoryId   Int?
+  advances     Advance[]
+  category     CustomerCategory? @relation(fields: [categoryId], references: [id])
+  debts        Debt[]
+  invoices     Invoice[]
+  orders       Order[]
+  trays        TrayTracking[]
 
   @@map("customers")
 }
@@ -600,4 +601,9 @@ enum OrderStatus {
   ready
   delivered
   cancelled
+}
+
+enum CustomerType {
+  CUSTOMER
+  SUPPLIER
 }

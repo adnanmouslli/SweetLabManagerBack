@@ -10,6 +10,7 @@ export async function seedCustomers(prisma: PrismaClient) {
       name: faker.person.fullName(),
       phone: faker.phone.number(),
       notes: faker.helpers.arrayElement([null, faker.lorem.sentence()]),
+      customerType: faker.helpers.arrayElement(['CUSTOMER', 'SUPPLIER']),
       createdAt: faker.date.recent({ days: 60 }),
       updatedAt: faker.date.recent({ days: 30 }),
     });

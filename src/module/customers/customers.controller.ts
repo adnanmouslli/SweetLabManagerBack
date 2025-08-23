@@ -44,6 +44,30 @@ export class CustomersController {
     return this.customersService.getCustomersList();
   }
 
+  @Get('customers/list')
+  @Roles(Role.ADMIN, Role.MANAGER, Role.EMPLOYEE)
+  getOnlyCustomersList() {
+    return this.customersService.getOnlyCustomersList();
+  }
+
+  @Get('suppliers/list')
+  @Roles(Role.ADMIN, Role.MANAGER, Role.EMPLOYEE)
+  getSuppliersList() {
+    return this.customersService.getSuppliersList();
+  }
+
+  @Get('customers')
+  @Roles(Role.ADMIN, Role.MANAGER, Role.EMPLOYEE)
+  findCustomers() {
+    return this.customersService.findCustomers();
+  }
+
+  @Get('suppliers')
+  @Roles(Role.ADMIN, Role.MANAGER, Role.EMPLOYEE)
+  findSuppliers() {
+    return this.customersService.findSuppliers();
+  }
+
   @Get(':id')
   @Roles(Role.ADMIN, Role.MANAGER, Role.EMPLOYEE)
   findOne(@Param('id', ParseIntPipe) id: number) {
