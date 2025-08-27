@@ -849,7 +849,6 @@ export class CustomersService {
       // البحث عن الوردية المفتوحة
       const activeShift = await prisma.shift.findFirst({
         where: {
-          employeeId: employeeId,
           status: 'open'
         }
       });
