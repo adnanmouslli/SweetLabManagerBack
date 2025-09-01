@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>تقرير ملخص الواردية - معمل الحلويات</title>
+    <style>
+        :root {
+            --ink: #1b1b1b;
+            --muted: #5b5b5b;
+            --border: #d9d9d9;
+            --bg: #ffffff;
+            --accent: #444;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            height: 100%;
+        }
+
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--ink);
+            font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, "Noto Kufi Arabic", "Noto Naskh Arabic", "Amiri", Tahoma, sans-serif;
+            line-height: 1.6;
+        }
+
+        .toolbar {
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            background: #fff;
+            border-bottom: 1px solid var(--border);
+            padding: 12px 16px;
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .toolbar .left,
+        .toolbar .right {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .btn {
+            border: 1px solid var(--border);
+            background: #fff;
+            color: var(--ink);
+            padding: 8px 14px;
+            cursor: pointer;
+            border-radius: 8px;
+            font-weight: 600;
+            transition: .2s ease;
+        }
+
+        .btn:hover {
+            border-color: var(--accent);
+        }
+
+        .btn:active {
+            transform: translateY(1px);
+        }
+
+        .sep {
+            width: 1px;
+            height: 28px;
+            background: var(--border);
+            margin: 0 8px;
+        }
+
+        .sheet {
+            width: 210mm;
+            min-height: 297mm;
+            margin: 16px auto;
+            background: #fff;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            box-shadow: 0 4px 14px rgba(0, 0, 0, .04);
+            padding: 18mm 16mm 24mm;
+            position: relative;
+            overflow: hidden;
+        }
+
+        header.report-header {
+            text-align: center;
+            margin-bottom: 10mm;
+        }
+
+        .brand {
+            font-size: 20px;
+            font-weight: 700;
+            letter-spacing: .3px;
+        }
+
+        .meta-row {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            gap: 8px;
+            color: var(--muted);
+            font-size: 12px;
+            margin-top: 6px;
+        }
+
+        .title {
+            font-size: 18px;
+            font-weight: 700;
+            margin-top: 8px;
+        }
+
+        .subtitle {
+            font-size: 13px;
+            color: var(--muted);
+            margin-top: 2px;
+        }
+
+        footer.report-footer {
+            position: fixed;
+            bottom: 10mm;
+            left: 0;
+            right: 0;
+            margin: 0 auto;
+            width: 180mm;
+            text-align: center;
+            font-size: 11px;
+            color: var(--muted);
+        }
+
+        footer .pageno::after {
+            content: counter(page) " / "counter(pages);
+        }
+
+        .section {
+            margin: 8mm 0;
+        }
+
+        .section h3 {
+            font-size: 15px;
+            margin: 0 0 6px;
+            border-right: 3px solid var(--accent);
+            padding-right: 8px;
+        }
+
+        .muted {
+            color: var(--muted);
+        }
+
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+        }
+
+        .card {
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 12px;
+        }
+
+        .card .label {
+            font-size: 12px;
+            color: var(--muted);
+        }
+
+        .card .value {
+            font-size: 16px;
+            font-weight: 700;
+            margin-top: 4px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+        }
+
+        thead th {
+            text-align: center;
+            font-weight: 700;
+            font-size: 12px;
+            border: 1px solid var(--border);
+            padding: 8px;
+            background: #fafafa;
+        }
+
+        tbody td {
+            border: 1px solid var(--border);
+            padding: 8px;
+            font-size: 12px;
+            word-wrap: break-word;
+        }
+
+        tbody tr:nth-child(even) td {
+            background: #fcfcfc;
+        }
+
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10mm;
+        }
+
+        .note {
+            font-size: 11px;
+            color: var(--muted);
+        }
+
+        .page-break {
+            page-break-before: always;
+            break-before: page;
+        }
+
+        @page {
+            size: A4;
+            margin: 15mm 12mm 18mm;
+        }
+
+        @media print {
+
+            .toolbar,
+            .print-hint {
+                display: none !important;
+            }
+
+            .sheet {
+                border: none;
+                margin: 0;
+                box-shadow: none;
+                width: auto;
+                min-height: auto;
+                padding: 0;
+            }
+
+            header.report-header {
+                margin-top: 0;
+            }
+
+            footer.report-footer {
+                position: fixed;
+            }
+
+            body.landscape {
+                -webkit-print-color-adjust: exact;
+            }
+
+            body.landscape @page {
+                size: A4 landscape;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="toolbar" role="region" aria-label="شريط الأدوات">
+        <div class="left">
+            <button class="btn" onclick="window.print()">طباعة / حفظ PDF</button>
+            <div class="sep" aria-hidden="true"></div>
+            <button class="btn" onclick="toggleOrientation()">تبديل الاتجاه (طولي/عرضي)</button>
+        </div>
+    </div>
+
+    <main class="sheet" id="sheet">
+        <header class="report-header">
+            <div class="brand">معمل الحلويات</div>
+            <div class="title">تقرير ملخص الواردية</div>
+            <div class="subtitle">واردية صباحية - مغلقة</div>
+            <div class="meta-row">
+                <div>العميل: <strong>user1</strong></div>
+                <div>الهاتف: <span>٠٨‏/٠٣‏/١٤٤٧ هـ</span></div>
+                <div>الفئة: <span>٠٨‏/٠٣‏/١٤٤٧ هـ</span></div>
+            </div>
+        </header>
+
+
+        <section class="section" id="account-summary">
+            <h3>ملخص الواردية</h3>
+            <div class="cards">
+                <div class="card">
+                    <div class="label">إجمالي المدخولات</div>
+                    <div class="value">0.00 ل.س</div>
+                </div>
+                <div class="card">
+                    <div class="label">إجمالي المصروفات</div>
+                    <div class="value">7594.21 ل.س</div>
+                </div>
+                <div class="card">
+                    <div class="label">صافي الواردية</div>
+                    <div class="value">-7594.21 ل.س</div>
+                </div>
+            </div>
+        </section>
+
+
+
+        <section class="section">
+            <h3>ملخص الصناديق في الواردية</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>الصندوق</th>
+                        <th>المدخولات</th>
+                        <th>المصروفات</th>
+                        <th>الصافي</th>
+                    </tr>
+                </thead>
+                <tbody>
+
+                    <tr>
+                        <td style="text-align:right">الصندوق العام</td>
+                        <td style="text-align:center; color: #059669;">0.00 ل.س</td>
+                        <td style="text-align:center; color: #dc2626;">0.00 ل.س</td>
+                        <td style="text-align:center; font-weight: bold;">0.00 ل.س</td>
+                    </tr>
+
+                    <tr>
+                        <td style="text-align:right">البسطة</td>
+                        <td style="text-align:center; color: #059669;">0.00 ل.س</td>
+                        <td style="text-align:center; color: #dc2626;">4694.05 ل.س</td>
+                        <td style="text-align:center; font-weight: bold;">-4694.05 ل.س</td>
+                    </tr>
+
+                    <tr>
+                        <td style="text-align:right">الجامعة</td>
+                        <td style="text-align:center; color: #059669;">0.00 ل.س</td>
+                        <td style="text-align:center; color: #dc2626;">2358.46 ل.س</td>
+                        <td style="text-align:center; font-weight: bold;">-2358.46 ل.س</td>
+                    </tr>
+
+                    <tr style="background-color: #f0f8ff; font-weight: bold;">
+                        <td style="text-align:center">المجموع الكلي</td>
+                        <td style="text-align:center; color: #059669;">0.00 ل.س</td>
+                        <td style="text-align:center; color: #dc2626;">7594.21 ل.س</td>
+                        <td style="text-align:center">-7594.21 ل.س</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+
+
+
+        <section class="section">
+            <div class="grid-2">
+                <div>
+                    <h3>ملاحظات</h3>
+                    <p class="muted">صافي الواردية: -7594.21 ل.س</p>
+                </div>
+                <div>
+                    <h3>توقيع</h3>
+                    <p class="muted">.......................................................</p>
+                </div>
+            </div>
+        </section>
+
+        <footer class="report-footer">
+            <div>معمل الحلويات — هاتف: 123-456-789</div>
+            <div>الصفحة <span class="pageno"></span></div>
+        </footer>
+    </main>
+
+    <script>
+        function toggleOrientation(){
+      document.body.classList.toggle('landscape');
+    }
+    </script>
+</body>
+
+</html>

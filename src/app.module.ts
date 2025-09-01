@@ -21,6 +21,7 @@ import { OrderCategoryModule } from './module/order-category/order-category.modu
 import { OrderItemModule } from './module/order-item/order-item.module';
 import { EmployeesModule } from './module/employees/employees.module';
 import { WorkshopsModule } from './module/workshops/workshops.module';
+import { PdfReportsModule } from './module/pdf-reports/pdf-reports.module';
 
 @Module({
   imports: [
@@ -57,7 +58,8 @@ import { WorkshopsModule } from './module/workshops/workshops.module';
     OrderCategoryModule,
     OrderItemModule,
     EmployeesModule,
-    WorkshopsModule
+    WorkshopsModule,
+    PdfReportsModule
   ],
   providers: [PrismaConfig],
   exports: [PrismaConfig],

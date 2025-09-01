@@ -1,7 +1,7 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
-import { InvoiceCategory, InvoiceType } from '@prisma/client';
+import { FundType, InvoiceCategory, InvoiceType } from '@prisma/client';
 import { FilterInvoiceDto } from './dto/filter-invoice.dto';
 import { UpdateInvoiceDto } from './dto/update-invoice.dto';
 import { TransferHistoryQueryDto } from './dto/transfer-request.dto';
@@ -25,9 +25,14 @@ export class InvoicesService {
       where: {
         status: 'open',
       },
+    }); 
+
+     const fund = await this.prisma.fund.findUnique({
+      where: { id: createInvoiceDto.fundId },
     });
+
   
-    if (!activeShift) {
+    if (!activeShift && fund.fundType != FundType.main) {
       throw new BadRequestException('لا يوجد واردية مفتوحة');
     }
 
@@ -56,9 +61,7 @@ export class InvoicesService {
     }
 
     
-    const fund = await this.prisma.fund.findUnique({
-      where: { id: createInvoiceDto.fundId },
-    });
+   
   
     if (!fund) {
       throw new BadRequestException('الصندوق غير موجود');
