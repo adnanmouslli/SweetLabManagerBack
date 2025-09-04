@@ -51,50 +51,7 @@ export class ReportsController {
     }
   }
 
-  /**
-   * معاينة سريعة لكشف الحساب
-   */
-  @Get('customer/:id/preview')
-  async previewCustomerStatement(@Param('id', ParseIntPipe) customerId: number) {
-    try {
-      const htmlContent = await this.pdfReportsService.previewCustomerStatement(customerId);
-      return {
-        success: true,
-        data: htmlContent,
-        message: 'تم توليد المعاينة بنجاح'
-      };
-    } catch (error) {
-      throw new HttpException(
-        `خطأ في توليد المعاينة: ${error.message}`, 
-        HttpStatus.INTERNAL_SERVER_ERROR
-      );
-    }
-  }
 
-  /**
-   * تحميل كشف حساب كملف HTML
-   */
-  @Get('customer/:id/download')
-  async downloadCustomerStatement(
-    @Param('id', ParseIntPipe) customerId: number,
-    @Res() res: Response
-  ) {
-    try {
-      const htmlContent = await this.pdfReportsService.generateCustomerStatementHTML(customerId);
-      const filename = `customer-statement-${customerId}-${Date.now()}.html`;
-      
-      res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-      res.setHeader('Content-Length', Buffer.byteLength(htmlContent, 'utf8'));
-      
-      return res.send(htmlContent);
-    } catch (error) {
-      throw new HttpException(
-        `خطأ في تحميل كشف الحساب: ${error.message}`, 
-        HttpStatus.INTERNAL_SERVER_ERROR
-      );
-    }
-  }
 
   /**
    * تقرير المبيعات

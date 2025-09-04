@@ -717,8 +717,7 @@ async getShiftInvoicesByFund(shiftId: number) {
             fund: true, 
             customer: true,
             employee: true,
-            
-            
+            items: true
           },
         },
       },
