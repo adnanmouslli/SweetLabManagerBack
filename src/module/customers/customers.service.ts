@@ -8,6 +8,8 @@ import { SupplierPaymentDto } from './dto/supplier-payment.dto';
 export class CustomersService {
   constructor(private prisma: PrismaService) {}
 
+
+
   async create(createCustomerDto: CreateCustomerDto) {
   // Create a base customer data object
   const customerData: any = {
@@ -18,6 +20,7 @@ export class CustomersService {
            : null,
     notes: createCustomerDto.notes || '',
     customerType: createCustomerDto.customerType || CustomerType.CUSTOMER,
+    isUniversity: createCustomerDto.isUniversity || false, // إضافة الحقل الجديد
   };
 
   // إضافة categoryId فقط إذا تم تحديده
@@ -51,6 +54,7 @@ export class CustomersService {
     data: customerData
   });
 }
+
 
 
   findAll() {

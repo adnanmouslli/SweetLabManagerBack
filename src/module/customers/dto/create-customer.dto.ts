@@ -1,5 +1,5 @@
-import { IsNotEmpty, IsOptional, IsString, IsInt, Min, IsEnum } from 'class-validator';
-import { Type } from 'class-transformer';
+import { IsNotEmpty, IsOptional, IsString, IsInt, Min, IsEnum, IsBoolean } from 'class-validator';
+import { Type, Transform } from 'class-transformer';
 
 export enum CustomerType {
   CUSTOMER = 'CUSTOMER',
@@ -26,4 +26,13 @@ export class CreateCustomerDto {
   @IsOptional()
   @Type(() => String)
   categoryId?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    return Boolean(value);
+  })
+  @IsBoolean({ message: 'حقل الجامعة يجب أن يكون true أو false' })
+  isUniversity?: boolean;
 }

@@ -212,6 +212,7 @@ model Customer {
   notes           String?
   customerType    CustomerType      @default(CUSTOMER)
   supplierBalance Float             @default(0) // رصيد المورد (للموردين فقط)
+  isUniversity    Boolean           @default(false) // تمييز زبائن الجامعات
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
   categoryId      Int?

@@ -111,7 +111,7 @@ export class ReportsController {
  */
 @Get('orders/inventory')
 async getOrdersInventoryReport(
-  @Query('customerName') customerName?: string,
+  @Query('customerIds') customerIds?: string, // تغيير من customerName إلى customerIds
   @Query('categoryId') categoryId?: string,
   @Query('status') status?: string,
   @Query('paidStatus') paidStatus?: string,
@@ -125,8 +125,14 @@ async getOrdersInventoryReport(
     // تحضير الفلاتر
     const filters: any = {};
     
-    if (customerName) {
-      filters.customerName = customerName;
+    // تعديل فلتر الزبائن
+    if (customerIds) {
+      const customerIdsArray = customerIds.split(',')
+        .map(id => parseInt(id.trim()))
+        .filter(id => !isNaN(id));
+      if (customerIdsArray.length > 0) {
+        filters.customerIds = customerIdsArray;
+      }
     }
     
     if (categoryId && !isNaN(parseInt(categoryId))) {
@@ -190,6 +196,7 @@ async getOrdersInventoryReport(
     );
   }
 }
+
 
 // warehous
 
@@ -659,6 +666,7 @@ async getProductSalesReport(
 async getFundsMovementReport(
   @Query('startDate') startDate: string,
   @Query('endDate') endDate: string,
+  @Query('fundType') fundType?: string, // إضافة معامل فلتر الصندوق
   @Query('download') download?: string,
   @Res() res?: Response
 ) {
@@ -674,10 +682,19 @@ async getFundsMovementReport(
       throw new BadRequestException('تاريخ البداية يجب أن يكون قبل تاريخ النهاية');
     }
 
-    const htmlContent = await this.pdfReportsService.generateFundsMovementReport(start, end);
+    // التحقق من صحة نوع الصندوق إذا تم تمريره
+    if (fundType) {
+      const validFundTypes = ['main', 'general', 'booth', 'university'];
+      if (!validFundTypes.includes(fundType)) {
+        throw new BadRequestException('نوع الصندوق غير صحيح');
+      }
+    }
+
+    const htmlContent = await this.pdfReportsService.generateFundsMovementReport(start, end, fundType);
     
     if (download === 'true' && res) {
-      const filename = `funds-movement-${startDate}-to-${endDate}.html`;
+      const fundSuffix = fundType ? `-${fundType}` : '-all';
+      const filename = `funds-movement${fundSuffix}-${startDate}-to-${endDate}.html`;
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
       return res.send(htmlContent);
@@ -735,6 +752,134 @@ async getShiftSummaryReport(
   } catch (error) {
     throw new HttpException(
       `خطأ في توليد تقرير ملخص الواردية: ${error.message}`, 
+      HttpStatus.INTERNAL_SERVER_ERROR
+    );
+  }
+}
+
+
+
+/**
+ * تقرير أجور الورشات
+ */
+@Get('workshops/salaries')
+async getWorkshopSalariesReport(
+  @Query('workshopId') workshopId?: string,
+  @Query('startDate') startDate?: string,
+  @Query('endDate') endDate?: string,
+  @Query('download') download?: string,
+  @Res() res?: Response
+) {
+  try {
+    let workshopIdNumber;
+    let start;
+    let end;
+    
+    // التحقق من معرف الورشة
+    if (workshopId) {
+      workshopIdNumber = parseInt(workshopId);
+      if (isNaN(workshopIdNumber)) {
+        throw new BadRequestException('معرف الورشة غير صحيح');
+      }
+    }
+    
+    // التحقق من التواريخ
+    if (startDate && endDate) {
+      start = new Date(startDate);
+      end = new Date(endDate);
+      
+      if (start > end) {
+        throw new BadRequestException('تاريخ البداية يجب أن يكون قبل تاريخ النهاية');
+      }
+    }
+
+    const htmlContent = await this.pdfReportsService.generateWorkshopSalariesReport(
+      workshopIdNumber, 
+      start, 
+      end
+    );
+    
+    if (download === 'true' && res) {
+      const filename = `workshop-salaries-${workshopIdNumber || 'all'}-${Date.now()}.html`;
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      return res.send(htmlContent);
+    } else if (res) {
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.send(htmlContent);
+    }
+    
+    return {
+      success: true,
+      data: htmlContent,
+      message: 'تم توليد تقرير أجور الورشات بنجاح'
+    };
+  } catch (error) {
+    throw new HttpException(
+      `خطأ في توليد تقرير أجور الورشات: ${error.message}`, 
+      HttpStatus.INTERNAL_SERVER_ERROR
+    );
+  }
+}
+
+/**
+ * تقرير سحوبات الموظفين
+ */
+@Get('employees/withdrawals')
+async getEmployeeWithdrawalsReport(
+  @Query('employeeId') employeeId?: string,
+  @Query('startDate') startDate?: string,
+  @Query('endDate') endDate?: string,
+  @Query('download') download?: string,
+  @Res() res?: Response
+) {
+  try {
+    let employeeIdNumber;
+    let start;
+    let end;
+    
+    // التحقق من معرف الموظف
+    if (employeeId) {
+      employeeIdNumber = parseInt(employeeId);
+      if (isNaN(employeeIdNumber)) {
+        throw new BadRequestException('معرف الموظف غير صحيح');
+      }
+    }
+    
+    // التحقق من التواريخ
+    if (startDate && endDate) {
+      start = new Date(startDate);
+      end = new Date(endDate);
+      
+      if (start > end) {
+        throw new BadRequestException('تاريخ البداية يجب أن يكون قبل تاريخ النهاية');
+      }
+    }
+
+    const htmlContent = await this.pdfReportsService.generateEmployeeWithdrawalsReport(
+      employeeIdNumber, 
+      start, 
+      end
+    );
+    
+    if (download === 'true' && res) {
+      const filename = `employee-withdrawals-${employeeIdNumber || 'all'}-${Date.now()}.html`;
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      return res.send(htmlContent);
+    } else if (res) {
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.send(htmlContent);
+    }
+    
+    return {
+      success: true,
+      data: htmlContent,
+      message: 'تم توليد تقرير سحوبات الموظفين بنجاح'
+    };
+  } catch (error) {
+    throw new HttpException(
+      `خطأ في توليد تقرير سحوبات الموظفين: ${error.message}`, 
       HttpStatus.INTERNAL_SERVER_ERROR
     );
   }

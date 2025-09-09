@@ -1,8 +1,9 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import * as path from 'path';
 import * as fs from 'fs';
-import { OrderStatus } from '@prisma/client';
+import { FundType, OrderStatus } from '@prisma/client';
+import { FundSummary, ShiftSummary } from '@/common/types/shift-summary.types';
 
 interface ReportData {
   customer: any;
@@ -20,7 +21,7 @@ interface ReportData {
 
 
 interface OrdersInventoryFilters {
-  customerName?: string;
+  customerIds?: number[]; 
   categoryId?: number;
   status?: OrderStatus[];
   paidStatus?: boolean; // true = مدفوع، false = غير مدفوع، undefined = الكل
@@ -618,13 +619,10 @@ private async getOrdersInventoryData(filters: OrdersInventoryFilters) {
   // بناء شروط البحث
   const where: any = {};
   
-  // فلتر العميل بالاسم
-  if (filters.customerName) {
-    where.customer = {
-      name: {
-        contains: filters.customerName,
-        mode: 'insensitive'
-      }
+  // فلتر الزبائن بالـ ID
+  if (filters.customerIds && filters.customerIds.length > 0) {
+    where.customerId = {
+      in: filters.customerIds
     };
   }
   
@@ -733,11 +731,12 @@ private async getOrdersInventoryData(filters: OrdersInventoryFilters) {
   return {
     items: inventoryItems,
     summary,
-    filters
+    filters,
+    selectedCustomers: orders.length > 0 ? Array.from(new Set(orders.map(o => o.customer))) : [] // إضافة أسماء الزبائن المحددين
   };
 }
 
-// بناء HTML تقرير جرد الطلبيات
+// تعديل في دالة بناء HTML
 private buildOrdersInventoryHTML(data: any, filters: OrdersInventoryFilters): string {
   let template = this.getHTMLTemplate();
   
@@ -745,9 +744,22 @@ private buildOrdersInventoryHTML(data: any, filters: OrdersInventoryFilters): st
   let reportTitle = 'تقرير جرد الطلبيات';
   let reportSubtitle = `إجمالي ${data.summary.totalOrders} طلبية`;
   
-  if (filters.customerName) {
-    reportSubtitle += ` - العميل: ${filters.customerName}`;
+  // تحديث عرض أسماء الزبائن المحددين
+  let customerNamesDisplay = 'جميع العملاء';
+  if (data.selectedCustomers && data.selectedCustomers.length > 0) {
+    if (data.selectedCustomers.length === 1) {
+      customerNamesDisplay = data.selectedCustomers[0].name;
+      reportSubtitle += ` - العميل: ${data.selectedCustomers[0].name}`;
+    } else if (data.selectedCustomers.length <= 3) {
+      const names = data.selectedCustomers.map(c => c.name).join(', ');
+      customerNamesDisplay = names;
+      reportSubtitle += ` - العملاء: ${names}`;
+    } else {
+      customerNamesDisplay = `${data.selectedCustomers.length} عملاء محددين`;
+      reportSubtitle += ` - ${data.selectedCustomers.length} عملاء محددين`;
+    }
   }
+  
   if (filters.status && filters.status.length > 0) {
     reportSubtitle += ` - الحالة: ${filters.status.map(s => this.getStatusArabicName(s)).join(', ')}`;
   }
@@ -755,7 +767,7 @@ private buildOrdersInventoryHTML(data: any, filters: OrdersInventoryFilters): st
   const replacements = {
     '{{REPORT_TITLE}}': reportTitle,
     '{{REPORT_SUBTITLE}}': reportSubtitle,
-    '{{CUSTOMER_NAME}}': filters.customerName || 'جميع العملاء',
+    '{{CUSTOMER_NAME}}': customerNamesDisplay,
     '{{CUSTOMER_PHONE}}': '—',
     '{{CUSTOMER_CATEGORY}}': '—',
     '{{TOTAL_UNPAID}}': `${data.summary.totalItems} مادة`,
@@ -782,6 +794,8 @@ private buildOrdersInventoryHTML(data: any, filters: OrdersInventoryFilters): st
   
   return template;
 }
+
+
 
 // بناء جدول المواد
 private buildInventoryTable(items: OrderInventoryItem[]): string {
@@ -887,9 +901,6 @@ private buildInventorySummary(summary: any): string {
 private buildFiltersNotes(filters: OrdersInventoryFilters): string {
   const notes = [];
   
-  if (filters.customerName) {
-    notes.push(`العميل: ${filters.customerName}`);
-  }
   
   if (filters.status && filters.status.length > 0) {
     notes.push(`الحالة: ${filters.status.map(s => this.getStatusArabicName(s)).join(', ')}`);
@@ -964,7 +975,7 @@ private buildWarehouseInventoryHTML(data: any, filters: WarehouseInventoryFilter
     template = template.replace(new RegExp(key, 'g'), value);
   });
   
-  // بناء جدول المخزون
+  // بناء جدول المخزون المحدث
   const inventoryTableHTML = this.buildWarehouseInventoryTable(data.items);
   template = template.replace(/(<section class="section" id="unpaid-section">[\s\S]*?<\/section>)/g, inventoryTableHTML);
   
@@ -981,85 +992,56 @@ private buildWarehouseInventoryHTML(data: any, filters: WarehouseInventoryFilter
 
 // بناء جدول جرد المستودع
 private buildWarehouseInventoryTable(items: WarehouseInventoryItem[]): string {
-  if (!items || items.length === 0) {
-    return `
-      <section class="section">
-        <h3>جرد المستودع الشهري</h3>
-        <p class="muted" style="text-align:center; padding: 20px;">لا توجد مواد مستهلكة خلال الفترة المحددة</p>
-      </section>
-    `;
-  }
-  
-  // تجميع المواد حسب المجموعة
-  const groupedItems = new Map<string, WarehouseInventoryItem[]>();
-  items.forEach(item => {
-    if (!groupedItems.has(item.itemGroup)) {
-      groupedItems.set(item.itemGroup, []);
-    }
-    groupedItems.get(item.itemGroup)!.push(item);
-  });
-  
-  let tableRows = '';
-  let totalConsumedValue = 0;
-  
-  // بناء الصفوف مجمعة حسب التصنيف
-  groupedItems.forEach((groupItems, groupName) => {
-    // صف عنوان المجموعة
-    tableRows += `
-      <tr style="background-color: #f8f9fa; font-weight: bold;">
-        <td colspan="7" style="text-align:center; padding: 12px; border: 2px solid #dee2e6;">
-          ${groupName}
-        </td>
-      </tr>
-    `;
-    
-    // صفوف المواد في المجموعة
-    groupItems.forEach(item => {
-      totalConsumedValue += item.totalValue;
-      
-      tableRows += `
-        <tr>
-          <td style="text-align:right">${item.itemName}</td>
-          <td style="text-align:center">${item.unit}</td>
-          <td style="text-align:center">${item.openingStock.toFixed(2)}</td>
-          <td style="text-align:center">${item.purchases.toFixed(2)}</td>
-          <td style="text-align:center">${item.currentStock.toFixed(2)}</td>
-          <td style="text-align:center; font-weight: bold; color: #dc3545;">${item.consumedQuantity.toFixed(2)}</td>
-          <td style="text-align:center">${this.formatCurrency(item.averageUnitPrice)}</td>
-          <td style="text-align:center; font-weight: bold; color: #2563eb;">${this.formatCurrency(item.totalValue)}</td>
-        </tr>
-      `;
-    });
-  });
-  
-  // صف المجموع الكلي
-  tableRows += `
-    <tr style="background-color: #e3f2fd; font-weight: bold; border-top: 3px solid #2563eb;">
-      <td colspan="7" style="text-align:center; font-size: 14px;">إجمالي قيمة الاستهلاك الشهري</td>
-      <td style="text-align:center; color: #2563eb; font-size: 16px;">${this.formatCurrency(totalConsumedValue)}</td>
+  const tableRows = items.map((item, index) => `
+    <tr>
+      <td>${index + 1}</td>
+      <td>${item.itemName}</td>
+      <td>${item.itemGroup}</td>
+      <td>${item.unit}</td>
+      <td>${item.openingStock.toFixed(2)}</td>
+      <td>${item.purchases.toFixed(2)}</td>
+      <td>${item.currentStock.toFixed(2)}</td>
+      <td>${item.consumedQuantity.toFixed(2)}</td>
+      <td>${item.averageUnitPrice.toFixed(2)} ل.س</td>
+      <td>${item.totalValue.toFixed(2)} ل.س</td>
     </tr>
-  `;
-  
+  `).join('');
+
   return `
-    <section class="section">
-      <h3>جرد المستودع الشهري - تفاصيل الاستهلاك</h3>
-      <table>
-        <thead>
-          <tr>
-            <th style="width: 20%">اسم المادة</th>
-            <th style="width: 10%">الوحدة</th>
-            <th style="width: 12%">رصيد افتتاحي</th>
-            <th style="width: 10%">المشتريات</th>
-            <th style="width: 12%">الرصيد الحالي</th>
-            <th style="width: 12%">المستهلك</th>
-            <th style="width: 12%">سعر الوحدة</th>
-            <th style="width: 12%">القيمة الإجمالية</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${tableRows}
-        </tbody>
-      </table>
+    <section class="section" id="inventory-section">
+      <h2>تفاصيل المخزون</h2>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>اسم المادة</th>
+              <th>المجموعة</th>
+              <th>الوحدة</th>
+              <th>الرصيد الافتتاحي</th>
+              <th>المشتريات</th>
+              <th>الرصيد الحالي</th>
+              <th>الكمية المستهلكة</th>
+              <th>القيمة الإفرادية</th>
+              <th>القيمة الإجمالية</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tableRows}
+          </tbody>
+          <tfoot>
+            <tr class="total-row">
+              <td colspan="4"><strong>الإجمالي</strong></td>
+              <td><strong>${items.reduce((sum, item) => sum + item.openingStock, 0).toFixed(2)}</strong></td>
+              <td><strong>${items.reduce((sum, item) => sum + item.purchases, 0).toFixed(2)}</strong></td>
+              <td><strong>${items.reduce((sum, item) => sum + item.currentStock, 0).toFixed(2)}</strong></td>
+              <td><strong>${items.reduce((sum, item) => sum + item.consumedQuantity, 0).toFixed(2)}</strong></td>
+              <td><strong>—</strong></td>
+              <td><strong>${items.reduce((sum, item) => sum + item.totalValue, 0).toFixed(2)} ل.س</strong></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
     </section>
   `;
 }
@@ -2371,16 +2353,26 @@ async generateProductSalesReport(itemIds: number[], startDate: Date, endDate: Da
 }
 
 // 4. تقرير حركة الصناديق
-async generateFundsMovementReport(startDate: Date, endDate: Date): Promise<string> {
+async generateFundsMovementReport(startDate: Date, endDate: Date, fundType?: string): Promise<string> {
+  // بناء شروط البحث
+  const whereConditions: any = {
+    paidStatus: true,
+    createdAt: {
+      gte: startDate,
+      lte: endDate
+    }
+  };
+
+  // إضافة فلتر الصندوق إذا تم تحديده
+  if (fundType) {
+    whereConditions.fund = {
+      fundType: fundType
+    };
+  }
+
   // جلب حركات الصناديق
   const fundsMovements = await this.prisma.invoice.findMany({
-    where: {
-      paidStatus: true,
-      createdAt: {
-        gte: startDate,
-        lte: endDate
-      }
-    },
+    where: whereConditions,
     include: {
       fund: true,
       shift: true
@@ -2394,15 +2386,16 @@ async generateFundsMovementReport(startDate: Date, endDate: Date): Promise<strin
   const fundsSummary = new Map();
   
   fundsMovements.forEach(movement => {
-    const fundType = movement.fund.fundType;
-    if (!fundsSummary.has(fundType)) {
-      fundsSummary.set(fundType, {
+    const movementFundType = movement.fund.fundType;
+    if (!fundsSummary.has(movementFundType)) {
+      fundsSummary.set(movementFundType, {
         income: 0,
         expense: 0,
-        count: 0
+        count: 0,
+        fundName: this.getFundTypeName(movementFundType)
       });
     }
-    const fund = fundsSummary.get(fundType);
+    const fund = fundsSummary.get(movementFundType);
     fund.count++;
     
     const amount = movement.totalAmount - (movement.discount || 0);
@@ -2416,20 +2409,29 @@ async generateFundsMovementReport(startDate: Date, endDate: Date): Promise<strin
   const totalIncome = Array.from(fundsSummary.values()).reduce((sum, fund) => sum + fund.income, 0);
   const totalExpense = Array.from(fundsSummary.values()).reduce((sum, fund) => sum + fund.expense, 0);
 
+  // تحديد عنوان التقرير حسب الفلتر
+  const reportTitle = fundType 
+    ? `تقرير حركة ${this.getFundTypeName(fundType)}`
+    : 'تقرير حركة الصناديق';
+
+  const reportSubtitle = fundType
+    ? `${this.getFundTypeName(fundType)} - من ${this.formatDate(startDate)} إلى ${this.formatDate(endDate)}`
+    : `جميع الصناديق - من ${this.formatDate(startDate)} إلى ${this.formatDate(endDate)}`;
+
   // بناء HTML التقرير
   let template = this.getHTMLTemplate();
   
   const replacements = {
-    '{{REPORT_TITLE}}': 'تقرير حركة الصناديق',
-    '{{REPORT_SUBTITLE}}': `من ${this.formatDate(startDate)} إلى ${this.formatDate(endDate)}`,
-    '{{CUSTOMER_NAME}}': '—',
+    '{{REPORT_TITLE}}': reportTitle,
+    '{{REPORT_SUBTITLE}}': reportSubtitle,
+    '{{CUSTOMER_NAME}}': fundType ? this.getFundTypeName(fundType) : 'جميع الصناديق',
     '{{CUSTOMER_PHONE}}': '—',
     '{{CUSTOMER_CATEGORY}}': '—',
     '{{TOTAL_UNPAID}}': `${fundsMovements.length} حركة`,
     '{{TOTAL_BREAK}}': this.formatCurrency(totalIncome),
     '{{TOTAL_DEBTS}}': this.formatCurrency(totalExpense),
     '{{GRAND_TOTAL}}': this.formatCurrency(totalIncome - totalExpense),
-    '{{NOTES}}': `صافي الحركة: ${this.formatCurrency(totalIncome - totalExpense)}`
+    '{{NOTES}}': this.buildFundsReportNotes(totalIncome, totalExpense, fundType)
   };
 
   Object.entries(replacements).forEach(([key, value]) => {
@@ -2437,56 +2439,10 @@ async generateFundsMovementReport(startDate: Date, endDate: Date): Promise<strin
   });
 
   // ملخص خاص بحركة الصناديق
-  const movementsSummaryHTML = `
-    <section class="section" id="account-summary">
-      <h3>ملخص حركة الصناديق</h3>
-      <div class="cards">
-        <div class="card"><div class="label">إجمالي المدخولات</div><div class="value">${this.formatCurrency(totalIncome)}</div></div>
-        <div class="card"><div class="label">إجمالي المصروفات</div><div class="value">${this.formatCurrency(totalExpense)}</div></div>
-        <div class="card"><div class="label">صافي الحركة</div><div class="value">${this.formatCurrency(totalIncome - totalExpense)}</div></div>
-      </div>
-    </section>
-  `;
+  const movementsSummaryHTML = this.buildFundsMovementSummary(totalIncome, totalExpense, fundType);
 
   // بناء جدول حركة الصناديق
-  const movementsRows = Array.from(fundsSummary.entries()).map(([fundType, data]) => {
-    const fundName = {
-      'main': 'الخزينة الرئيسية',
-      'general': 'الصندوق العام',
-      'booth': 'البسطة',
-      'university': 'الجامعة'
-    }[fundType] || fundType;
-    
-    return `
-      <tr>
-        <td style="text-align:right">${fundName}</td>
-        <td style="text-align:center; color: #059669;">${this.formatCurrency(data.income)}</td>
-        <td style="text-align:center; color: #dc2626;">${this.formatCurrency(data.expense)}</td>
-        <td style="text-align:center; font-weight: bold;">${this.formatCurrency(data.income - data.expense)}</td>
-        <td style="text-align:center">${data.count}</td>
-      </tr>
-    `;
-  }).join('');
-
-  const tableHTML = `
-    <section class="section">
-      <h3>تفاصيل حركة الصناديق</h3>
-      <table>
-        <thead>
-          <tr>
-            <th>نوع الصندوق</th>
-            <th>المدخولات</th>
-            <th>المصروفات</th>
-            <th>الصافي</th>
-            <th>عدد الحركات</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${movementsRows}
-        </tbody>
-      </table>
-    </section>
-  `;
+  const tableHTML = this.buildFundsMovementTable(fundsSummary, fundType);
 
   template = template.replace(/(<section class="section" id="account-summary">[\s\S]*?<\/section>)/g, movementsSummaryHTML);
   template = template.replace(/(<section class="section" id="unpaid-section">[\s\S]*?<\/section>)/g, tableHTML);
@@ -2495,70 +2451,307 @@ async generateFundsMovementReport(startDate: Date, endDate: Date): Promise<strin
   return template;
 }
 
+// دالة مساعدة لبناء ملخص حركة الصناديق
+private buildFundsMovementSummary(totalIncome: number, totalExpense: number, fundType?: string): string {
+  const summaryTitle = fundType 
+    ? `ملخص حركة ${this.getFundTypeName(fundType)}`
+    : 'ملخص حركة الصناديق';
+
+  return `
+    <section class="section" id="account-summary">
+      <h3>${summaryTitle}</h3>
+      <div class="cards">
+        <div class="card">
+          <div class="label">إجمالي المدخولات</div>
+          <div class="value" style="color: #059669;">${this.formatCurrency(totalIncome)}</div>
+        </div>
+        <div class="card">
+          <div class="label">إجمالي المصروفات</div>
+          <div class="value" style="color: #dc2626;">${this.formatCurrency(totalExpense)}</div>
+        </div>
+        <div class="card">
+          <div class="label">صافي الحركة</div>
+          <div class="value" style="color: ${totalIncome - totalExpense >= 0 ? '#059669' : '#dc2626'}; font-weight: bold;">
+            ${this.formatCurrency(totalIncome - totalExpense)}
+          </div>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+// دالة مساعدة لبناء جدول حركة الصناديق
+private buildFundsMovementTable(fundsSummary: Map<string, any>, fundType?: string): string {
+  const tableTitle = fundType 
+    ? `تفاصيل حركة ${this.getFundTypeName(fundType)}`
+    : 'تفاصيل حركة الصناديق';
+
+  // إذا كان هناك فلتر لصندوق واحد وله بيانات
+  if (fundType && fundsSummary.size === 1) {
+    const fundData = fundsSummary.get(fundType);
+    return `
+      <section class="section">
+        <h3>${tableTitle}</h3>
+        <div class="single-fund-details">
+          <div class="fund-info">
+            <h4>${this.getFundTypeName(fundType)}</h4>
+            <div class="fund-stats">
+              <div class="stat-item">
+                <span class="label">المدخولات:</span>
+                <span class="value income">${this.formatCurrency(fundData.income)}</span>
+              </div>
+              <div class="stat-item">
+                <span class="label">المصروفات:</span>
+                <span class="value expense">${this.formatCurrency(fundData.expense)}</span>
+              </div>
+              <div class="stat-item">
+                <span class="label">الصافي:</span>
+                <span class="value net ${fundData.income - fundData.expense >= 0 ? 'positive' : 'negative'}">
+                  ${this.formatCurrency(fundData.income - fundData.expense)}
+                </span>
+              </div>
+              <div class="stat-item">
+                <span class="label">عدد الحركات:</span>
+                <span class="value">${fundData.count}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <style>
+          .single-fund-details {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 15px 0;
+          }
+          .fund-info h4 {
+            color: #1f2937;
+            margin-bottom: 15px;
+            text-align: center;
+          }
+          .fund-stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+          }
+          .stat-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px;
+            background: white;
+            border-radius: 5px;
+            border: 1px solid #e5e7eb;
+          }
+          .stat-item .label {
+            font-weight: bold;
+            color: #374151;
+          }
+          .stat-item .value.income { color: #059669; }
+          .stat-item .value.expense { color: #dc2626; }
+          .stat-item .value.net.positive { color: #059669; font-weight: bold; }
+          .stat-item .value.net.negative { color: #dc2626; font-weight: bold; }
+        </style>
+      </section>
+    `;
+  }
+
+  // جدول متعدد الصناديق
+  const movementsRows = Array.from(fundsSummary.entries()).map(([fundTypeKey, data]) => {
+    return `
+      <tr>
+        <td style="text-align:right; font-weight: bold;">${data.fundName}</td>
+        <td style="text-align:center; color: #059669; font-weight: bold;">
+          ${this.formatCurrency(data.income)}
+        </td>
+        <td style="text-align:center; color: #dc2626; font-weight: bold;">
+          ${this.formatCurrency(data.expense)}
+        </td>
+        <td style="text-align:center; font-weight: bold; color: ${data.income - data.expense >= 0 ? '#059669' : '#dc2626'};">
+          ${this.formatCurrency(data.income - data.expense)}
+        </td>
+        <td style="text-align:center; font-weight: bold;">
+          ${data.count}
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  // إضافة صف الإجمالي إذا كان هناك أكثر من صندوق
+  const totalRow = fundsSummary.size > 1 ? `
+    <tr style="background-color: #f3f4f6; border-top: 2px solid #d1d5db;">
+      <td style="text-align:right; font-weight: bold;">الإجمالي العام</td>
+      <td style="text-align:center; color: #059669; font-weight: bold;">
+        ${this.formatCurrency(Array.from(fundsSummary.values()).reduce((sum, fund) => sum + fund.income, 0))}
+      </td>
+      <td style="text-align:center; color: #dc2626; font-weight: bold;">
+        ${this.formatCurrency(Array.from(fundsSummary.values()).reduce((sum, fund) => sum + fund.expense, 0))}
+      </td>
+      <td style="text-align:center; font-weight: bold; color: #1f2937;">
+        ${this.formatCurrency(Array.from(fundsSummary.values()).reduce((sum, fund) => sum + (fund.income - fund.expense), 0))}
+      </td>
+      <td style="text-align:center; font-weight: bold;">
+        ${Array.from(fundsSummary.values()).reduce((sum, fund) => sum + fund.count, 0)}
+      </td>
+    </tr>
+  ` : '';
+
+  return `
+    <section class="section">
+      <h3>${tableTitle}</h3>
+      <table>
+        <thead>
+          <tr style="background-color: #e5e7eb;">
+            <th style="text-align:center;">نوع الصندوق</th>
+            <th style="text-align:center;">المدخولات</th>
+            <th style="text-align:center;">المصروفات</th>
+            <th style="text-align:center;">الصافي</th>
+            <th style="text-align:center;">عدد الحركات</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${movementsRows}
+          ${totalRow}
+        </tbody>
+      </table>
+    </section>
+  `;
+}
+
+// دالة مساعدة للحصول على اسم نوع الصندوق
+private getFundTypeName(fundType: string): string {
+  const fundNames = {
+    'main': 'الخزينة الرئيسية',
+    'general': 'الصندوق العام',
+    'booth': 'البسطة',
+    'university': 'الجامعة'
+  };
+  
+  return fundNames[fundType] || fundType;
+}
+
+// دالة مساعدة لبناء ملاحظات التقرير
+private buildFundsReportNotes(totalIncome: number, totalExpense: number, fundType?: string): string {
+  const netAmount = totalIncome - totalExpense;
+  const fundInfo =  ` لـ${this.getFundTypeName(fundType)}`;
+  
+  return `
+    <div class="notes-section">
+      <h4>ملخص التقرير:</h4>
+      <ul>
+        <li>صافي الحركة${fundInfo}: ${this.formatCurrency(netAmount)}</li>
+        <li>نسبة المدخولات: ${totalIncome > 0 ? ((totalIncome / (totalIncome + totalExpense)) * 100).toFixed(1) : 0}%</li>
+        <li>نسبة المصروفات: ${totalExpense > 0 ? ((totalExpense / (totalIncome + totalExpense)) * 100).toFixed(1) : 0}%</li>
+        <li>حالة الصندوق: ${netAmount >= 0 ? 'إيجابية' : 'سلبية'}</li>
+      </ul>
+    </div>
+  `;
+}
+
+
 // 5. تقرير ملخص الواردية
-async generateShiftSummaryReport(shiftId?: number): Promise<string> {
-  // تحديد الواردية (الحالية إذا لم يتم تحديد معرف)
-  let shift;
-  if (shiftId) {
-    shift = await this.prisma.shift.findUnique({
+async getShiftSummary(shiftId: number): Promise<ShiftSummary> {
+  try {
+    // Get shift details with employee and invoices
+    const shift = await this.prisma.shift.findUnique({
       where: { id: shiftId },
       include: {
-        employee: true
+        employee: true,
+        invoices: {
+          include: {
+            fund: true
+          }
+        }
       }
     });
-  } else {
-    shift = await this.prisma.shift.findFirst({
-      where: { status: 'open' },
-      include: {
-        employee: true
-      }
-    });
-  }
 
-  if (!shift) {
-    throw new BadRequestException('لا توجد واردية مفتوحة أو الواردية المحددة غير موجودة');
-  }
-
-  // جلب فواتير الواردية
-  const shiftInvoices = await this.prisma.invoice.findMany({
-    where: {
-      shiftId: shift.id,
-      paidStatus: true
-    },
-    include: {
-      fund: true,
-      customer: true
-    },
-    orderBy: {
-      createdAt: 'desc'
+    if (!shift) {
+      throw new NotFoundException(`Shift #${shiftId} not found`);
     }
-  });
 
-  // حساب الإجماليات
-  const totalIncome = shiftInvoices
-    .filter(inv => inv.invoiceType === 'income')
-    .reduce((sum, inv) => sum + (inv.totalAmount - (inv.discount || 0)), 0);
+    // Get relevant fund types (excluding main)
+    const relevantFundTypes = Object.values(FundType).filter(
+      fundType => fundType !== FundType.main
+    );
+
+    // Group invoices by fund type
+    const fundSummaries: FundSummary[] = await Promise.all(
+      relevantFundTypes.map(async (fundType) => {
+        // Get all invoices for this fund type in the shift
+        const fundInvoices = shift.invoices.filter(
+          invoice => invoice.fund.fundType === fundType
+        );
+
+        // Calculate totals
+        const incomeTotal = fundInvoices
+          .filter(invoice => invoice.invoiceType === 'income')
+          .reduce((sum, invoice) => sum + (invoice.totalAmount - (invoice.discount || 0)), 0);
+
+        const expenseTotal = fundInvoices
+          .filter(invoice => invoice.invoiceType === 'expense')
+          .reduce((sum, invoice) => sum + (invoice.totalAmount - (invoice.discount || 0)), 0);
+
+        return {
+          fundType,
+          invoiceCount: fundInvoices.length,
+          incomeTotal,
+          expenseTotal,
+          netTotal: incomeTotal - expenseTotal,
+        };
+      })
+    );
+
+    // Calculate total net across all non-main funds
+    const totalNet = fundSummaries.reduce(
+      (sum, fund) => sum + fund.netTotal,
+      0
+    );
+
+    return {
+      shiftId: shift.id,
+      employeeName: shift.employee.username,
+      openTime: shift.openTime,
+      closedTime: shift.closeTime,
+      fundSummaries,
+      totalNet,
+      differenceStatus: shift.differenceStatus || null,
+      differenceValue: shift.differenceValue || null,
+    };
+  } catch (error) {
+    if (error instanceof NotFoundException) {
+      throw error;
+    }
+    throw new InternalServerErrorException('Failed to generate shift summary');
+  }
+}
+
+// تحديث دالة توليد تقرير ملخص الواردية
+async generateShiftSummaryReport(shiftId?: number): Promise<string> {
+  let targetShiftId: number;
+
+  // تحديد الواردية (الحالية إذا لم يتم تحديد معرف)
+  if (shiftId) {
+    targetShiftId = shiftId;
+  } else {
+    const currentShift = await this.prisma.shift.findFirst({
+      where: { status: 'open' }
+    });
     
-  const totalExpense = shiftInvoices
-    .filter(inv => inv.invoiceType === 'expense')
-    .reduce((sum, inv) => sum + (inv.totalAmount - (inv.discount || 0)), 0);
-
-  const netAmount = totalIncome - totalExpense;
-
-  // تجميع حسب نوع الصندوق
-  const fundTypes = ['general', 'booth', 'university'];
-  const fundsSummary = {};
-  
-  fundTypes.forEach(type => {
-    const fundInvoices = shiftInvoices.filter(inv => inv.fund.fundType === type);
-    const income = fundInvoices
-      .filter(inv => inv.invoiceType === 'income')
-      .reduce((sum, inv) => sum + (inv.totalAmount - (inv.discount || 0)), 0);
-    const expense = fundInvoices
-      .filter(inv => inv.invoiceType === 'expense')
-      .reduce((sum, inv) => sum + (inv.totalAmount - (inv.discount || 0)), 0);
+    if (!currentShift) {
+      throw new BadRequestException('لا توجد واردية مفتوحة');
+    }
     
-    fundsSummary[type] = { income, expense, net: income - expense };
+    targetShiftId = currentShift.id;
+  }
+
+  // الحصول على ملخص الواردية باستخدام الدالة المحسنة
+  const shiftSummary = await this.getShiftSummary(targetShiftId);
+
+  // الحصول على تفاصيل الواردية الإضافية
+  const shift = await this.prisma.shift.findUnique({
+    where: { id: targetShiftId },
+    include: {
+      employee: true
+    }
   });
 
   // بناء HTML التقرير
@@ -2569,15 +2762,15 @@ async generateShiftSummaryReport(shiftId?: number): Promise<string> {
   
   const replacements = {
     '{{REPORT_TITLE}}': 'تقرير ملخص الواردية',
-    '{{REPORT_SUBTITLE}}': `واردية ${shiftTypeAr} - ${shiftStatusAr}`,
-    '{{CUSTOMER_NAME}}': shift.employee?.username || '—',
-    '{{CUSTOMER_PHONE}}': this.formatDate(shift.openTime),
-    '{{CUSTOMER_CATEGORY}}': shift.closeTime ? this.formatDate(shift.closeTime) : 'مفتوحة',
-    '{{TOTAL_UNPAID}}': `${shiftInvoices.length} فاتورة`,
-    '{{TOTAL_BREAK}}': this.formatCurrency(totalIncome),
-    '{{TOTAL_DEBTS}}': this.formatCurrency(totalExpense),
-    '{{GRAND_TOTAL}}': this.formatCurrency(netAmount),
-    '{{NOTES}}': `صافي الواردية: ${this.formatCurrency(netAmount)}`
+    '{{REPORT_SUBTITLE}}': `واردية ${shiftTypeAr} - ${shiftStatusAr} #${shiftSummary.shiftId}`,
+    '{{CUSTOMER_NAME}}': shiftSummary.employeeName || '—',
+    '{{CUSTOMER_PHONE}}': this.formatDate(shiftSummary.openTime),
+    '{{CUSTOMER_CATEGORY}}': shiftSummary.closedTime ? this.formatDate(shiftSummary.closedTime) : 'مفتوحة',
+    '{{TOTAL_UNPAID}}': `${shiftSummary.fundSummaries.reduce((sum, fund) => sum + fund.invoiceCount, 0)} فاتورة`,
+    '{{TOTAL_BREAK}}': this.formatCurrency(shiftSummary.fundSummaries.reduce((sum, fund) => sum + fund.incomeTotal, 0)),
+    '{{TOTAL_DEBTS}}': this.formatCurrency(shiftSummary.fundSummaries.reduce((sum, fund) => sum + fund.expenseTotal, 0)),
+    '{{GRAND_TOTAL}}': this.formatCurrency(shiftSummary.totalNet),
+    '{{NOTES}}': this.buildShiftSummaryNotes(shiftSummary)
   };
 
   Object.entries(replacements).forEach(([key, value]) => {
@@ -2585,65 +2778,788 @@ async generateShiftSummaryReport(shiftId?: number): Promise<string> {
   });
 
   // ملخص خاص بالواردية
-  const shiftSummaryHTML = `
+  const shiftSummaryHTML = this.buildShiftSummarySection(shiftSummary);
+
+  // بناء جدول الصناديق المحسن
+  const tableHTML = this.buildShiftFundsTable(shiftSummary);
+
+  // إضافة قسم تفاصيل الفروقات إذا وجدت
+  const differenceSection = this.buildDifferenceSection(shiftSummary);
+
+  template = template.replace(/(<section class="section" id="account-summary">[\s\S]*?<\/section>)/g, shiftSummaryHTML);
+  template = template.replace(/(<section class="section" id="unpaid-section">[\s\S]*?<\/section>)/g, tableHTML);
+  template = template.replace('{{ADDITIONAL_SECTIONS}}', differenceSection);
+
+  return template;
+}
+
+// دالة بناء قسم ملخص الواردية
+private buildShiftSummarySection(shiftSummary: ShiftSummary): string {
+  const totalIncome = shiftSummary.fundSummaries.reduce((sum, fund) => sum + fund.incomeTotal, 0);
+  const totalExpense = shiftSummary.fundSummaries.reduce((sum, fund) => sum + fund.expenseTotal, 0);
+  
+  return `
     <section class="section" id="account-summary">
-      <h3>ملخص الواردية</h3>
+      <h3>ملخص الواردية #${shiftSummary.shiftId}</h3>
+      <div class="shift-info">
+        <div class="info-row">
+          <span class="label">المسؤول:</span>
+          <span class="value">${shiftSummary.employeeName}</span>
+        </div>
+        <div class="info-row">
+          <span class="label">وقت الفتح:</span>
+          <span class="value">${this.formatDateTime(shiftSummary.openTime)}</span>
+        </div>
+        <div class="info-row">
+          <span class="label">وقت الإغلاق:</span>
+          <span class="value">${shiftSummary.closedTime ? this.formatDateTime(shiftSummary.closedTime) : 'مفتوحة'}</span>
+        </div>
+      </div>
       <div class="cards">
-        <div class="card"><div class="label">إجمالي المدخولات</div><div class="value">${this.formatCurrency(totalIncome)}</div></div>
-        <div class="card"><div class="label">إجمالي المصروفات</div><div class="value">${this.formatCurrency(totalExpense)}</div></div>
-        <div class="card"><div class="label">صافي الواردية</div><div class="value">${this.formatCurrency(netAmount)}</div></div>
+        <div class="card">
+          <div class="label">إجمالي المدخولات</div>
+          <div class="value" style="color: #059669;">${this.formatCurrency(totalIncome)}</div>
+        </div>
+        <div class="card">
+          <div class="label">إجمالي المصروفات</div>
+          <div class="value" style="color: #dc2626;">${this.formatCurrency(totalExpense)}</div>
+        </div>
+        <div class="card">
+          <div class="label">صافي الواردية</div>
+          <div class="value" style="color: ${shiftSummary.totalNet >= 0 ? '#059669' : '#dc2626'}; font-weight: bold;">
+            ${this.formatCurrency(shiftSummary.totalNet)}
+          </div>
+        </div>
       </div>
     </section>
   `;
+}
 
-  // بناء جدول الصناديق
-  const fundsRows = Object.entries(fundsSummary).map(([type, data]: [string, any]) => {
-    const fundName = {
-      'general': 'الصندوق العام',
-      'booth': 'البسطة',
-      'university': 'الجامعة'
-    }[type] || type;
+// دالة بناء جدول الصناديق المحسن
+private buildShiftFundsTable(shiftSummary: ShiftSummary): string {
+  const fundsRows = shiftSummary.fundSummaries.map((fund) => {
+    const fundName = this.getFundTypeName(fund.fundType);
     
     return `
       <tr>
-        <td style="text-align:right">${fundName}</td>
-        <td style="text-align:center; color: #059669;">${this.formatCurrency(data.income)}</td>
-        <td style="text-align:center; color: #dc2626;">${this.formatCurrency(data.expense)}</td>
-        <td style="text-align:center; font-weight: bold;">${this.formatCurrency(data.net)}</td>
+        <td style="text-align:right; font-weight: bold;">${fundName}</td>
+        <td style="text-align:center; color: #6b7280;">${fund.invoiceCount}</td>
+        <td style="text-align:center; color: #059669; font-weight: bold;">
+          ${this.formatCurrency(fund.incomeTotal)}
+        </td>
+        <td style="text-align:center; color: #dc2626; font-weight: bold;">
+          ${this.formatCurrency(fund.expenseTotal)}
+        </td>
+        <td style="text-align:center; font-weight: bold; color: ${fund.netTotal >= 0 ? '#059669' : '#dc2626'};">
+          ${this.formatCurrency(fund.netTotal)}
+        </td>
       </tr>
     `;
   }).join('');
 
-  const tableHTML = `
+  // إضافة صف الإجمالي
+  const totalInvoices = shiftSummary.fundSummaries.reduce((sum, fund) => sum + fund.invoiceCount, 0);
+  const totalIncome = shiftSummary.fundSummaries.reduce((sum, fund) => sum + fund.incomeTotal, 0);
+  const totalExpense = shiftSummary.fundSummaries.reduce((sum, fund) => sum + fund.expenseTotal, 0);
+
+  const totalRow = `
+    <tr style="background-color: #f3f4f6; border-top: 2px solid #d1d5db;">
+      <td style="text-align:right; font-weight: bold;">الإجمالي العام</td>
+      <td style="text-align:center; font-weight: bold;">${totalInvoices}</td>
+      <td style="text-align:center; color: #059669; font-weight: bold;">
+        ${this.formatCurrency(totalIncome)}
+      </td>
+      <td style="text-align:center; color: #dc2626; font-weight: bold;">
+        ${this.formatCurrency(totalExpense)}
+      </td>
+      <td style="text-align:center; font-weight: bold; color: ${shiftSummary.totalNet >= 0 ? '#059669' : '#dc2626'};">
+        ${this.formatCurrency(shiftSummary.totalNet)}
+      </td>
+    </tr>
+  `;
+
+  return `
     <section class="section">
-      <h3>ملخص الصناديق في الواردية</h3>
+      <h3>تفاصيل الصناديق في الواردية</h3>
       <table>
         <thead>
-          <tr>
-            <th>الصندوق</th>
-            <th>المدخولات</th>
-            <th>المصروفات</th>
-            <th>الصافي</th>
+          <tr style="background-color: #e5e7eb;">
+            <th style="text-align:center;">الصندوق</th>
+            <th style="text-align:center;">عدد الفواتير</th>
+            <th style="text-align:center;">المدخولات</th>
+            <th style="text-align:center;">المصروفات</th>
+            <th style="text-align:center;">الصافي</th>
           </tr>
         </thead>
         <tbody>
           ${fundsRows}
-          <tr style="background-color: #f0f8ff; font-weight: bold;">
-            <td style="text-align:center">المجموع الكلي</td>
-            <td style="text-align:center; color: #059669;">${this.formatCurrency(totalIncome)}</td>
-            <td style="text-align:center; color: #dc2626;">${this.formatCurrency(totalExpense)}</td>
-            <td style="text-align:center">${this.formatCurrency(netAmount)}</td>
-          </tr>
+          ${totalRow}
         </tbody>
       </table>
     </section>
   `;
+}
 
-  template = template.replace(/(<section class="section" id="account-summary">[\s\S]*?<\/section>)/g, shiftSummaryHTML);
-  template = template.replace(/(<section class="section" id="unpaid-section">[\s\S]*?<\/section>)/g, tableHTML);
+// دالة بناء قسم الفروقات
+private buildDifferenceSection(shiftSummary: ShiftSummary): string {
+  if (!shiftSummary.differenceStatus || !shiftSummary.differenceValue) {
+    return '';
+  }
+
+  const statusText = shiftSummary.differenceStatus === 'surplus' ? 'فائض' : 'عجز';
+  const statusColor = shiftSummary.differenceStatus === 'surplus' ? '#059669' : '#dc2626';
+
+  return `
+    <section class="section">
+      <h3>حالة الفروقات</h3>
+      <div class="difference-info">
+        <div class="difference-card">
+          <div class="difference-status" style="color: ${statusColor};">
+            ${statusText}
+          </div>
+          <div class="difference-value" style="color: ${statusColor};">
+            ${this.formatCurrency(Math.abs(shiftSummary.differenceValue))}
+          </div>
+        </div>
+      </div>
+    </section>
+    <style>
+      .difference-info {
+        display: flex;
+        justify-content: center;
+        margin: 20px 0;
+      }
+      .difference-card {
+        background: #f8f9fa;
+        border: 2px solid #e9ecef;
+        border-radius: 12px;
+        padding: 20px;
+        text-align: center;
+        min-width: 200px;
+      }
+      .difference-status {
+        font-size: 18px;
+        font-weight: bold;
+        margin-bottom: 10px;
+      }
+      .difference-value {
+        font-size: 24px;
+        font-weight: bold;
+      }
+    </style>
+  `;
+}
+
+// دالة بناء الملاحظات
+private buildShiftSummaryNotes(shiftSummary: ShiftSummary): string {
+  const totalInvoices = shiftSummary.fundSummaries.reduce((sum, fund) => sum + fund.invoiceCount, 0);
+  const activeFunds = shiftSummary.fundSummaries.filter(fund => fund.invoiceCount > 0).length;
+  
+  let notes = `
+    <div class="notes-section">
+      <h4>ملخص الواردية:</h4>
+      <ul>
+        <li>صافي الواردية: ${this.formatCurrency(shiftSummary.totalNet)}</li>
+        <li>إجمالي الفواتير: ${totalInvoices} فاتورة</li>
+        <li>الصناديق النشطة: ${activeFunds} من ${shiftSummary.fundSummaries.length}</li>
+        <li>حالة الواردية: ${shiftSummary.closedTime ? 'مغلقة' : 'مفتوحة'}</li>
+  `;
+
+  if (shiftSummary.differenceStatus && shiftSummary.differenceValue) {
+    const statusText = shiftSummary.differenceStatus === 'surplus' ? 'فائض' : 'عجز';
+    notes += `<li>حالة الفروقات: ${statusText} بقيمة ${this.formatCurrency(Math.abs(shiftSummary.differenceValue))}</li>`;
+  }
+
+  notes += `
+      </ul>
+    </div>
+  `;
+
+  return notes;
+}
+
+// دالة مساعدة لتنسيق التاريخ والوقت
+private formatDateTime(date: Date): string {
+  return new Intl.DateTimeFormat('ar-SA', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true
+  }).format(new Date(date));
+}
+
+
+// 1. تقرير أجور الورشات
+async generateWorkshopSalariesReport(workshopId?: number, startDate?: Date, endDate?: Date): Promise<string> {
+  // بناء شروط البحث
+  const where: any = {};
+  
+  if (workshopId) {
+    where.id = workshopId;
+  }
+
+  // جلب الورشات مع بياناتها
+  const workshops = await this.prisma.workshop.findMany({
+    where,
+    include: {
+      employees: {
+        include: {
+          withdrawals: {
+            where: {
+              withdrawalType: 'salary_advance',
+              ...(startDate && endDate ? {
+                date: {
+                  gte: startDate,
+                  lte: endDate
+                }
+              } : {})
+            },
+            orderBy: {
+              date: 'desc'
+            }
+          },
+          productionRecords: {
+            ...(startDate && endDate ? {
+              where: {
+                date: {
+                  gte: startDate,
+                  lte: endDate
+                }
+              }
+            } : {}),
+            include: {
+              item: true
+            },
+            orderBy: {
+              date: 'desc'
+            }
+          },
+          hourRecords: {
+            ...(startDate && endDate ? {
+              where: {
+                date: {
+                  gte: startDate,
+                  lte: endDate
+                }
+              }
+            } : {}),
+            orderBy: {
+              date: 'desc'
+            }
+          },
+          salaryPayments: {
+            ...(startDate && endDate ? {
+              where: {
+                date: {
+                  gte: startDate,
+                  lte: endDate
+                }
+              }
+            } : {}),
+            include: {
+              invoice: true
+            },
+            orderBy: {
+              date: 'desc'
+            }
+          }
+        }
+      },
+      productionRecords: {
+        ...(startDate && endDate ? {
+          where: {
+            date: {
+              gte: startDate,
+              lte: endDate
+            }
+          }
+        } : {}),
+        orderBy: {
+          date: 'desc'
+        }
+      },
+      settlements: {
+        ...(startDate && endDate ? {
+          where: {
+            date: {
+              gte: startDate,
+              lte: endDate
+            }
+          }
+        } : {}),
+        include: {
+          fund: true,
+          invoice: true
+        },
+        orderBy: {
+          date: 'desc'
+        }
+      }
+    }
+  });
+
+  if (workshops.length === 0) {
+    throw new BadRequestException('لا توجد ورشات مطابقة للمعايير المحددة');
+  }
+
+  // حساب البيانات لكل ورشة
+  const workshopsData = workshops.map(workshop => {
+    // حساب إجمالي المبلغ المستحق
+    let totalEarnings = 0;
+    
+    if (workshop.workType === 'production') {
+      totalEarnings = workshop.productionRecords.reduce((sum, record) => sum + record.totalProduction, 0);
+    } else {
+      totalEarnings = workshop.employees.reduce((sum, employee) => 
+        sum + employee.hourRecords.reduce((empSum, record) => empSum + record.totalAmount, 0), 0
+      );
+    }
+
+    // حساب إجمالي السحوبات
+    const totalWithdrawals = workshop.employees.reduce((sum, employee) => 
+      sum + employee.withdrawals.reduce((empSum, withdrawal) => empSum + withdrawal.amount, 0), 0
+    );
+
+    // حساب إجمالي المبالغ المدفوعة
+    const totalPaidAmount = workshop.settlements.reduce((sum, settlement) => sum + settlement.paidAmount, 0);
+
+    // حساب الصافي
+    const netAmount = totalEarnings - totalWithdrawals;
+
+    // تفاصيل توزيع السحوبات على العمال
+    const withdrawalsByEmployee = workshop.employees.map(employee => ({
+      employeeId: employee.id,
+      employeeName: employee.name,
+      totalWithdrawals: employee.withdrawals.reduce((sum, w) => sum + w.amount, 0),
+      withdrawalsCount: employee.withdrawals.length,
+      withdrawalsDetails: employee.withdrawals
+    })).filter(emp => emp.totalWithdrawals > 0);
+
+    // تفاصيل توزيع المدفوعات على العمال
+    const paymentsByEmployee = workshop.employees.map(employee => ({
+      employeeId: employee.id,
+      employeeName: employee.name,
+      totalPayments: employee.salaryPayments.reduce((sum, p) => sum + p.amount, 0),
+      paymentsCount: employee.salaryPayments.length,
+      paymentsDetails: employee.salaryPayments
+    })).filter(emp => emp.totalPayments > 0);
+
+    return {
+      workshop,
+      totalEarnings,
+      totalWithdrawals,
+      totalPaidAmount,
+      netAmount,
+      withdrawalsByEmployee,
+      paymentsByEmployee
+    };
+  });
+
+  // حساب الإجماليات العامة
+  const grandTotalEarnings = workshopsData.reduce((sum, data) => sum + data.totalEarnings, 0);
+  const grandTotalWithdrawals = workshopsData.reduce((sum, data) => sum + data.totalWithdrawals, 0);
+  const grandTotalPaid = workshopsData.reduce((sum, data) => sum + data.totalPaidAmount, 0);
+
+  // بناء HTML التقرير
+  let template = this.getHTMLTemplate();
+  
+  const reportTitle = workshopId ? 
+    `تقرير أجور ورشة ${workshopsData[0].workshop.name}` : 
+    'تقرير أجور جميع الورشات';
+    
+  const reportSubtitle = startDate && endDate ? 
+    `من ${this.formatDate(startDate)} إلى ${this.formatDate(endDate)}` : 
+    'جميع الفترات';
+  
+  const replacements = {
+    '{{REPORT_TITLE}}': reportTitle,
+    '{{REPORT_SUBTITLE}}': reportSubtitle,
+    '{{CUSTOMER_NAME}}': '—',
+    '{{CUSTOMER_PHONE}}': '—',
+    '{{CUSTOMER_CATEGORY}}': '—',
+    '{{TOTAL_UNPAID}}': `${workshopsData.length} ورشة`,
+    '{{TOTAL_BREAK}}': this.formatCurrency(grandTotalEarnings),
+    '{{TOTAL_DEBTS}}': this.formatCurrency(grandTotalWithdrawals),
+    '{{GRAND_TOTAL}}': this.formatCurrency(grandTotalPaid),
+    '{{NOTES}}': `صافي المبالغ المستحقة: ${this.formatCurrency(grandTotalEarnings - grandTotalWithdrawals)}`
+  };
+
+  Object.entries(replacements).forEach(([key, value]) => {
+    template = template.replace(new RegExp(key, 'g'), value);
+  });
+
+  // ملخص خاص بأجور الورشات
+  const salariesSummaryHTML = `
+    <section class="section" id="account-summary">
+      <h3>ملخص أجور الورشات</h3>
+      <div class="cards">
+        <div class="card"><div class="label">إجمالي المستحق</div><div class="value">${this.formatCurrency(grandTotalEarnings)}</div></div>
+        <div class="card"><div class="label">إجمالي السحوبات</div><div class="value">${this.formatCurrency(grandTotalWithdrawals)}</div></div>
+        <div class="card"><div class="label">إجمالي المدفوع</div><div class="value">${this.formatCurrency(grandTotalPaid)}</div></div>
+      </div>
+    </section>
+  `;
+
+  // بناء جدول تفاصيل الورشات
+  const workshopsTableHTML = this.buildWorkshopsDetailsTable(workshopsData);
+
+  template = template.replace(/(<section class="section" id="account-summary">[\s\S]*?<\/section>)/g, salariesSummaryHTML);
+  template = template.replace(/(<section class="section" id="unpaid-section">[\s\S]*?<\/section>)/g, workshopsTableHTML);
   template = template.replace('{{ADDITIONAL_SECTIONS}}', '');
 
   return template;
 }
+
+// بناء جدول تفاصيل الورشات
+private buildWorkshopsDetailsTable(workshopsData: any[]): string {
+  let tablesHTML = '';
+
+  workshopsData.forEach((data, index) => {
+    const workshop = data.workshop;
+    
+    // جدول ملخص الورشة
+    tablesHTML += `
+      <section class="section">
+        <h3>${workshop.name} - ${workshop.workType === 'production' ? 'ورشة إنتاج' : 'ورشة ساعات'}</h3>
+        
+        <div class="cards" style="margin-bottom: 15px;">
+          <div class="card">
+            <div class="label">المبلغ المستحق</div>
+            <div class="value">${this.formatCurrency(data.totalEarnings)}</div>
+          </div>
+          <div class="card">
+            <div class="label">إجمالي السحوبات</div>
+            <div class="value">${this.formatCurrency(data.totalWithdrawals)}</div>
+          </div>
+          <div class="card">
+            <div class="label">المبلغ المدفوع</div>
+            <div class="value">${this.formatCurrency(data.totalPaidAmount)}</div>
+          </div>
+        </div>
+
+        <h4>توزيع السحوبات على العمال</h4>
+        <table style="margin-bottom: 20px;">
+          <thead>
+            <tr>
+              <th>اسم العامل</th>
+              <th>إجمالي السحوبات</th>
+              <th>عدد السحوبات</th>
+            </tr>
+          </thead>
+          <tbody>
+    `;
+
+    if (data.withdrawalsByEmployee.length > 0) {
+      data.withdrawalsByEmployee.forEach(emp => {
+        tablesHTML += `
+          <tr>
+            <td style="text-align:right">${emp.employeeName}</td>
+            <td style="text-align:center; color: #dc2626;">${this.formatCurrency(emp.totalWithdrawals)}</td>
+            <td style="text-align:center">${emp.withdrawalsCount}</td>
+          </tr>
+        `;
+      });
+    } else {
+      tablesHTML += `
+        <tr>
+          <td colspan="3" style="text-align:center; color: #666;">لا توجد سحوبات</td>
+        </tr>
+      `;
+    }
+
+    tablesHTML += `
+          </tbody>
+        </table>
+
+        <h4>توزيع المدفوعات على العمال</h4>
+        <table>
+          <thead>
+            <tr>
+              <th>اسم العامل</th>
+              <th>إجمالي المدفوعات</th>
+              <th>عدد المدفوعات</th>
+            </tr>
+          </thead>
+          <tbody>
+    `;
+
+    if (data.paymentsByEmployee.length > 0) {
+      data.paymentsByEmployee.forEach(emp => {
+        tablesHTML += `
+          <tr>
+            <td style="text-align:right">${emp.employeeName}</td>
+            <td style="text-align:center; color: #059669;">${this.formatCurrency(emp.totalPayments)}</td>
+            <td style="text-align:center">${emp.paymentsCount}</td>
+          </tr>
+        `;
+      });
+    } else {
+      tablesHTML += `
+        <tr>
+          <td colspan="3" style="text-align:center; color: #666;">لا توجد مدفوعات</td>
+        </tr>
+      `;
+    }
+
+    tablesHTML += `
+          </tbody>
+        </table>
+        
+        <p class="note" style="margin-top: 10px; text-align: center; font-weight: bold;">
+          الصافي للورشة: ${this.formatCurrency(data.netAmount)}
+        </p>
+      </section>
+    `;
+
+    // إضافة فاصل بين الورشات إذا لم تكن الأخيرة
+    if (index < workshopsData.length - 1) {
+      tablesHTML += '<div class="page-break"></div>';
+    }
+  });
+
+  return tablesHTML;
+}
+
+// 2. تقرير سحوبات الموظفين
+async generateEmployeeWithdrawalsReport(employeeId?: number, startDate?: Date, endDate?: Date): Promise<string> {
+  // بناء شروط البحث
+  const where: any = {
+    withdrawalType: 'salary_advance'
+  };
+  
+  if (employeeId) {
+    where.employeeId = employeeId;
+  }
+  
+  if (startDate && endDate) {
+    where.date = {
+      gte: startDate,
+      lte: endDate
+    };
+  }
+
+  // جلب السحوبات
+  const withdrawals = await this.prisma.employeeWithdrawal.findMany({
+    where,
+    include: {
+      employee: {
+        include: {
+          workshop: true
+        }
+      },
+      invoice: true
+    },
+    orderBy: [
+      { employee: { name: 'asc' } },
+      { date: 'desc' }
+    ]
+  });
+
+  // Handle empty results by returning empty report instead of throwing error
+  if (withdrawals.length === 0) {
+    return this.generateEmptyWithdrawalsReport(employeeId, startDate, endDate);
+  }
+
+  // تجميع البيانات حسب الموظف
+  const employeesData = new Map();
+  
+  withdrawals.forEach(withdrawal => {
+    const empId = withdrawal.employeeId;
+    
+    if (!employeesData.has(empId)) {
+      employeesData.set(empId, {
+        employee: withdrawal.employee,
+        totalWithdrawals: 0,
+        withdrawalsCount: 0,
+        withdrawals: []
+      });
+    }
+    
+    const empData = employeesData.get(empId);
+    empData.totalWithdrawals += withdrawal.amount;
+    empData.withdrawalsCount++;
+    empData.withdrawals.push(withdrawal);
+  });
+
+  const employeesArray = Array.from(employeesData.values());
+  const grandTotal = employeesArray.reduce((sum, emp) => sum + emp.totalWithdrawals, 0);
+
+  // بناء HTML التقرير
+  let template = this.getHTMLTemplate();
+  
+  const reportTitle = employeeId ? 
+    `تقرير سحوبات الموظف ${employeesArray[0].employee.name}` : 
+    'تقرير سحوبات جميع الموظفين';
+    
+  const reportSubtitle = startDate && endDate ? 
+    `من ${this.formatDate(startDate)} إلى ${this.formatDate(endDate)}` : 
+    'جميع الفترات';
+  
+  const replacements = {
+    '{{REPORT_TITLE}}': reportTitle,
+    '{{REPORT_SUBTITLE}}': reportSubtitle,
+    '{{CUSTOMER_NAME}}': '—',
+    '{{CUSTOMER_PHONE}}': '—',
+    '{{CUSTOMER_CATEGORY}}': '—',
+    '{{TOTAL_UNPAID}}': `${employeesArray.length} موظف`,
+    '{{TOTAL_BREAK}}': `${withdrawals.length} سحبة`,
+    '{{TOTAL_DEBTS}}': this.formatCurrency(grandTotal),
+    '{{GRAND_TOTAL}}': this.formatCurrency(grandTotal / employeesArray.length),
+    '{{NOTES}}': `متوسط السحوبات لكل موظف: ${this.formatCurrency(grandTotal / employeesArray.length)}`
+  };
+
+  Object.entries(replacements).forEach(([key, value]) => {
+    template = template.replace(new RegExp(key, 'g'), value);
+  });
+
+  // ملخص خاص بسحوبات الموظفين
+  const withdrawalsSummaryHTML = `
+    <section class="section" id="account-summary">
+      <h3>ملخص سحوبات الموظفين</h3>
+      <div class="cards">
+        <div class="card"><div class="label">عدد الموظفين</div><div class="value">${employeesArray.length}</div></div>
+        <div class="card"><div class="label">إجمالي السحوبات</div><div class="value">${this.formatCurrency(grandTotal)}</div></div>
+        <div class="card"><div class="label">عدد العمليات</div><div class="value">${withdrawals.length}</div></div>
+      </div>
+    </section>
+  `;
+
+  // بناء جدول السحوبات
+  const withdrawalsTableHTML = this.buildWithdrawalsTable(employeesArray);
+
+  template = template.replace(/(<section class="section" id="account-summary">[\s\S]*?<\/section>)/g, withdrawalsSummaryHTML);
+  template = template.replace(/(<section class="section" id="unpaid-section">[\s\S]*?<\/section>)/g, withdrawalsTableHTML);
+  template = template.replace('{{ADDITIONAL_SECTIONS}}', '');
+
+  return template;
+}
+
+// Helper method to generate empty report
+private generateEmptyWithdrawalsReport(employeeId?: number, startDate?: Date, endDate?: Date): string {
+  let template = this.getHTMLTemplate();
+  
+  const reportTitle = employeeId ? 
+    'تقرير سحوبات الموظف' : 
+    'تقرير سحوبات جميع الموظفين';
+    
+  const reportSubtitle = startDate && endDate ? 
+    `من ${this.formatDate(startDate)} إلى ${this.formatDate(endDate)}` : 
+    'جميع الفترات';
+  
+  const replacements = {
+    '{{REPORT_TITLE}}': reportTitle,
+    '{{REPORT_SUBTITLE}}': reportSubtitle,
+    '{{CUSTOMER_NAME}}': '—',
+    '{{CUSTOMER_PHONE}}': '—',
+    '{{CUSTOMER_CATEGORY}}': '—',
+    '{{TOTAL_UNPAID}}': '0 موظف',
+    '{{TOTAL_BREAK}}': '0 سحبة',
+    '{{TOTAL_DEBTS}}': this.formatCurrency(0),
+    '{{GRAND_TOTAL}}': this.formatCurrency(0),
+    '{{NOTES}}': 'لا توجد سحوبات مطابقة للمعايير المحددة'
+  };
+
+  Object.entries(replacements).forEach(([key, value]) => {
+    template = template.replace(new RegExp(key, 'g'), value);
+  });
+
+  // Empty summary
+  const emptySummaryHTML = `
+    <section class="section" id="account-summary">
+      <h3>ملخص سحوبات الموظفين</h3>
+      <div class="cards">
+        <div class="card"><div class="label">عدد الموظفين</div><div class="value">0</div></div>
+        <div class="card"><div class="label">إجمالي السحوبات</div><div class="value">${this.formatCurrency(0)}</div></div>
+        <div class="card"><div class="label">عدد العمليات</div><div class="value">0</div></div>
+      </div>
+    </section>
+  `;
+
+  // Empty table
+  const emptyTableHTML = `
+    <section class="section">
+      <h3>تفاصيل سحوبات الموظفين</h3>
+      <div style="text-align: center; padding: 40px; background-color: #f8f9fa; border-radius: 8px; color: #6b7280;">
+        <p style="font-size: 18px; margin: 0;">لا توجد سحوبات مطابقة للمعايير المحددة</p>
+        <p style="font-size: 14px; margin: 10px 0 0 0;">يرجى تعديل معايير البحث والمحاولة مرة أخرى</p>
+      </div>
+    </section>
+  `;
+
+  template = template.replace(/(<section class="section" id="account-summary">[\s\S]*?<\/section>)/g, emptySummaryHTML);
+  template = template.replace(/(<section class="section" id="unpaid-section">[\s\S]*?<\/section>)/g, emptyTableHTML);
+  template = template.replace('{{ADDITIONAL_SECTIONS}}', '');
+
+  return template;
+}
+
+// بناء جدول السحوبات (unchanged)
+private buildWithdrawalsTable(employeesArray: any[]): string {
+  let tableHTML = `
+    <section class="section">
+      <h3>تفاصيل سحوبات الموظفين</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>اسم الموظف</th>
+            <th>الورشة</th>
+            <th>التاريخ</th>
+            <th>المبلغ</th>
+            <th>رقم الفاتورة</th>
+            <th>ملاحظات</th>
+          </tr>
+        </thead>
+        <tbody>
+  `;
+
+  employeesArray.forEach(empData => {
+    let isFirstRow = true;
+    
+    empData.withdrawals.forEach((withdrawal, index) => {
+      tableHTML += `
+        <tr>
+          <td style="text-align:right; ${isFirstRow ? 'font-weight: bold;' : ''}">${isFirstRow ? empData.employee.name : ''}</td>
+          <td style="text-align:center">${isFirstRow ? (empData.employee.workshop?.name || '—') : ''}</td>
+          <td style="text-align:center">${this.formatDate(withdrawal.date)}</td>
+          <td style="text-align:center; color: #dc2626;">${this.formatCurrency(withdrawal.amount)}</td>
+          <td style="text-align:center">${withdrawal.invoice?.invoiceNumber || '—'}</td>
+          <td style="text-align:center">${withdrawal.notes || '—'}</td>
+        </tr>
+      `;
+      isFirstRow = false;
+    });
+    
+    // صف المجموع لكل موظف
+    tableHTML += `
+      <tr style="background-color: #f8f9fa; font-weight: bold;">
+        <td style="text-align:center" colspan="3">مجموع ${empData.employee.name}</td>
+        <td style="text-align:center; color: #dc2626;">${this.formatCurrency(empData.totalWithdrawals)}</td>
+        <td style="text-align:center">${empData.withdrawalsCount} سحبة</td>
+        <td>—</td>
+      </tr>
+    `;
+  });
+
+  const grandTotal = employeesArray.reduce((sum, emp) => sum + emp.totalWithdrawals, 0);
+  const totalCount = employeesArray.reduce((sum, emp) => sum + emp.withdrawalsCount, 0);
+
+  tableHTML += `
+        <tr style="background-color: #e3f2fd; font-weight: bold; border-top: 3px solid #2563eb;">
+          <td colspan="3" style="text-align:center; font-size: 14px;">المجموع الكلي</td>
+          <td style="text-align:center; color: #2563eb; font-size: 16px;">${this.formatCurrency(grandTotal)}</td>
+          <td style="text-align:center; font-size: 14px;">${totalCount} سحبة</td>
+          <td>—</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+  `;
+
+  return tableHTML;
+}
+
+
 
 }
