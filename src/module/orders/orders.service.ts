@@ -1102,6 +1102,8 @@ async create(createOrderDto: CreateOrderDto, employeeId: number) {
         data: { 
           invoiceId: invoice.id,
           paidStatus: invoiceData.paidStatus, 
+          status: OrderStatus.delivered 
+
         },
         include: {
           customer: true,

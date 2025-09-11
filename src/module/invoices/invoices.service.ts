@@ -164,15 +164,15 @@ export class InvoicesService {
      
      // إضافة معلومات المبلغ الإضافي إلى الملاحظات إذا وجد
      let invoiceNotes = createInvoiceDto.notes || '';
-     if (additionalAmount > 0) {
-       const additionalNotes = createInvoiceDto.additionalAmountNotes 
-         ? `مبلغ إضافي (${additionalAmount}): ${createInvoiceDto.additionalAmountNotes}` 
-         : `مبلغ إضافي: ${additionalAmount}`;
+    //  if (additionalAmount > 0) {
+    //    const additionalNotes = createInvoiceDto.additionalAmountNotes 
+    //      ? `مبلغ إضافي (${additionalAmount}): ${createInvoiceDto.additionalAmountNotes}` 
+    //      : `مبلغ إضافي: ${additionalAmount}`;
        
-       invoiceNotes = invoiceNotes 
-         ? `${invoiceNotes}\n${additionalNotes}` 
-         : additionalNotes;
-     }
+    //    invoiceNotes = invoiceNotes 
+    //      ? `${invoiceNotes}\n${additionalNotes}` 
+    //      : additionalNotes;
+    //  }
       
       // التعامل مع فاتورة الكسر (isBreak = true)
       if (createInvoiceDto.isBreak === true) {
@@ -188,7 +188,7 @@ export class InvoicesService {
             totalAmount: createInvoiceDto.initialPayment, // قيمة الدفعة الأولى
             discount: createInvoiceDto.discount || 0,
             additionalAmount: additionalAmount, // تخزين المبلغ الإضافي
-            notes: invoiceNotes ? `${invoiceNotes} - دفعة أولى` : 'دفعة أولى',
+            notes: `${invoiceNotes} - دفعة أولى`,
             fundId: createInvoiceDto.fundId,
             shiftId: activeShift.id,
             paymentDate: new Date(),
@@ -247,7 +247,7 @@ export class InvoicesService {
             totalAmount: remainingAmount,
             discount: 0, // لا خصم على فاتورة الكسر عادة
             additionalAmount: 0, // لا مبلغ إضافي على فاتورة الكسر
-            notes: invoiceNotes ? `${invoiceNotes} - كسر` : 'كسر',
+            notes:  `${invoiceNotes} - كسر` ,
             fundId: createInvoiceDto.fundId,
             shiftId: activeShift.id,
             paymentDate: null,
@@ -645,13 +645,10 @@ export class InvoicesService {
 
             // إضافة ملاحظة عن تقسيم المبلغ
             if (remainingAmount > 0) {
-              const supplierNote = `المبلغ المدفوع للمورد: ${createInvoiceDto.supplierPaymentAmount} - المبلغ المضاف للرصيد: ${remainingAmount}`;
               await prisma.invoice.update({
                 where: { id: invoice.id },
                 data: {
                   notes: invoice.notes 
-                    ? `${invoice.notes}\n${supplierNote}`
-                    : supplierNote
                 }
               });
             }
@@ -1053,9 +1050,7 @@ export class InvoicesService {
           paidStatus: true, // تعيين الفاتورة كمدفوعة
           totalAmount: originalInvoiceData.totalAmount,
           discount: originalInvoiceData.discount,
-          notes: originalInvoice.notes 
-            ? `${originalInvoice.notes} - تم دفع الفاتورة المسجلة سابقاً بتاريخ ${formattedDate}` 
-            : `تم دفع الفاتورة المسجلة سابقاً بتاريخ ${formattedDate}`,
+          notes: originalInvoice.notes ,
           fundId: originalInvoiceData.fundId,
           shiftId: activeShift.id, // ربط الفاتورة بالواردية الحالية
           paymentDate: new Date(), // تاريخ الدفع الحالي
@@ -1183,26 +1178,12 @@ export class InvoicesService {
       } 
       
 
-      let notes = existingInvoice.notes || '';
     // في حالة تحديث المبلغ الإضافي
     if ('additionalAmount' in updateInvoiceDto) {
       const additionalAmount = updateInvoiceDto.additionalAmount || 0;
       const originalAdditionalAmount = existingInvoice.additionalAmount || 0;
       
-      // إذا كان هناك نص سابق عن المبلغ الإضافي، قم بإزالته
-      const additionalAmountRegex = /مبلغ إضافي(\s*\(\d+(\.\d+)?\))?(: .*)?\n?/g;
-      notes = notes.replace(additionalAmountRegex, '');
-      
-      // إضافة نص جديد عن المبلغ الإضافي إذا كان أكبر من صفر
-      if (additionalAmount > 0) {
-        const additionalNotes = updateInvoiceDto.additionalAmountNotes 
-          ? `مبلغ إضافي (${additionalAmount}): ${updateInvoiceDto.additionalAmountNotes}` 
-          : `مبلغ إضافي: ${additionalAmount}`;
-        
-        notes = notes 
-          ? `${notes}\n${additionalNotes}` 
-          : additionalNotes;
-      }
+   
       
       // حساب المجموع الجديد بناءً على عناصر الفاتورة والمبلغ الإضافي
       let itemsTotal = 0;
@@ -1224,7 +1205,6 @@ export class InvoicesService {
           // customerId: updateInvoiceDto.customerId || existingInvoice.customerId,
           discount: updateInvoiceDto.discount,
           additionalAmount: additionalAmount,
-          notes: notes,
           trayCount: updateInvoiceDto.trayCount,
           totalAmount: newTotalAmount,
           items: updateInvoiceDto.items
@@ -2103,7 +2083,7 @@ async transferFromBoothOrUniversityToGeneral(sourceId: number, amount: number, e
         discount: 0,
         paidStatus: true,
         paymentDate: new Date(),
-        notes: notes || `تحويل من ${sourceType.fundType === 'booth' ? 'البسطة' : 'الجامعة'} إلى الصندوق العام`,
+        notes: notes ,
         fundId: sourceId,
         shiftId: activeShift.id,
         employeeId,
@@ -2122,7 +2102,7 @@ async transferFromBoothOrUniversityToGeneral(sourceId: number, amount: number, e
         discount: 0,
         paidStatus: true,
         paymentDate: new Date(),
-        notes: notes || `تحويل من ${sourceType.fundType === 'booth' ? 'البسطة' : 'الجامعة'} إلى الصندوق العام`,
+        notes: notes,
         fundId: generalFund.id,
         shiftId: activeShift.id,
         employeeId,
@@ -2218,7 +2198,7 @@ async createTransferToMainRequest(sourceId: number, amount: number, employeeId: 
         totalAmount: amount,
         discount: 0,
         paidStatus: false, // لن يتم تفعيل الفاتورة حتى التأكيد
-        notes: (notes ? `${notes} - ` : '') + `طلب تحويل من ${sourceFund.fundType} إلى الخزينة الرئيسية - في انتظار التأكيد`,
+        notes: notes,
         fundId: sourceId,
         shiftId: activeShift.id,
         employeeId,
@@ -2236,7 +2216,7 @@ async createTransferToMainRequest(sourceId: number, amount: number, employeeId: 
         totalAmount: amount,
         discount: 0,
         paidStatus: false, // لن يتم تفعيل الفاتورة حتى التأكيد
-        notes: (notes ? `${notes} - ` : '') + `طلب تحويل من ${sourceFund.fundType} - في انتظار التأكيد`,
+        notes: notes,
         fundId: mainFund.id,
         shiftId: activeShift.id,
         employeeId,
@@ -2250,7 +2230,7 @@ async createTransferToMainRequest(sourceId: number, amount: number, employeeId: 
         amount,
         status: TransferToMainStatus.PENDING,
         requestedById: employeeId,
-        notes: notes || `طلب تحويل من ${sourceFund.fundType} إلى الخزينة الرئيسية`,
+        notes: notes || null,
         expenseInvoiceId: expenseInvoice.id,
         incomeInvoiceId: incomeInvoice.id,
       },
@@ -2314,7 +2294,6 @@ async confirmTransferToMain(requestId: number, treasuryManagerId: number, confir
         data: {
           paidStatus: true,
           paymentDate: new Date(),
-          notes: `${expenseInvoice.notes?.replace('- في انتظار التأكيد', '') || ''} - تمت الموافقة`,
         },
       });
 
@@ -2323,7 +2302,6 @@ async confirmTransferToMain(requestId: number, treasuryManagerId: number, confir
         data: {
           paidStatus: true,
           paymentDate: new Date(),
-          notes: `${incomeInvoice.notes?.replace('- في انتظار التأكيد', '') || ''} - تمت الموافقة`,
         },
       });
 
@@ -2538,9 +2516,7 @@ async convertToBreak(invoiceId: number, convertToBreakDto: ConvertToBreakDto) {
         totalAmount: convertToBreakDto.initialPayment,
         discount: 0, // لا خصم على الدفعة الأولى عادة
         additionalAmount: 0, // لا مبلغ إضافي على الدفعة الأولى
-        notes: originalInvoice.notes 
-          ? `${originalInvoice.notes} - تم تحويل الفاتورة ${originalInvoice.invoiceNumber} إلى كسر - دفعة أولى` 
-          : `تم تحويل الفاتورة ${originalInvoice.invoiceNumber} إلى كسر - دفعة أولى`,
+        notes: originalInvoice.notes || null,
         fundId: originalInvoice.fundId,
         shiftId: activeShift.id,
         paymentDate: new Date(),
@@ -2587,9 +2563,7 @@ async convertToBreak(invoiceId: number, convertToBreakDto: ConvertToBreakDto) {
         totalAmount: remainingAmount,
         discount: originalInvoice.discount || 0, // نقل الخصم إلى فاتورة الكسر
         additionalAmount: originalInvoice.additionalAmount || 0, // نقل المبلغ الإضافي إلى فاتورة الكسر
-        notes: originalInvoice.notes 
-          ? `${originalInvoice.notes} - تم تحويل الفاتورة ${originalInvoice.invoiceNumber} إلى كسر - المبلغ المتبقي` 
-          : `تم تحويل الفاتورة ${originalInvoice.invoiceNumber} إلى كسر - المبلغ المتبقي`,
+        notes: originalInvoice.notes || null,
         fundId: originalInvoice.fundId,
         shiftId: activeShift.id,
         paymentDate: null,
