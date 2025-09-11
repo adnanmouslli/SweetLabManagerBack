@@ -708,16 +708,20 @@ async getCurrentShiftSummary(): Promise<ShiftSummary> {
 
 async getShiftInvoicesByFund(shiftId: number) {
   try {
-    // التحقق من وجود الواردية
+    // التحقق من وجود الوردية
     const shift = await this.prisma.shift.findUnique({
       where: { id: shiftId },
       include: {
         invoices: {
           include: {
-            fund: true, 
+            fund: true,
             customer: true,
             employee: true,
-            items: true
+            items: {
+              include: {
+                item: true, // جلب تفاصيل المنتج
+              },
+            },
           },
         },
       },
@@ -727,14 +731,23 @@ async getShiftInvoicesByFund(shiftId: number) {
       throw new NotFoundException(`Shift #${shiftId} not found`);
     }
 
+    // تجهيز الفواتير مع تعديل items لإضافة title
+    const invoicesWithTitles = shift.invoices.map((invoice) => ({
+      ...invoice,
+      items: invoice.items.map((i) => ({
+        ...i,
+        title: i.item.name, // إضافة اسم المنتج تحت key "title"
+      })),
+    }));
+
     // تصنيف الفواتير حسب نوع الصندوق
-    const boothInvoices = shift.invoices.filter(
+    const boothInvoices = invoicesWithTitles.filter(
       (invoice) => invoice.fund.fundType === 'booth'
     );
-    const generalInvoices = shift.invoices.filter(
+    const generalInvoices = invoicesWithTitles.filter(
       (invoice) => invoice.fund.fundType === 'general'
     );
-    const universityInvoices = shift.invoices.filter(
+    const universityInvoices = invoicesWithTitles.filter(
       (invoice) => invoice.fund.fundType === 'university'
     );
 
@@ -752,6 +765,7 @@ async getShiftInvoicesByFund(shiftId: number) {
     );
   }
 }
+
 
 
   /**
