@@ -78,19 +78,21 @@ export class InvoicesService {
       }
 
       // التحقق من صحة بيانات المورد للفواتير المتعلقة بالموردين
-      if (createInvoiceDto.invoiceType === 'expense' && 
-          createInvoiceDto.invoiceCategory === 'products' && 
-          customer.customerType === CustomerType.SUPPLIER &&
-          createInvoiceDto.supplierPaymentAmount !== undefined) {
-        
-        // التحقق من أن مبلغ الدفع للمورد لا يتجاوز المبلغ الإجمالي
-        if (createInvoiceDto.supplierPaymentAmount > createInvoiceDto.totalAmount) {
-          throw new BadRequestException('مبلغ الدفع للمورد لا يمكن أن يتجاوز المبلغ الإجمالي للفاتورة');
-        }
+      if (createInvoiceDto.customerId && 
+        createInvoiceDto.invoiceType === 'expense' && 
+        createInvoiceDto.invoiceCategory === 'products' &&
+        createInvoiceDto.supplierPaymentAmount !== undefined) {
+      
+        // جلب بيانات العميل للتحقق من نوعه
+        const customer = await this.prisma.customer.findUnique({
+          where: { id: createInvoiceDto.customerId }
+        });
 
-        // التحقق من أن مبلغ الدفع للمورد ليس سالباً
-        if (createInvoiceDto.supplierPaymentAmount < 0) {
-          throw new BadRequestException('مبلغ الدفع للمورد لا يمكن أن يكون سالباً');
+        if (customer && customer.customerType === CustomerType.SUPPLIER) {
+          const originalTotalAmount = createInvoiceDto.totalAmount;
+          const paidAmount = createInvoiceDto.supplierPaymentAmount;
+          
+          createInvoiceDto.totalAmount = paidAmount;
         }
       }
     }
@@ -164,15 +166,7 @@ export class InvoicesService {
      
      // إضافة معلومات المبلغ الإضافي إلى الملاحظات إذا وجد
      let invoiceNotes = createInvoiceDto.notes || '';
-    //  if (additionalAmount > 0) {
-    //    const additionalNotes = createInvoiceDto.additionalAmountNotes 
-    //      ? `مبلغ إضافي (${additionalAmount}): ${createInvoiceDto.additionalAmountNotes}` 
-    //      : `مبلغ إضافي: ${additionalAmount}`;
-       
-    //    invoiceNotes = invoiceNotes 
-    //      ? `${invoiceNotes}\n${additionalNotes}` 
-    //      : additionalNotes;
-    //  }
+   
       
       // التعامل مع فاتورة الكسر (isBreak = true)
       if (createInvoiceDto.isBreak === true) {
@@ -188,7 +182,6 @@ export class InvoicesService {
             totalAmount: createInvoiceDto.initialPayment, // قيمة الدفعة الأولى
             discount: createInvoiceDto.discount || 0,
             additionalAmount: additionalAmount, // تخزين المبلغ الإضافي
-            notes: `${invoiceNotes} - دفعة أولى`,
             fundId: createInvoiceDto.fundId,
             shiftId: activeShift.id,
             paymentDate: new Date(),
@@ -247,7 +240,6 @@ export class InvoicesService {
             totalAmount: remainingAmount,
             discount: 0, // لا خصم على فاتورة الكسر عادة
             additionalAmount: 0, // لا مبلغ إضافي على فاتورة الكسر
-            notes:  `${invoiceNotes} - كسر` ,
             fundId: createInvoiceDto.fundId,
             shiftId: activeShift.id,
             paymentDate: null,
@@ -1130,107 +1122,167 @@ export class InvoicesService {
   }
 
 
-  async updateInvoice(invoiceId: number, updateInvoiceDto: UpdateInvoiceDto, employeeId: number) {
-    const allowedFields = ['customerId', 'discount', 'items', 'trayCount', 'additionalAmount', 'additionalAmountNotes'];
-  
-    // تحقق من الحقول المسموح بها فقط
-    const updateKeys = Object.keys(updateInvoiceDto);
-    for (const key of updateKeys) {
-      if (!allowedFields.includes(key)) {
-        throw new BadRequestException(`لا يمكن تعديل الحقل: ${key}`);
+ async updateInvoice(invoiceId: number, updateInvoiceDto: UpdateInvoiceDto, employeeId: number) {
+  const allowedFields = ['customerId', 'discount', 'items', 'trayCount', 'additionalAmount', 'additionalAmountNotes'];
+
+  // تحقق من الحقول المسموح بها فقط
+  const updateKeys = Object.keys(updateInvoiceDto);
+  for (const key of updateKeys) {
+    if (!allowedFields.includes(key)) {
+      throw new BadRequestException(`لا يمكن تعديل الحقل: ${key}`);
+    }
+  }
+
+  // التحقق من صحة بيانات العناصر إذا تم إرسالها
+  if (updateInvoiceDto.items && Array.isArray(updateInvoiceDto.items)) {
+    for (let i = 0; i < updateInvoiceDto.items.length; i++) {
+      const item = updateInvoiceDto.items[i];
+      
+      // التأكد من وجود الحقول المطلوبة
+      if (!item.itemId || !item.quantity || !item.unitPrice) {
+        throw new BadRequestException(`العنصر ${i + 1}: يجب توفير itemId و quantity و unitPrice`);
+      }
+      
+      // التأكد من أن unit موجود وهو string
+      if (!item.unit || typeof item.unit !== 'string' || item.unit.trim() === '') {
+        updateInvoiceDto.items[i].unit = 'قطعة'; // قيمة افتراضية
       }
     }
-  
-    const existingInvoice = await this.prisma.invoice.findUnique({
+  }
+
+  const existingInvoice = await this.prisma.invoice.findUnique({
+    where: { id: invoiceId },
+    include: {
+      items: true,
+      trayTracking: true,
+    },
+  });
+
+  if (!existingInvoice) {
+    throw new BadRequestException('الفاتورة غير موجودة');
+  }
+
+  return this.prisma.$transaction(async (prisma) => {
+    // معالجة تحديث عدد الصواني
+    if ('trayCount' in updateInvoiceDto) {
+      const newTrayCount = updateInvoiceDto.trayCount || 0;
+      const currentTrayCount = existingInvoice.trayCount || 0;
+
+      if (currentTrayCount === 0 && newTrayCount > 0) {
+        // إضافة تتبع صواني جديد
+        await prisma.trayTracking.create({
+          data: {
+            customerId: existingInvoice.customerId,
+            totalTrays: newTrayCount,
+            status: 'pending',
+            invoiceId: invoiceId,
+          },
+        });
+      } else if (currentTrayCount > 0 && newTrayCount > 0) {
+        // تحديث عدد الصواني الموجودة
+        await prisma.trayTracking.updateMany({
+          where: { invoiceId: invoiceId },
+          data: { totalTrays: newTrayCount },
+        });
+      } else if (currentTrayCount > 0 && newTrayCount === 0) {
+        // حذف تتبع الصواني
+        await prisma.trayTracking.deleteMany({ 
+          where: { invoiceId: invoiceId } 
+        });
+      }
+    }
+
+    // حساب المجموع الجديد
+    let itemsTotal = 0;
+    
+    if (updateInvoiceDto.items && updateInvoiceDto.items.length > 0) {
+      // استخدام العناصر المحدثة
+      itemsTotal = updateInvoiceDto.items.reduce((sum, item) => {
+        return sum + (item.quantity * item.unitPrice);
+      }, 0);
+    } else {
+      // استخدام العناصر الحالية إذا لم يتم تحديثها
+      itemsTotal = existingInvoice.items.reduce((sum, item) => {
+        return sum + (item.quantity * item.unitPrice);
+      }, 0);
+    }
+    
+    // حساب المبلغ الإضافي
+    const additionalAmount = updateInvoiceDto.additionalAmount !== undefined 
+      ? updateInvoiceDto.additionalAmount 
+      : existingInvoice.additionalAmount || 0;
+    
+    // حساب الخصم
+    const discount = updateInvoiceDto.discount !== undefined 
+      ? updateInvoiceDto.discount 
+      : existingInvoice.discount || 0;
+    
+    // حساب المجموع النهائي
+    const newTotalAmount = itemsTotal + additionalAmount - discount;
+    
+    // تحضير بيانات التحديث
+    const updateData: any = {
+      customerId: updateInvoiceDto.customerId !== undefined 
+        ? updateInvoiceDto.customerId 
+        : existingInvoice.customerId,
+      discount: discount,
+      additionalAmount: additionalAmount,
+      trayCount: updateInvoiceDto.trayCount !== undefined 
+        ? updateInvoiceDto.trayCount 
+        : existingInvoice.trayCount,
+      totalAmount: newTotalAmount,
+    };
+
+    // إضافة تحديث العناصر إذا تم إرسالها
+    if (updateInvoiceDto.items && Array.isArray(updateInvoiceDto.items)) {
+      updateData.items = {
+        deleteMany: { invoiceId: invoiceId }, // حذف العناصر القديمة
+        create: updateInvoiceDto.items.map((item) => ({
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          unit: item.unit || 'قطعة', // التأكد من وجود unit
+          subTotal: item.quantity * item.unitPrice,
+          itemId: item.itemId,
+        })),
+      };
+    }
+    
+    // تحديث الفاتورة
+    const updatedInvoice = await prisma.invoice.update({
       where: { id: invoiceId },
+      data: updateData,
       include: {
         items: true,
         trayTracking: true,
       },
     });
-  
-    if (!existingInvoice) {
-      throw new BadRequestException('الفاتورة غير موجودة');
-    }
-  
-    return this.prisma.$transaction(async (prisma) => {
-      const trayDifference = 
-        (updateInvoiceDto.trayCount || existingInvoice.trayCount || 0) - (existingInvoice.trayCount || 0);
+
+    // تحديث رصيد الصندوق إذا كانت الفاتورة مدفوعة
+    if (existingInvoice.paidStatus) {
+      // حساب الفرق في المبلغ
+      const oldAmount = existingInvoice.totalAmount - (existingInvoice.discount || 0);
+      const newAmount = newTotalAmount - discount;
+      const amountDifference = newAmount - oldAmount;
       
-      
-      if('trayCount' in updateInvoiceDto && existingInvoice.trayCount == 0 && updateInvoiceDto.trayCount > 0){
-        await prisma.trayTracking.create({
+      if (amountDifference !== 0) {
+        await prisma.fund.update({
+          where: { id: existingInvoice.fundId },
           data: {
-            customerId: existingInvoice.customerId,
-            totalTrays: updateInvoiceDto.trayCount,
-            status: 'pending',
-            notes: `تم إضافة ${trayDifference} صاج مع تعديل الفاتورة ${existingInvoice.invoiceNumber}`,
-            invoiceId: invoiceId,
+            currentBalance: {
+              [existingInvoice.invoiceType === 'income' ? 'increment' : 'decrement']:
+                amountDifference,
+            },
           },
         });
-      } else if('trayCount' in updateInvoiceDto && existingInvoice.trayCount > 0 && updateInvoiceDto.trayCount > 0){
-        await prisma.trayTracking.updateMany({
-          where: { invoiceId: invoiceId },
-          data: { totalTrays: updateInvoiceDto.trayCount },
-        });
-      } else if('trayCount' in updateInvoiceDto && existingInvoice.trayCount > 0 && updateInvoiceDto.trayCount == 0){
-        await prisma.trayTracking.deleteMany({ where: { invoiceId: invoiceId } });
-      } 
-      
-
-    // في حالة تحديث المبلغ الإضافي
-    if ('additionalAmount' in updateInvoiceDto) {
-      const additionalAmount = updateInvoiceDto.additionalAmount || 0;
-      const originalAdditionalAmount = existingInvoice.additionalAmount || 0;
-      
-   
-      
-      // حساب المجموع الجديد بناءً على عناصر الفاتورة والمبلغ الإضافي
-      let itemsTotal = 0;
-      
-      // استخدام العناصر المحدثة إذا تم توفيرها، وإلا استخدام العناصر الحالية
-      if (updateInvoiceDto.items) {
-        itemsTotal = updateInvoiceDto.items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
-      } else {
-        itemsTotal = existingInvoice.items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
       }
-      
-      // تحديث إجمالي الفاتورة
-      const newTotalAmount = itemsTotal + additionalAmount;
-      
-      // تحديث بيانات الفاتورة
-      const updatedInvoice = await prisma.invoice.update({
-        where: { id: invoiceId },
-        data: {
-          // customerId: updateInvoiceDto.customerId || existingInvoice.customerId,
-          discount: updateInvoiceDto.discount,
-          additionalAmount: additionalAmount,
-          trayCount: updateInvoiceDto.trayCount,
-          totalAmount: newTotalAmount,
-          items: updateInvoiceDto.items
-            ? {
-                deleteMany: { invoiceId: invoiceId }, // حذف العناصر القديمة
-                create: updateInvoiceDto.items.map((item) => ({
-                  quantity: item.quantity,
-                  unitPrice: item.unitPrice,
-                  unit: item.unit,
-
-                  subTotal: item.quantity * item.unitPrice,
-                  itemId: item.itemId,
-                })),
-              }
-            : undefined,
-        },
-        include: {
-          items: true,
-          trayTracking: true,
-        },
-      });
-  
-      return updatedInvoice;
     }
+
+    console.log('Updated invoice:', updatedInvoice);
+    console.log('==============================');
+    
+    return updatedInvoice;
   });
-  }
+}
   
 
   async deleteInvoice(invoiceId: number): Promise<any> {

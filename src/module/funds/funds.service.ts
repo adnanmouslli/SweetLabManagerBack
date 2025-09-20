@@ -97,7 +97,7 @@ export class FundsService {
       let incomeInvoice = null;
 
       // إنشاء فاتورة صرف من الصندوق العام فقط في حال وجود واردية مفتوحة
-      if (activeShift) {
+      if (activeShift != null) {
         expenseInvoice = await prisma.invoice.create({
           data: {
             invoiceNumber: `${transferNumber}-EXP`,
@@ -107,7 +107,6 @@ export class FundsService {
             paidStatus: true,
             totalAmount: amount,
             discount: 0,
-            notes: `تحويل مباشر من الصندوق العام إلى الخزينة الرئيسية - ${transferNumber}`,
             fundId: generalFund.id,
             shiftId: activeShift.id,
             paymentDate: new Date(),
@@ -126,9 +125,8 @@ export class FundsService {
           paidStatus: true,
           totalAmount: amount,
           discount: 0,
-          notes: `تحويل مباشر من الصندوق العام إلى الخزينة الرئيسية - ${transferNumber}`,
           fundId: mainFund.id,
-          shiftId: activeShift?.id || null, // ربط بالواردية إذا كانت موجودة، وإلا null
+          shiftId: null, 
           paymentDate: new Date(),
           isBreak: false,
         }
@@ -176,6 +174,7 @@ export class FundsService {
     };
 
   } catch (error) {
+    console.log(error)
     if (error instanceof BadRequestException) {
       throw error;
     }

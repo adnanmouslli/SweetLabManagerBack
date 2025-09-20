@@ -116,7 +116,7 @@ model Invoice {
   notes                 String?
   isBreak               Boolean                @default(false)
   fundId                Int
-  shiftId               Int
+  shiftId               Int?
   employeeId            Int
   relatedDebtId         Int?
   trayCount             Int                    @default(0)
@@ -127,7 +127,7 @@ model Invoice {
   fund                  Fund                   @relation(fields: [fundId], references: [id])
   relatedAdvance        Advance?               @relation("AdvanceInvoices", fields: [relatedAdvanceId], references: [id])
   relatedDebt           Debt?                  @relation(fields: [relatedDebtId], references: [id])
-  shift                 Shift                  @relation(fields: [shiftId], references: [id])
+  shift                 Shift?                  @relation(fields: [shiftId], references: [id])
   order                 Order?
   expenseTransfer       PendingShiftTransfer?  @relation("ExpenseInvoiceTransfer")
   incomeTransfer        PendingShiftTransfer?  @relation("IncomeInvoiceTransfer")

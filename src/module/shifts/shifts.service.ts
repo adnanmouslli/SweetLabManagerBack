@@ -559,11 +559,17 @@ async getShiftSummary(shiftId: number): Promise<ShiftSummary> {
 
         // Calculate totals
         const incomeTotal = fundInvoices
-          .filter(invoice => invoice.invoiceType === 'income')
+          .filter(invoice => 
+            invoice.invoiceType === InvoiceType.income && 
+            invoice.paidStatus === true 
+          )
           .reduce((sum, invoice) => sum + invoice.totalAmount, 0);
 
         const expenseTotal = fundInvoices
-          .filter(invoice => invoice.invoiceType === 'expense')
+          .filter(invoice => 
+            invoice.invoiceType === 'expense' && 
+            invoice.paidStatus === true  
+          )
           .reduce((sum, invoice) => sum + invoice.totalAmount, 0);
 
         return {

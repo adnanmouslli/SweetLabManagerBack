@@ -262,9 +262,6 @@ async create(createOrderDto: CreateOrderDto, employeeId: number) {
             totalAmount: createOrderDto.invoiceData.initialPayment,
             discount: createOrderDto.invoiceData.discount || 0,
             additionalAmount: createOrderDto.invoiceData.additionalAmount || 0,
-            notes: createOrderDto.notes 
-              ? `${createOrderDto.notes} - دفعة أولى للطلبية رقم ${orderNumber}` 
-              : `دفعة أولى للطلبية رقم ${orderNumber}`,
             fundId: appropriateFund.id, // استخدام الصندوق المناسب
             shiftId: activeShift.id,
             paymentDate: new Date(),
@@ -303,9 +300,6 @@ async create(createOrderDto: CreateOrderDto, employeeId: number) {
             totalAmount: remainingAmount,
             discount: 0,
             additionalAmount: 0,
-            notes: createOrderDto.notes 
-              ? `${createOrderDto.notes} - كسر للطلبية رقم ${orderNumber}` 
-              : `كسر للطلبية رقم ${orderNumber}`,
             fundId: appropriateFund.id, // استخدام الصندوق المناسب
             shiftId: activeShift.id,
             paymentDate: null,
@@ -588,10 +582,7 @@ async create(createOrderDto: CreateOrderDto, employeeId: number) {
         lte: this.getEndOfDay(today)
       };
       
-      console.log('Filtrando por fecha HOY:', {
-        start: this.getStartOfDay(today).toISOString(),
-        end: this.getEndOfDay(today).toISOString()
-      });
+      
     }
     
     // Filtro para pedidos de mañana
@@ -607,10 +598,6 @@ async create(createOrderDto: CreateOrderDto, employeeId: number) {
         lte: this.getEndOfDay(tomorrow)
       };
       
-      console.log('Filtrando por fecha MAÑANA:', {
-        start: this.getStartOfDay(tomorrow).toISOString(),
-        end: this.getEndOfDay(tomorrow).toISOString()
-      });
     }
     
     // Realizar la consulta
@@ -906,9 +893,6 @@ async create(createOrderDto: CreateOrderDto, employeeId: number) {
           totalAmount: invoiceData.initialPayment,
           discount: invoiceData.discount || 0,
           additionalAmount: invoiceData.additionalAmount || 0,
-          notes: order.notes 
-            ? `${order.notes} - دفعة أولى للطلبية رقم ${order.orderNumber}` 
-            : `دفعة أولى للطلبية رقم ${order.orderNumber}`,
           fundId: appropriateFund.id, // استخدام الصندوق المناسب
           shiftId: activeShift.id,
           paymentDate: new Date(),
@@ -947,9 +931,6 @@ async create(createOrderDto: CreateOrderDto, employeeId: number) {
           totalAmount: remainingAmount,
           discount: 0,
           additionalAmount: 0,
-          notes: order.notes 
-            ? `${order.notes} - كسر للطلبية رقم ${order.orderNumber}` 
-            : `كسر للطلبية رقم ${order.orderNumber}`,
           fundId: appropriateFund.id, // استخدام الصندوق المناسب
           shiftId: activeShift.id,
           paymentDate: null,

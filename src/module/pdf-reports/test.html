@@ -3,339 +3,493 @@
 
 <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>تقرير سحوبات الموظف - معمل الحلويات</title>
+    <meta name="viewport" content="width=80mm, initial-scale=1.0, user-scalable=no" />
+    <title>فاتورة رقم INV-4056</title>
     <style>
         :root {
             --ink: #1b1b1b;
             --muted: #5b5b5b;
             --border: #d9d9d9;
             --bg: #ffffff;
-            --accent: #444;
         }
 
         * {
             box-sizing: border-box;
-        }
-
-        html,
-        body {
-            height: 100%;
-        }
-
-        body {
             margin: 0;
+            padding: 0;
+        }
+
+        html {
+            width: 80mm;
+            height: auto;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            width: 80mm;
+            height: auto;
+            margin: 0;
+            padding: 0;
             background: var(--bg);
             color: var(--ink);
-            font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, "Noto Kufi Arabic", "Noto Naskh Arabic", "Amiri", Tahoma, sans-serif;
-            line-height: 1.6;
+            font-family: "Segoe UI", Tahoma, Arial, "Noto Kufi Arabic", sans-serif;
+            font-size: 12px;
+            line-height: 1.3;
+            overflow: visible;
         }
 
-        .toolbar {
-            position: sticky;
-            top: 0;
-            z-index: 1000;
-            background: #fff;
-            border-bottom: 1px solid var(--border);
-            padding: 12px 16px;
-            display: flex;
-            gap: 8px;
-            align-items: center;
-            justify-content: space-between;
-        }
-
-        .toolbar .left,
-        .toolbar .right {
-            display: flex;
-            gap: 8px;
-            align-items: center;
-        }
-
-        .btn {
-            border: 1px solid var(--border);
-            background: #fff;
-            color: var(--ink);
-            padding: 8px 14px;
-            cursor: pointer;
-            border-radius: 8px;
-            font-weight: 600;
-            transition: .2s ease;
-        }
-
-        .btn:hover {
-            border-color: var(--accent);
-        }
-
-        .btn:active {
-            transform: translateY(1px);
-        }
-
-        .sep {
-            width: 1px;
-            height: 28px;
-            background: var(--border);
-            margin: 0 8px;
-        }
-
-        .sheet {
-            width: 210mm;
-            min-height: 297mm;
-            margin: 16px auto;
-            background: #fff;
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            box-shadow: 0 4px 14px rgba(0, 0, 0, .04);
-            padding: 18mm 16mm 24mm;
+        .receipt {
+            width: 80mm;
+            max-width: 80mm;
+            min-width: 80mm;
+            height: auto;
+            margin: 0;
+            background: white;
+            padding: 5mm;
             position: relative;
-            overflow: hidden;
+            display: block;
         }
 
-        header.report-header {
+        .header {
             text-align: center;
-            margin-bottom: 10mm;
+            border-bottom: 1px dashed var(--border);
+            padding-bottom: 8px;
+            margin-bottom: 8px;
         }
 
-        .brand {
-            font-size: 20px;
-            font-weight: 700;
-            letter-spacing: .3px;
-        }
-
-        .meta-row {
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: space-between;
-            gap: 8px;
-            color: var(--muted);
-            font-size: 12px;
-            margin-top: 6px;
-        }
-
-        .title {
-            font-size: 18px;
-            font-weight: 700;
-            margin-top: 8px;
-        }
-
-        .subtitle {
-            font-size: 13px;
-            color: var(--muted);
-            margin-top: 2px;
-        }
-
-        footer.report-footer {
-            position: fixed;
-            bottom: 10mm;
-            left: 0;
-            right: 0;
-            margin: 0 auto;
-            width: 180mm;
-            text-align: center;
-            font-size: 11px;
-            color: var(--muted);
-        }
-
-        footer .pageno::after {
-            content: counter(page) " / "counter(pages);
-        }
-
-        .section {
-            margin: 8mm 0;
-        }
-
-        .section h3 {
-            font-size: 15px;
-            margin: 0 0 6px;
-            border-right: 3px solid var(--accent);
-            padding-right: 8px;
-        }
-
-        .muted {
-            color: var(--muted);
-        }
-
-        .cards {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 8px;
-        }
-
-        .card {
-            border: 1px solid var(--border);
-            border-radius: 10px;
-            padding: 12px;
-        }
-
-        .card .label {
-            font-size: 12px;
-            color: var(--muted);
-        }
-
-        .card .value {
+        .company-name {
             font-size: 16px;
-            font-weight: 700;
-            margin-top: 4px;
+            font-weight: bold;
+            margin-bottom: 3px;
         }
 
-        table {
+        .company-info {
+            font-size: 10px;
+            color: var(--muted);
+            margin-bottom: 2px;
+        }
+
+        .invoice-type {
+            font-size: 13px;
+            font-weight: bold;
+            margin-top: 5px;
+            padding: 3px 6px;
+            background: #f0f0f0;
+            border-radius: 3px;
+            display: inline-block;
+        }
+
+        .invoice-details {
+            margin: 8px 0;
+            font-size: 10px;
+        }
+
+        .detail-row {
+            display: flex;
+            justify-content: space-between;
+            margin: 2px 0;
+            align-items: center;
+        }
+
+        .detail-label {
+            font-weight: bold;
+            flex-shrink: 0;
+        }
+
+        .items-table {
             width: 100%;
             border-collapse: collapse;
+            margin: 8px 0;
+            font-size: 9px;
             table-layout: fixed;
         }
 
-        thead th {
+        .items-table th,
+        .items-table td {
+            padding: 3px 2px;
             text-align: center;
-            font-weight: 700;
-            font-size: 12px;
-            border: 1px solid var(--border);
-            padding: 8px;
-            background: #fafafa;
-        }
-
-        tbody td {
-            border: 1px solid var(--border);
-            padding: 8px;
-            font-size: 12px;
+            border-bottom: 1px solid #eee;
             word-wrap: break-word;
+            overflow-wrap: break-word;
         }
 
-        tbody tr:nth-child(even) td {
-            background: #fcfcfc;
+        .items-table th {
+            background: #f5f5f5;
+            font-weight: bold;
+            font-size: 8px;
         }
 
-        .grid-2 {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10mm;
+        .items-table .item-name {
+            text-align: right;
+            width: 35%;
         }
 
-        .note {
+        .items-table .unit {
+            width: 15%;
+        }
+
+        .items-table .quantity {
+            width: 15%;
+        }
+
+        .items-table .price {
+            width: 17.5%;
+        }
+
+        .items-table .total {
+            width: 17.5%;
+        }
+
+        .total-section {
+            border-top: 1px dashed var(--border);
+            padding-top: 6px;
+            margin-top: 8px;
+        }
+
+        .total-row {
+            display: flex;
+            justify-content: space-between;
+            margin: 2px 0;
             font-size: 11px;
+        }
+
+        .total-row.final {
+            font-weight: bold;
+            font-size: 13px;
+            border-top: 1px solid var(--border);
+            padding-top: 3px;
+            margin-top: 5px;
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 10px;
+            padding-top: 6px;
+            border-top: 1px dashed var(--border);
+            font-size: 9px;
             color: var(--muted);
         }
 
-        .page-break {
-            page-break-before: always;
-            break-before: page;
+        .paid-stamp {
+            position: absolute;
+            top: 15px;
+            left: 5px;
+            transform: rotate(-15deg);
+            background: #e8f5e8;
+            color: #2e7d32;
+            padding: 2px 6px;
+            border: 2px solid #4caf50;
+            border-radius: 3px;
+            font-weight: bold;
+            font-size: 9px;
+            z-index: 10;
         }
 
-        @page {
-            size: A4;
-            margin: 15mm 12mm 18mm;
+        .unpaid-stamp {
+            position: absolute;
+            top: 15px;
+            left: 5px;
+            transform: rotate(-15deg);
+            background: #ffebee;
+            color: #c62828;
+            padding: 2px 6px;
+            border: 2px solid #f44336;
+            border-radius: 3px;
+            font-weight: bold;
+            font-size: 9px;
+            z-index: 10;
         }
 
+        /* إعدادات الطباعة والـ PDF */
         @media print {
-
-            .toolbar,
-            .print-hint {
-                display: none !important;
-            }
-
-            .sheet {
-                border: none;
+            @page {
+                size: 80mm auto;
                 margin: 0;
-                box-shadow: none;
-                width: auto;
-                min-height: auto;
                 padding: 0;
             }
 
-            header.report-header {
-                margin-top: 0;
+            html {
+                width: 80mm !important;
+                height: auto !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                overflow: visible !important;
             }
 
-            footer.report-footer {
-                position: fixed;
+            body {
+                width: 80mm !important;
+                height: auto !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                background: white !important;
+                font-size: 12px !important;
+                overflow: visible !important;
             }
 
-            body.landscape {
-                -webkit-print-color-adjust: exact;
+            .receipt {
+                width: 80mm !important;
+                max-width: 80mm !important;
+                min-width: 80mm !important;
+                height: auto !important;
+                margin: 0 !important;
+                padding: 3mm !important;
+                border: none !important;
+                box-shadow: none !important;
+                page-break-inside: avoid;
+                transform: none !important;
+                position: relative !important;
+                display: block !important;
             }
 
-            body.landscape @page {
-                size: A4 landscape;
+            .paid-stamp,
+            .unpaid-stamp {
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+                color-adjust: exact !important;
+            }
+
+            * {
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+                color-adjust: exact !important;
+            }
+
+            .items-table {
+                width: 100% !important;
+                font-size: 9px !important;
+                break-inside: avoid;
+            }
+
+            .items-table th,
+            .items-table td {
+                font-size: 8px !important;
+                padding: 2px 1px !important;
+            }
+
+            .header {
+                break-after: avoid;
+            }
+
+            .total-section {
+                break-before: avoid;
+            }
+
+            .footer {
+                break-before: avoid;
+            }
+        }
+
+        /* إعدادات لضمان الحجم الثابت */
+        @media screen {
+
+            html,
+            body {
+                width: 80mm;
+                max-width: 80mm;
+                min-width: 80mm;
             }
         }
     </style>
 </head>
 
 <body>
-    <div class="toolbar" role="region" aria-label="شريط الأدوات">
-        <div class="left">
-            <button class="btn" onclick="window.print()">طباعة / حفظ PDF</button>
-            <div class="sep" aria-hidden="true"></div>
-            <button class="btn" onclick="toggleOrientation()">تبديل الاتجاه (طولي/عرضي)</button>
+    <div class="receipt">
+        <!-- حالة الدفع -->
+        <div class="unpaid-stamp">غير مدفوع</div>
+
+        <!-- رأس الفاتورة -->
+        <div class="header">
+            <div class="company-name">مخبز الإحسان الدمشقي</div>
+            <div class="company-info">سوريا</div>
+            <div class="company-info">0932</div>
+            <div class="invoice-type">فاتورة بيع منتجات</div>
+        </div>
+
+        <!-- تفاصيل الفاتورة -->
+        <div class="invoice-details">
+            <div class="detail-row">
+                <span class="detail-label">رقم:</span>
+                <span>4056</span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">التاريخ:</span>
+                <span>29/08/2025 - 2:07 صباحاً</span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">الموظف المسؤول:</span>
+                <span>user1</span>
+            </div>
+
+            <div class="detail-row">
+                <span class="detail-label">اسم الزبون:</span>
+                <span>فهد عنون</span>
+            </div>
+
+        </div>
+
+        <!-- جدول المواد -->
+
+        <table class="items-table">
+            <thead>
+                <tr>
+                    <th class="item-name">الصنف</th>
+                    <th class="quantity">الكمية</th>
+                    <th class="price">السعر</th>
+                    <th class="total">الإجمالي</th>
+                </tr>
+            </thead>
+            <tbody>
+
+                <tr>
+                    <td class="item-name" title="طحين">طحين</td>
+                    <td class="quantity">5.3</td>
+                    <td class="price">٢</td>
+                    <td class="total">١١</td>
+                </tr>
+
+                <tr>
+                    <td class="item-name" title="سكر">سكر</td>
+                    <td class="quantity">18.5</td>
+                    <td class="price">٣</td>
+                    <td class="total">٥٦</td>
+                </tr>
+
+                <tr>
+                    <td class="item-name" title="بقلاوة">بقلاوة</td>
+                    <td class="quantity">19</td>
+                    <td class="price">٥٠</td>
+                    <td class="total">٩٥٠</td>
+                </tr>
+
+                <tr>
+                    <td class="item-name" title="فستق حلبي">فستق حلب...</td>
+                    <td class="quantity">16.6</td>
+                    <td class="price">٨٠</td>
+                    <td class="total">١٬٣٢٨</td>
+                </tr>
+
+                <tr>
+                    <td class="item-name" title="فستق حلبي">فستق حلب...</td>
+                    <td class="quantity">15.1</td>
+                    <td class="price">٨٠</td>
+                    <td class="total">١٬٢٠٨</td>
+                </tr>
+
+            </tbody>
+        </table>
+
+
+        <!-- قسم المجاميع -->
+        <div class="total-section">
+            <div class="total-row">
+                <span>المجموع:</span>
+                <span>٤٬٤٣٦ ل.س</span>
+            </div>
+
+            <div class="total-row">
+                <span>الخصم:</span>
+                <span>٢٠ ل.س</span>
+            </div>
+
+            <div class="total-row final">
+                <span>الإجمالي:</span>
+                <span>٤٬٤١٦ ل.س</span>
+            </div>
+        </div>
+
+        <!-- تذييل الفاتورة -->
+        <div class="footer">
+            <div>شكراً لتعاملكم معنا</div>
+            <div>19/09/2025 - 10:39 مساءً</div>
         </div>
     </div>
 
-    <main class="sheet" id="sheet">
-        <header class="report-header">
-            <div class="brand">معمل الحلويات</div>
-            <div class="title">تقرير سحوبات الموظف</div>
-            <div class="subtitle">من ١٨‏/٠٦‏/١٤٤٥ هـ إلى ١٨‏/٠٧‏/١٤٤٥ هـ</div>
-            <div class="meta-row">
-                <div>العميل: <strong>—</strong></div>
-                <div>الهاتف: <span>—</span></div>
-                <div>الفئة: <span>—</span></div>
-            </div>
-        </header>
-
-
-        <section class="section" id="account-summary">
-            <h3>ملخص سحوبات الموظفين</h3>
-            <div class="cards">
-                <div class="card">
-                    <div class="label">عدد الموظفين</div>
-                    <div class="value">0</div>
-                </div>
-                <div class="card">
-                    <div class="label">إجمالي السحوبات</div>
-                    <div class="value">0.00 ل.س</div>
-                </div>
-                <div class="card">
-                    <div class="label">عدد العمليات</div>
-                    <div class="value">0</div>
-                </div>
-            </div>
-        </section>
-
-
-
-        <section class="section">
-            <h3>تفاصيل سحوبات الموظفين</h3>
-            <div
-                style="text-align: center; padding: 40px; background-color: #f8f9fa; border-radius: 8px; color: #6b7280;">
-                <p style="font-size: 18px; margin: 0;">لا توجد سحوبات مطابقة للمعايير المحددة</p>
-                <p style="font-size: 14px; margin: 10px 0 0 0;">يرجى تعديل معايير البحث والمحاولة مرة أخرى</p>
-            </div>
-        </section>
-
-
-
-
-        <section class="section">
-            <div class="grid-2">
-                <div>
-                    <h3>ملاحظات</h3>
-                    <p class="muted">لا توجد سحوبات مطابقة للمعايير المحددة</p>
-                </div>
-                <div>
-                    <h3>توقيع</h3>
-                    <p class="muted">.......................................................</p>
-                </div>
-            </div>
-        </section>
-
-        <footer class="report-footer">
-            <div>معمل الحلويات — هاتف: 123-456-789</div>
-            <div>الصفحة <span class="pageno"></span></div>
-        </footer>
-    </main>
-
     <script>
-        function toggleOrientation(){
-      document.body.classList.toggle('landscape');
+        // إعدادات الطباعة المحسنة للحصول على PDF بحجم الفاتورة
+    function setupOptimalPrint() {
+      // تحديد حجم الصفحة بدقة
+      const printStyle = document.createElement('style');
+      printStyle.id = 'print-optimization';
+      printStyle.innerHTML = `
+        @page {
+          size: 80mm auto;
+          margin: 0;
+          padding: 0;
+        }
+        
+        @media print {
+          html, body {
+            width: 80mm !important;
+            height: auto !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            overflow: visible !important;
+          }
+          
+          .receipt {
+            width: 80mm !important;
+            height: auto !important;
+            margin: 0 !important;
+            padding: 3mm !important;
+            page-break-inside: avoid;
+          }
+        }
+      `;
+      document.head.appendChild(printStyle);
+
+      // إزالة أي margins إضافية
+      document.documentElement.style.margin = '0';
+      document.documentElement.style.padding = '0';
+      document.body.style.margin = '0';
+      document.body.style.padding = '0';
     }
+
+    // ضبط الأبعاد قبل الطباعة
+    function adjustForPrint() {
+      const receipt = document.querySelector('.receipt');
+      if (receipt) {
+        receipt.style.width = '80mm';
+        receipt.style.maxWidth = '80mm';
+        receipt.style.minWidth = '80mm';
+        receipt.style.height = 'auto';
+        receipt.style.margin = '0';
+        receipt.style.padding = '3mm';
+      }
+
+      // ضبط حجم الجسم
+      document.body.style.width = '80mm';
+      document.body.style.height = 'auto';
+      document.documentElement.style.width = '80mm';
+      document.documentElement.style.height = 'auto';
+    }
+
+    // طباعة محسنة
+    window.onload = function() {
+      setupOptimalPrint();
+      
+      setTimeout(() => {
+        adjustForPrint();
+        
+        // طباعة مع إعدادات محسنة
+        window.print();
+      }, 1000);
+    };
+
+    // التعامل مع أحداث الطباعة
+    window.addEventListener('beforeprint', function() {
+      adjustForPrint();
+    });
+
+    window.addEventListener('afterprint', function() {
+      console.log('تمت الطباعة بحجم 80mm');
+    });
+
+    // إضافة دالة للطباعة اليدوية
+    window.printReceipt = function() {
+      adjustForPrint();
+      window.print();
+    };
     </script>
 </body>
 

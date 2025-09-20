@@ -885,5 +885,130 @@ async getEmployeeWithdrawalsReport(
   }
 }
 
+  /**
+ * طباعة فاتورة وصل
+ * GET /reports/invoice-receipt/:invoiceId
+ */
+
+@Get('invoice-receipt/:invoiceId')
+async generateInvoiceReceipt(
+  @Param('invoiceId', ParseIntPipe) invoiceId: number,
+  @Res() res: Response
+) {
+  try {
+    // توليد HTML الفاتورة المحسن
+    const htmlContent = await this.pdfReportsService.generateInvoiceReceiptHTML(invoiceId);
+  
+    
+    // إعداد headers محسنة للطباعة كـ PDF
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    
+    // إضافة headers خاصة لتحسين PDF
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Disposition', 'inline');
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    
+    return res.status(HttpStatus.OK).send(htmlContent);
+    
+  } catch (error) {
+    console.error('Error generating invoice receipt:', error);
+    return this.sendErrorPage(error, invoiceId, res);
+  }
+}
+
+
+/**
+ * إرسال صفحة خطأ محسنة
+ */
+private sendErrorPage(error: any, invoiceId: number, res: Response) {
+  const errorHTML = `
+    <!DOCTYPE html>
+    <html lang="ar" dir="rtl">
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=80mm, initial-scale=1">
+      <title>خطأ في طباعة الفاتورة</title>
+      <style>
+        @page { size: 80mm auto; margin: 2mm; }
+        
+        html, body { 
+          width: 80mm;
+          margin: 0;
+          padding: 0;
+          font-family: Arial, sans-serif; 
+          font-size: 11px;
+        }
+        
+        .error-container {
+          width: 100%;
+          padding: 10px;
+          text-align: center; 
+          color: #d32f2f;
+          border: 2px solid #d32f2f;
+          border-radius: 5px;
+          background: #ffebee;
+          margin: 5px;
+        }
+        
+        h1 { 
+          margin-bottom: 10px; 
+          font-size: 13px;
+        }
+        
+        p { 
+          margin: 5px 0; 
+          font-size: 10px;
+        }
+        
+        .retry-btn {
+          background: #1976d2;
+          color: white;
+          padding: 6px 12px;
+          border: none;
+          border-radius: 3px;
+          cursor: pointer;
+          margin: 3px;
+          font-size: 9px;
+        }
+        
+        .close-btn {
+          background: #757575;
+        }
+        
+        @media print {
+          html, body { width: 80mm !important; }
+          .error-container { margin: 0 !important; }
+          .retry-btn { 
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="error-container">
+        <h1>خطأ في طباعة الفاتورة</h1>
+        <p>${error.message || 'حدث خطأ غير متوقع'}</p>
+        <p>رقم الفاتورة: ${invoiceId}</p>
+        <p>الوقت: ${new Date().toLocaleString('ar-SY')}</p>
+        <div>
+          <button class="retry-btn" onclick="window.location.reload()">
+            إعادة المحاولة
+          </button>
+          <button class="retry-btn close-btn" onclick="window.close()">
+            إغلاق
+          </button>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+  
+  return res.status(HttpStatus.BAD_REQUEST).send(errorHTML);
+}
+
 
 }

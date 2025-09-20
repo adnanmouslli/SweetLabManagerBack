@@ -92,7 +92,7 @@ export class PDFReportsService {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>{{REPORT_TITLE}} - معمل الحلويات</title>
+  <title>{{REPORT_TITLE}} - مخبز الإحسان الدمشقي</title>
   <style>
     :root {
       --ink: #1b1b1b;
@@ -184,7 +184,7 @@ export class PDFReportsService {
 
   <main class="sheet" id="sheet">
     <header class="report-header">
-      <div class="brand">معمل الحلويات</div>
+      <div class="brand">مخبز الإحسان الدمشقي</div>
       <div class="title">{{REPORT_TITLE}}</div>
       <div class="subtitle">{{REPORT_SUBTITLE}}</div>
       <div class="meta-row">
@@ -238,7 +238,7 @@ export class PDFReportsService {
     </section>
 
     <footer class="report-footer">
-      <div>معمل الحلويات — هاتف: 123-456-789</div>
+      <div>مخبز الإحسان الدمشقي — هاتف: 123-456-789</div>
       <div>الصفحة <span class="pageno"></span></div>
     </footer>
   </main>
@@ -3561,5 +3561,568 @@ private buildWithdrawalsTable(employeesArray: any[]): string {
 }
 
 
+
+// 6. تقرير طباعة فاتورة وصل
+async generateInvoiceReceiptHTML(invoiceId: number): Promise<string> {
+  // جلب بيانات الفاتورة
+  const invoice = await this.prisma.invoice.findUnique({
+    where: { id: invoiceId },
+    include: {
+      customer: true,
+      employee: true,
+      fund: true,
+      shift: true,
+      items: {
+        include: {
+          item: true
+        }
+      }
+    }
+  });
+
+  if (!invoice) {
+    throw new BadRequestException('الفاتورة غير موجودة');
+  }
+
+  // بناء HTML خاص بالفاتورة
+  return this.buildInvoiceReceiptHTML(invoice);
+}
+
+// تحديث buildInvoiceReceiptHTML لإنتاج PDF بحجم الفاتورة فقط
+private buildInvoiceReceiptHTML(invoice: any): string {
+  const receiptTemplate = `
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=80mm, initial-scale=1.0, user-scalable=no" />
+  <title>فاتورة رقم ${invoice.invoiceNumber}</title>
+  <style>
+    :root {
+      --ink: #1b1b1b;
+      --muted: #5b5b5b;
+      --border: #d9d9d9;
+      --bg: #ffffff;
+    }
+
+    * { 
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    
+    html {
+      width: 80mm;
+      height: auto;
+      margin: 0;
+      padding: 0;
+    }
+    
+    body {
+      width: 80mm;
+      height: auto;
+      margin: 0;
+      padding: 0;
+      background: var(--bg); 
+      color: var(--ink);
+      font-family: "Segoe UI", Tahoma, Arial, "Noto Kufi Arabic", sans-serif;
+      font-size: 12px;
+      line-height: 1.3;
+      overflow: visible;
+    }
+
+    .receipt {
+      width: 80mm;
+      max-width: 80mm;
+      min-width: 80mm;
+      height: auto;
+      margin: 0;
+      background: white;
+      padding: 5mm;
+      position: relative;
+      display: block;
+    }
+
+    .header {
+      text-align: center;
+      border-bottom: 1px dashed var(--border);
+      padding-bottom: 8px;
+      margin-bottom: 8px;
+    }
+
+    .company-name {
+      font-size: 16px;
+      font-weight: bold;
+      margin-bottom: 3px;
+    }
+
+    .company-info {
+      font-size: 10px;
+      color: var(--muted);
+      margin-bottom: 2px;
+    }
+
+    .invoice-type {
+      font-size: 13px;
+      font-weight: bold;
+      margin-top: 5px;
+      padding: 3px 6px;
+      background: #f0f0f0;
+      border-radius: 3px;
+      display: inline-block;
+    }
+
+    .invoice-details {
+      margin: 8px 0;
+      font-size: 10px;
+    }
+
+    .detail-row {
+      display: flex;
+      justify-content: space-between;
+      margin: 2px 0;
+      align-items: center;
+    }
+
+    .detail-label {
+      font-weight: bold;
+      flex-shrink: 0;
+    }
+
+    .items-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 8px 0;
+      font-size: 9px;
+      table-layout: fixed;
+    }
+
+    .items-table th,
+    .items-table td {
+      padding: 3px 2px;
+      text-align: center;
+      border-bottom: 1px solid #eee;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+    }
+
+    .items-table th {
+      background: #f5f5f5;
+      font-weight: bold;
+      font-size: 8px;
+    }
+
+    .items-table .item-name {
+      text-align: right;
+      width: 35%;
+    }
+
+    .items-table .unit {
+      width: 15%;
+    }
+
+    .items-table .quantity {
+      width: 15%;
+    }
+
+    .items-table .price {
+      width: 17.5%;
+    }
+
+    .items-table .total {
+      width: 17.5%;
+    }
+
+    .total-section {
+      border-top: 1px dashed var(--border);
+      padding-top: 6px;
+      margin-top: 8px;
+    }
+
+    .total-row {
+      display: flex;
+      justify-content: space-between;
+      margin: 2px 0;
+      font-size: 11px;
+    }
+
+    .total-row.final {
+      font-weight: bold;
+      font-size: 13px;
+      border-top: 1px solid var(--border);
+      padding-top: 3px;
+      margin-top: 5px;
+    }
+
+    .footer {
+      text-align: center;
+      margin-top: 10px;
+      padding-top: 6px;
+      border-top: 1px dashed var(--border);
+      font-size: 9px;
+      color: var(--muted);
+    }
+
+    .paid-stamp {
+      position: absolute;
+      top: 15px;
+      left: 5px;
+      transform: rotate(-15deg);
+      background: #e8f5e8;
+      color: #2e7d32;
+      padding: 2px 6px;
+      border: 2px solid #4caf50;
+      border-radius: 3px;
+      font-weight: bold;
+      font-size: 9px;
+      z-index: 10;
+    }
+
+    .unpaid-stamp {
+      position: absolute;
+      top: 15px;
+      left: 5px;
+      transform: rotate(-15deg);
+      background: #ffebee;
+      color: #c62828;
+      padding: 2px 6px;
+      border: 2px solid #f44336;
+      border-radius: 3px;
+      font-weight: bold;
+      font-size: 9px;
+      z-index: 10;
+    }
+
+    /* إعدادات الطباعة والـ PDF */
+    @media print {
+      @page {
+        size: 80mm auto;
+        margin: 0;
+        padding: 0;
+      }
+      
+      html {
+        width: 80mm !important;
+        height: auto !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow: visible !important;
+      }
+      
+      body {
+        width: 80mm !important;
+        height: auto !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        background: white !important;
+        font-size: 12px !important;
+        overflow: visible !important;
+      }
+      
+      .receipt { 
+        width: 80mm !important;
+        max-width: 80mm !important;
+        min-width: 80mm !important;
+        height: auto !important;
+        margin: 0 !important;
+        padding: 3mm !important;
+        border: none !important;
+        box-shadow: none !important;
+        page-break-inside: avoid;
+        transform: none !important;
+        position: relative !important;
+        display: block !important;
+      }
+      
+      .paid-stamp, .unpaid-stamp {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+        color-adjust: exact !important;
+      }
+      
+      * {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+        color-adjust: exact !important;
+      }
+      
+      .items-table {
+        width: 100% !important;
+        font-size: 9px !important;
+        break-inside: avoid;
+      }
+      
+      .items-table th,
+      .items-table td {
+        font-size: 8px !important;
+        padding: 2px 1px !important;
+      }
+
+      .header {
+        break-after: avoid;
+      }
+
+      .total-section {
+        break-before: avoid;
+      }
+
+      .footer {
+        break-before: avoid;
+      }
+    }
+
+    /* إعدادات لضمان الحجم الثابت */
+    @media screen {
+      html, body {
+        width: 80mm;
+        max-width: 80mm;
+        min-width: 80mm;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="receipt">
+    <!-- حالة الدفع -->
+    ${invoice.paidStatus ? 
+      '<div class="paid-stamp">مدفوع</div>' : 
+      '<div class="unpaid-stamp">غير مدفوع</div>'
+    }
+
+    <!-- رأس الفاتورة -->
+    <div class="header">
+      <div class="company-name">مخبز الإحسان الدمشقي</div>
+      <div class="company-info">سوريا</div>
+      <div class="company-info">0932</div>
+      <div class="invoice-type">${this.getInvoiceTypeArabic(invoice.invoiceType)} ${this.getInvoiceCategoryArabic(invoice.invoiceCategory)}</div>
+    </div>
+
+    <!-- تفاصيل الفاتورة -->
+    <div class="invoice-details">
+      <div class="detail-row">
+        <span class="detail-label">رقم:</span>
+        <span>${invoice.invoiceNumber.split('-').pop() || invoice.id}</span>
+      </div>
+      <div class="detail-row">
+        <span class="detail-label">التاريخ:</span>
+        <span>${this.formatReceiptDate(invoice.createdAt)}</span>
+      </div>
+      <div class="detail-row">
+        <span class="detail-label">الموظف المسؤول:</span>
+        <span>${invoice.employee.username}</span>
+      </div>
+      ${invoice.customer ? `
+      <div class="detail-row">
+        <span class="detail-label">اسم الزبون:</span>
+        <span>${invoice.customer.name}</span>
+      </div>
+      ` : ''}
+    </div>
+
+    <!-- جدول المواد -->
+    ${this.buildItemsTableOptimized(invoice.items)}
+
+    <!-- قسم المجاميع -->
+    <div class="total-section">
+      <div class="total-row">
+        <span>المجموع:</span>
+        <span>${this.formatReceiptCurrency(invoice.totalAmount)} ل.س</span>
+      </div>
+      ${invoice.discount > 0 ? `
+      <div class="total-row">
+        <span>الخصم:</span>
+        <span>${this.formatReceiptCurrency(invoice.discount)} ل.س</span>
+      </div>
+      ` : ''}
+      <div class="total-row final">
+        <span>الإجمالي:</span>
+        <span>${this.formatReceiptCurrency(invoice.totalAmount - (invoice.discount || 0))} ل.س</span>
+      </div>
+    </div>
+
+    <!-- تذييل الفاتورة -->
+    <div class="footer">
+      <div>شكراً لتعاملكم معنا</div>
+      <div>${this.formatReceiptDate(new Date())}</div>
+    </div>
+  </div>
+
+  <script>
+    // إعدادات الطباعة المحسنة للحصول على PDF بحجم الفاتورة
+    function setupOptimalPrint() {
+      // تحديد حجم الصفحة بدقة
+      const printStyle = document.createElement('style');
+      printStyle.id = 'print-optimization';
+      printStyle.innerHTML = \`
+        @page {
+          size: 80mm auto;
+          margin: 0;
+          padding: 0;
+        }
+        
+        @media print {
+          html, body {
+            width: 80mm !important;
+            height: auto !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            overflow: visible !important;
+          }
+          
+          .receipt {
+            width: 80mm !important;
+            height: auto !important;
+            margin: 0 !important;
+            padding: 3mm !important;
+            page-break-inside: avoid;
+          }
+        }
+      \`;
+      document.head.appendChild(printStyle);
+
+      // إزالة أي margins إضافية
+      document.documentElement.style.margin = '0';
+      document.documentElement.style.padding = '0';
+      document.body.style.margin = '0';
+      document.body.style.padding = '0';
+    }
+
+    // ضبط الأبعاد قبل الطباعة
+    function adjustForPrint() {
+      const receipt = document.querySelector('.receipt');
+      if (receipt) {
+        receipt.style.width = '80mm';
+        receipt.style.maxWidth = '80mm';
+        receipt.style.minWidth = '80mm';
+        receipt.style.height = 'auto';
+        receipt.style.margin = '0';
+        receipt.style.padding = '3mm';
+      }
+
+      // ضبط حجم الجسم
+      document.body.style.width = '80mm';
+      document.body.style.height = 'auto';
+      document.documentElement.style.width = '80mm';
+      document.documentElement.style.height = 'auto';
+    }
+
+    // طباعة محسنة
+    window.onload = function() {
+      setupOptimalPrint();
+      
+      setTimeout(() => {
+        adjustForPrint();
+        
+        // طباعة مع إعدادات محسنة
+        window.print();
+      }, 1000);
+    };
+
+    // التعامل مع أحداث الطباعة
+    window.addEventListener('beforeprint', function() {
+      adjustForPrint();
+    });
+
+    window.addEventListener('afterprint', function() {
+      console.log('تمت الطباعة بحجم 80mm');
+    });
+
+    // إضافة دالة للطباعة اليدوية
+    window.printReceipt = function() {
+      adjustForPrint();
+      window.print();
+    };
+  </script>
+</body>
+</html>`;
+
+  return receiptTemplate;
+}
+
+// بناء جدول المواد 
+private buildItemsTableOptimized(items: any[]): string {
+  if (!items || items.length === 0) {
+    return `
+      <div class="total-section">
+        <div style="text-align: center; color: #666; font-size: 10px; padding: 5px;">
+          فاتورة مباشرة - بدون مواد
+        </div>
+      </div>
+    `;
+  }
+
+  let tableHTML = `
+    <table class="items-table">
+      <thead>
+        <tr>
+          <th class="item-name">الصنف</th>
+          <th class="quantity">الكمية</th>
+          <th class="price">السعر</th>
+          <th class="total">الإجمالي</th>
+        </tr>
+      </thead>
+      <tbody>
+  `;
+
+  items.forEach(item => {
+    const itemName = item.item?.name || 'صنف';
+    const truncatedName = itemName.length > 8 ? itemName.substring(0, 8) + '...' : itemName;
+    
+    tableHTML += `
+      <tr>
+        <td class="item-name" title="${itemName}">${truncatedName}</td>
+        <td class="quantity">${item.quantity}</td>
+        <td class="price">${this.formatReceiptCurrency(item.unitPrice)}</td>
+        <td class="total">${this.formatReceiptCurrency(item.subTotal)}</td>
+      </tr>
+    `;
+  });
+
+  tableHTML += `
+      </tbody>
+    </table>
+  `;
+
+  return tableHTML;
+}
+
+// دوال مساعدة للفاتورة
+private getInvoiceTypeArabic(type: string): string {
+  return type === 'income' ? 'فاتورة بيع' : 'فاتورة شراء';
+}
+
+private getInvoiceCategoryArabic(category: string): string {
+  const categories = {
+    'products': 'منتجات',
+    'services': 'خدمات', 
+    'direct': 'مباشرة',
+    'materials': 'مواد',
+    'expenses': 'مصاريف'
+  };
+  return categories[category] || category;
+}
+
+
+
+private formatReceiptDate(date: Date | string): string {
+  const d = new Date(date);
+  const day = d.getDate().toString().padStart(2, '0');
+  const month = (d.getMonth() + 1).toString().padStart(2, '0');
+  const year = d.getFullYear();
+  const hours = d.getHours();
+  const minutes = d.getMinutes().toString().padStart(2, '0');
+  const period = hours >= 12 ? 'مساءً' : 'صباحاً';
+  const displayHours = hours > 12 ? hours - 12 : hours === 0 ? 12 : hours;
+  
+  return `${day}/${month}/${year} - ${displayHours}:${minutes} ${period}`;
+}
+
+private formatReceiptCurrency(amount: number | null | undefined): string {
+  const numericAmount = Number(amount) || 0;
+  return numericAmount.toLocaleString('ar-SA', { 
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0 
+  });
+}
 
 }
