@@ -21,9 +21,68 @@ export class FundsService {
     });
   }
 
-  findAll() {
-    return this.prisma.fund.findMany();
-  }
+  async findAll() {
+  // الحصول على الواردية المفتوحة الحالية
+  const activeShift = await this.prisma.shift.findFirst({
+    where: {
+      status: 'open',
+    },
+  });
+
+  // الحصول على جميع الصناديق
+  const funds = await this.prisma.fund.findMany();
+
+  // حساب رصيد كل صندوق في الواردية الحالية
+  const fundsWithShiftBalance = await Promise.all(
+    funds.map(async (fund) => {
+      let shiftBalance = 0;
+      let shiftIncome = 0;
+      let shiftExpense = 0;
+
+      // إذا كانت هناك واردية مفتوحة
+      if (activeShift) {
+        // حساب مجموع فواتير الدخل في الواردية الحالية لهذا الصندوق
+        const incomeResult = await this.prisma.invoice.aggregate({
+          where: {
+            fundId: fund.id,
+            shiftId: activeShift.id,
+            invoiceType: 'income',
+            paidStatus: true
+
+          },
+          _sum: {
+            totalAmount: true,
+          },
+        });
+
+        // حساب مجموع فواتير الصرف في الواردية الحالية لهذا الصندوق
+        const expenseResult = await this.prisma.invoice.aggregate({
+          where: {
+            fundId: fund.id,
+            shiftId: activeShift.id,
+            invoiceType: 'expense',
+            paidStatus: true
+          },
+          _sum: {
+            totalAmount: true,
+          },
+        });
+
+        shiftIncome = incomeResult._sum.totalAmount || 0;
+        shiftExpense = expenseResult._sum.totalAmount || 0;
+        shiftBalance = shiftIncome - shiftExpense;
+      }
+
+      return {
+        ...fund,
+        shiftBalance: activeShift ? shiftBalance : null,
+
+      };
+    })
+  );
+
+  return fundsWithShiftBalance;
+}
 
   async updateBalance(id: number, amount: number) {
     const fund = await this.prisma.fund.findUnique({ where: { id } });
@@ -64,12 +123,12 @@ export class FundsService {
       throw new BadRequestException('المستخدم غير موجود');
     }
 
-    // التحقق من وجود واردية مفتوحة
-    const activeShift = await this.prisma.shift.findFirst({
-      where: {
-        status: 'open',
-      },
-    });
+    // // التحقق من وجود واردية مفتوحة
+    // const activeShift = await this.prisma.shift.findFirst({
+    //   where: {
+    //     status: 'open',
+    //   },
+    // });
 
     const result = await this.prisma.$transaction(async (prisma) => {
       // تحديث رصيد الصندوق العام (تقليل المبلغ)
@@ -96,24 +155,24 @@ export class FundsService {
       let expenseInvoice = null;
       let incomeInvoice = null;
 
-      // إنشاء فاتورة صرف من الصندوق العام فقط في حال وجود واردية مفتوحة
-      if (activeShift != null) {
-        expenseInvoice = await prisma.invoice.create({
-          data: {
-            invoiceNumber: `${transferNumber}-EXP`,
-            employeeId: userId,
-            invoiceType: 'expense',
-            invoiceCategory: 'direct',
-            paidStatus: true,
-            totalAmount: amount,
-            discount: 0,
-            fundId: generalFund.id,
-            shiftId: activeShift.id,
-            paymentDate: new Date(),
-            isBreak: false,
-          }
-        });
-      }
+      // // إنشاء فاتورة صرف من الصندوق العام فقط في حال وجود واردية مفتوحة
+      // if (activeShift != null) {
+      //   expenseInvoice = await prisma.invoice.create({
+      //     data: {
+      //       invoiceNumber: `${transferNumber}-EXP`,
+      //       employeeId: userId,
+      //       invoiceType: 'expense',
+      //       invoiceCategory: 'direct',
+      //       paidStatus: true,
+      //       totalAmount: amount,
+      //       discount: 0,
+      //       fundId: generalFund.id,
+      //       shiftId: activeShift.id,
+      //       paymentDate: new Date(),
+      //       isBreak: false,
+      //     }
+      //   });
+      // }
 
       // إنشاء فاتورة دخل للخزينة الرئيسية (دون ربطها بواردية)
       incomeInvoice = await prisma.invoice.create({
@@ -144,7 +203,7 @@ export class FundsService {
             type: 'direct_to_main_treasury',
             transferNumber,
             notes: 'تحويل مباشر من الصندوق العام إلى الخزينة الرئيسية',
-            hasActiveShift: !!activeShift,
+            hasActiveShift: false,
             expenseInvoiceId: expenseInvoice?.id || null,
             incomeInvoiceId: incomeInvoice?.id || null
           })
@@ -157,7 +216,7 @@ export class FundsService {
         expenseInvoice,
         incomeInvoice,
         transferLog,
-        hasActiveShift: !!activeShift
+        hasActiveShift: false
       };
     });
 

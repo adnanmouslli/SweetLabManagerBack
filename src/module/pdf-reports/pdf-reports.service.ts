@@ -582,15 +582,6 @@ export class PDFReportsService {
     return filePath;
   }
 
-  // دوال مساعدة
-  private formatDate(date: Date | string): string {
-    return new Date(date).toLocaleDateString('ar-SA', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit'
-    });
-  }
-
 
   private formatCurrency(amount: number | null | undefined): string {
     const numericAmount = Number(amount) || 0;
@@ -606,44 +597,36 @@ export class PDFReportsService {
 
 
   // order  
+// ============================================
+// تقرير جرد الطلبيات - النسخة المحدثة
+// ============================================
 
-
-  // توليد تقرير جرد الطلبيات بصيغة HTML
+// 1. توليد تقرير جرد الطلبيات بصيغة HTML
 async generateOrdersInventoryReportHTML(filters: OrdersInventoryFilters): Promise<string> {
   const inventoryData = await this.getOrdersInventoryData(filters);
   return this.buildOrdersInventoryHTML(inventoryData, filters);
 }
 
-// جلب بيانات جرد الطلبيات من قاعدة البيانات
+// 2. جلب بيانات جرد الطلبيات من قاعدة البيانات
 private async getOrdersInventoryData(filters: OrdersInventoryFilters) {
-  // بناء شروط البحث
   const where: any = {};
   
-  // فلتر الزبائن بالـ ID
   if (filters.customerIds && filters.customerIds.length > 0) {
-    where.customerId = {
-      in: filters.customerIds
-    };
+    where.customerId = { in: filters.customerIds };
   }
   
-  // فلتر التصنيف
   if (filters.categoryId) {
     where.categoryId = filters.categoryId;
   }
   
-  // فلتر حالة الطلبية
   if (filters.status && filters.status.length > 0) {
-    where.status = {
-      in: filters.status
-    };
+    where.status = { in: filters.status };
   }
   
-  // فلتر حالة الدفع
   if (filters.paidStatus !== undefined) {
     where.paidStatus = filters.paidStatus;
   }
   
-  // فلتر التاريخ
   if (filters.startDate || filters.endDate) {
     where.scheduledFor = {};
     if (filters.startDate) {
@@ -654,27 +637,21 @@ private async getOrdersInventoryData(filters: OrdersInventoryFilters) {
     }
   }
   
-  // جلب الطلبيات مع العناصر
   const orders = await this.prisma.order.findMany({
     where,
     include: {
       customer: true,
       category: true,
       items: {
-        include: {
-          item: true
-        },
+        include: { item: true },
         where: filters.itemIds && filters.itemIds.length > 0 ? {
           itemId: { in: filters.itemIds }
         } : undefined
       }
     },
-    orderBy: {
-      scheduledFor: 'desc'
-    }
+    orderBy: { scheduledFor: 'desc' }
   });
   
-  // تجميع البيانات حسب المادة
   const itemsMap = new Map<number, OrderInventoryItem>();
   
   orders.forEach(order => {
@@ -686,7 +663,6 @@ private async getOrdersInventoryData(filters: OrdersInventoryFilters) {
           itemName: orderItem.item.name,
           unit: orderItem.unit,
           totalQuantity: 0,
-          totalPieces: 0,
           totalTrays: 0,
           orders: []
         });
@@ -695,14 +671,15 @@ private async getOrdersInventoryData(filters: OrdersInventoryFilters) {
       const inventoryItem = itemsMap.get(itemId)!;
       inventoryItem.totalQuantity += orderItem.quantity;
       
-      // تحديد نوع الوحدة للتجميع
-      if (orderItem.unit.includes('قطعة') || orderItem.unit.includes('حبة')) {
-        inventoryItem.totalPieces! += orderItem.quantity;
-      } else if (orderItem.unit.includes('صاج') || orderItem.unit.includes('طبق')) {
-        inventoryItem.totalTrays! += orderItem.quantity;
-      }
+      // حساب عدد الصاجات باستخدام معامل التحويل
+      const traysQuantity = this.calculateTraysFromUnits(
+        orderItem.quantity,
+        orderItem.unit,
+        orderItem.item.units as any[]
+      );
       
-      // إضافة تفاصيل الطلبية
+      inventoryItem.totalTrays! += traysQuantity;
+      
       inventoryItem.orders.push({
         orderNumber: order.orderNumber,
         customerName: order.customer.name,
@@ -714,219 +691,290 @@ private async getOrdersInventoryData(filters: OrdersInventoryFilters) {
     });
   });
   
-  // تحويل إلى مصفوفة وترتيب حسب الكمية
   const inventoryItems = Array.from(itemsMap.values()).sort((a, b) => b.totalQuantity - a.totalQuantity);
   
-  // حساب الإجماليات
   const summary = {
     totalOrders: orders.length,
     totalItems: inventoryItems.length,
     totalQuantity: inventoryItems.reduce((sum, item) => sum + item.totalQuantity, 0),
-    totalPieces: inventoryItems.reduce((sum, item) => sum + (item.totalPieces || 0), 0),
     totalTrays: inventoryItems.reduce((sum, item) => sum + (item.totalTrays || 0), 0),
-    paidOrdersCount: orders.filter(o => o.paidStatus).length,
-    unpaidOrdersCount: orders.filter(o => !o.paidStatus).length
   };
   
   return {
     items: inventoryItems,
     summary,
-    filters,
-    selectedCustomers: orders.length > 0 ? Array.from(new Set(orders.map(o => o.customer))) : [] // إضافة أسماء الزبائن المحددين
+    filters
   };
 }
 
-// تعديل في دالة بناء HTML
+// 3. دالة حساب عدد الصاجات من معامل التحويل
+private calculateTraysFromUnits(
+  quantity: number,
+  currentUnit: string,
+  units: any[]
+): number {
+  
+  // البحث عن وحدة الصاج في قائمة الوحدات
+  const trayUnit = units.find(u => 
+    u.unit.includes('صاج') || u.unit.includes('صينية')
+  );
+  
+  
+  if (!trayUnit) {
+    return 0;
+  }
+  
+  // البحث عن الوحدة الحالية
+  const currentUnitObj = units.find(u => u.unit === currentUnit);
+  
+  console.log('معلومات الوحدة الحالية:', currentUnitObj);
+  
+  if (!currentUnitObj) {
+    return 0;
+  }
+  
+  // حساب عدد الصاجات = (الكمية × معامل الوحدة الحالية) ÷ معامل وحدة الصاج
+  const traysQuantity = (quantity * currentUnitObj.factor) / trayUnit.factor;
+  
+  
+  return Math.round(traysQuantity * 100) / 100; // تقريب لرقمين عشريين
+}
+
+// 4. بناء HTML التقرير
 private buildOrdersInventoryHTML(data: any, filters: OrdersInventoryFilters): string {
-  let template = this.getHTMLTemplate();
+  const currentDate = this.formatDate(new Date());
   
-  // تحديد عنوان التقرير حسب الفلاتر
-  let reportTitle = 'تقرير جرد الطلبيات';
-  let reportSubtitle = `إجمالي ${data.summary.totalOrders} طلبية`;
-  
-  // تحديث عرض أسماء الزبائن المحددين
-  let customerNamesDisplay = 'جميع العملاء';
-  if (data.selectedCustomers && data.selectedCustomers.length > 0) {
-    if (data.selectedCustomers.length === 1) {
-      customerNamesDisplay = data.selectedCustomers[0].name;
-      reportSubtitle += ` - العميل: ${data.selectedCustomers[0].name}`;
-    } else if (data.selectedCustomers.length <= 3) {
-      const names = data.selectedCustomers.map(c => c.name).join(', ');
-      customerNamesDisplay = names;
-      reportSubtitle += ` - العملاء: ${names}`;
-    } else {
-      customerNamesDisplay = `${data.selectedCustomers.length} عملاء محددين`;
-      reportSubtitle += ` - ${data.selectedCustomers.length} عملاء محددين`;
+  return `
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>تقرير جرد الطلبيات</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
     }
-  }
-  
-  if (filters.status && filters.status.length > 0) {
-    reportSubtitle += ` - الحالة: ${filters.status.map(s => this.getStatusArabicName(s)).join(', ')}`;
-  }
-  
-  const replacements = {
-    '{{REPORT_TITLE}}': reportTitle,
-    '{{REPORT_SUBTITLE}}': reportSubtitle,
-    '{{CUSTOMER_NAME}}': customerNamesDisplay,
-    '{{CUSTOMER_PHONE}}': '—',
-    '{{CUSTOMER_CATEGORY}}': '—',
-    '{{TOTAL_UNPAID}}': `${data.summary.totalItems} مادة`,
-    '{{TOTAL_BREAK}}': `${data.summary.totalPieces} قطعة`,
-    '{{TOTAL_DEBTS}}': `${data.summary.totalTrays} صاج`,
-    '{{GRAND_TOTAL}}': `${data.summary.totalQuantity} إجمالي الكمية`,
-    '{{NOTES}}': this.buildFiltersNotes(filters)
-  };
-  
-  // تطبيق الاستبدالات
-  Object.entries(replacements).forEach(([key, value]) => {
-    template = template.replace(new RegExp(key, 'g'), value);
-  });
-  
-  // بناء جدول المواد
-  const inventoryTableHTML = this.buildInventoryTable(data.items);
-  template = template.replace(/(<section class="section" id="unpaid-section">[\s\S]*?<\/section>)/g, inventoryTableHTML);
-  
-  // تحديث قسم ملخص الحساب ليعكس ملخص الجرد
-  const summaryHTML = this.buildInventorySummary(data.summary);
-  template = template.replace(/(<section class="section" id="account-summary">[\s\S]*?<\/section>)/g, summaryHTML);
-  
-  template = template.replace('{{ADDITIONAL_SECTIONS}}', '');
-  
-  return template;
+    
+    body {
+      font-family: 'Segoe UI', Tahoma, Arial, 'Noto Kufi Arabic', sans-serif;
+      padding: 15px;
+      background: #fff;
+      color: #000;
+      font-size: 13px;
+      line-height: 1.4;
+      font-weight: 600;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    
+    .header {
+      text-align: center;
+      margin-bottom: 10px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #000;
+    }
+    
+    .header .bakery-name {
+      font-size: 18px;
+      font-weight: bold;
+      color: #000;
+      margin-bottom: 3px;
+    }
+    
+    .header h1 {
+      font-size: 16px;
+      font-weight: bold;
+      color: #000;
+      margin-bottom: 3px;
+    }
+    
+    .header .summary {
+      font-size: 12px;
+      color: #000;
+      font-weight: 700;
+    }
+    
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+    
+    th {
+      background: #fff;
+      color: #000;
+      padding: 10px 6px;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 700;
+      border: 1px solid #000;
+    }
+    
+    td {
+      padding: 8px;
+      border: 1px solid #000;
+      font-size: 12px;
+      background: #fff;
+      color: #000;
+      font-weight: 600;
+    }
+    
+    .total-row {
+      font-weight: 700;
+      border-top: 2px solid #000 !important;
+    }
+    
+    .total-row td {
+      padding: 10px 6px;
+      font-size: 13px;
+      background: #fff;
+      font-weight: 700;
+    }
+    
+    .text-right {
+      text-align: right;
+    }
+    
+    .text-center {
+      text-align: center;
+    }
+    
+    .text-bold {
+      font-weight: bold;
+    }
+    
+    .text-primary {
+      color: #000;
+      font-weight: bold;
+    }
+    
+    @media print {
+      @page {
+        size: A4;
+        margin: 10mm;
+      }
+      
+      body {
+        padding: 0;
+        font-size: 12px;
+        font-weight: 700;
+        color: #000 !important;
+      }
+      
+      .header .bakery-name {
+        font-size: 17px;
+      }
+      
+      .header h1 {
+        font-size: 15px;
+      }
+      
+      .header .summary {
+        font-size: 11px;
+        font-weight: 700;
+      }
+      
+      th {
+        font-size: 12px;
+        padding: 8px 5px;
+        font-weight: 700;
+        color: #000 !important;
+      }
+      
+      td {
+        font-size: 11px;
+        padding: 7px 5px;
+        font-weight: 700;
+        color: #000 !important;
+      }
+      
+      .total-row td {
+        font-size: 12px;
+        font-weight: 700;
+      }
+      
+      * {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="bakery-name">مخبز الإحسان الدمشقي</div>
+    <h1>تقرير جرد الطلبيات</h1>
+    <div class="summary">إجمالي ${data.summary.totalItems} مادة - ${data.summary.totalTrays} صاج - من ${data.summary.totalOrders} طلبية | التاريخ: ${currentDate}</div>
+  </div>
+
+  ${this.buildInventoryTable(data.items)}
+
+  <script>
+    window.onload = function() {
+      setTimeout(() => {
+        window.print();
+      }, 500);
+    };
+  </script>
+</body>
+</html>
+  `;
 }
 
-
-
-// بناء جدول المواد
+// 5. بناء جدول المواد
 private buildInventoryTable(items: OrderInventoryItem[]): string {
   if (!items || items.length === 0) {
     return `
-      <section class="section">
-        <h3>جرد المواد المطلوبة</h3>
-        <p class="muted" style="text-align:center; padding: 20px;">لا توجد مواد مطابقة للفلاتر المحددة</p>
-      </section>
+      <div style="text-align:center; padding: 30px; color: #666;">
+        لا توجد مواد مطابقة للفلاتر المحددة
+      </div>
     `;
   }
   
   const rows = items.map(item => {
-    const piecesDisplay = item.totalPieces && item.totalPieces > 0 ? item.totalPieces : '—';
     const traysDisplay = item.totalTrays && item.totalTrays > 0 ? item.totalTrays : '—';
     
     return `
       <tr>
-        <td style="text-align:right; font-weight: bold;">${item.itemName}</td>
-        <td style="text-align:center">${item.unit}</td>
-        <td style="text-align:center; font-weight: bold; color: #2563eb;">${item.totalQuantity}</td>
-        <td style="text-align:center">${piecesDisplay}</td>
-        <td style="text-align:center">${traysDisplay}</td>
-        <td style="text-align:center">${item.orders.length}</td>
+        <td class="text-center text-bold">${item.itemName}</td>
+        <td class="text-center">${item.unit}</td>
+        <td class="text-center text-bold">${item.totalQuantity}</td>
+        <td class="text-center text-bold text-primary">${traysDisplay}</td>
       </tr>
     `;
   }).join('');
   
   // حساب الإجماليات
   const totalQuantity = items.reduce((sum, item) => sum + item.totalQuantity, 0);
-  const totalPieces = items.reduce((sum, item) => sum + (item.totalPieces || 0), 0);
   const totalTrays = items.reduce((sum, item) => sum + (item.totalTrays || 0), 0);
-  const totalOrders = items.reduce((sum, item) => sum + item.orders.length, 0);
   
   return `
-    <section class="section">
-      <h3>جرد المواد المطلوبة</h3>
-      <table>
-        <thead>
-          <tr>
-            <th style="width: 25%">اسم المادة</th>
-            <th style="width: 15%">الوحدة</th>
-            <th style="width: 15%">إجمالي الكمية</th>
-            <th style="width: 15%">القطع</th>
-            <th style="width: 15%">الصاجات</th>
-            <th style="width: 15%">عدد الطلبيات</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rows}
-          <tr style="background-color: #f0f8ff; font-weight: bold; border-top: 2px solid #2563eb;">
-            <td style="text-align:right">المجموع الكلي</td>
-            <td style="text-align:center">—</td>
-            <td style="text-align:center; color: #2563eb;">${totalQuantity}</td>
-            <td style="text-align:center">${totalPieces > 0 ? totalPieces : '—'}</td>
-            <td style="text-align:center">${totalTrays > 0 ? totalTrays : '—'}</td>
-            <td style="text-align:center">${totalOrders}</td>
-          </tr>
-        </tbody>
-      </table>
-    </section>
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 35%">اسم المادة</th>
+          <th style="width: 22%">الوحدة</th>
+          <th style="width: 22%">الكمية</th>
+          <th style="width: 21%">الصاجات</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows}
+        <tr class="total-row">
+          <td class="text-center">المجموع الكلي</td>
+          <td class="text-center">—</td>
+          <td class="text-center">${totalQuantity}</td>
+          <td class="text-center text-primary">${totalTrays > 0 ? totalTrays : '—'}</td>
+        </tr>
+      </tbody>
+    </table>
   `;
 }
 
-// بناء ملخص الجرد
-private buildInventorySummary(summary: any): string {
-  return `
-    <section class="section" id="inventory-summary">
-      <h3>ملخص جرد الطلبيات</h3>
-      <div class="cards">
-        <div class="card">
-          <div class="label">إجمالي الطلبيات</div>
-          <div class="value">${summary.totalOrders}</div>
-        </div>
-        <div class="card">
-          <div class="label">عدد المواد المختلفة</div>
-          <div class="value">${summary.totalItems}</div>
-        </div>
-        <div class="card">
-          <div class="label">إجمالي الكمية</div>
-          <div class="value">${summary.totalQuantity}</div>
-        </div>
-      </div>
-      <div class="cards" style="margin-top: 8px;">
-        <div class="card">
-          <div class="label">القطع</div>
-          <div class="value">${summary.totalPieces}</div>
-        </div>
-        <div class="card">
-          <div class="label">الصاجات</div>
-          <div class="value">${summary.totalTrays}</div>
-        </div>
-        <div class="card">
-          <div class="label">الطلبيات المدفوعة</div>
-          <div class="value">${summary.paidOrdersCount}/${summary.totalOrders}</div>
-        </div>
-      </div>
-    </section>
-  `;
-}
-
-// بناء ملاحظات الفلاتر
-private buildFiltersNotes(filters: OrdersInventoryFilters): string {
-  const notes = [];
-  
-  
-  if (filters.status && filters.status.length > 0) {
-    notes.push(`الحالة: ${filters.status.map(s => this.getStatusArabicName(s)).join(', ')}`);
-  }
-  
-  if (filters.paidStatus === true) {
-    notes.push('الطلبيات المدفوعة فقط');
-  } else if (filters.paidStatus === false) {
-    notes.push('الطلبيات غير المدفوعة فقط');
-  }
-  
-  if (filters.startDate || filters.endDate) {
-    let dateRange = 'الفترة: ';
-    if (filters.startDate) {
-      dateRange += `من ${this.formatDate(filters.startDate)}`;
-    }
-    if (filters.endDate) {
-      dateRange += ` إلى ${this.formatDate(filters.endDate)}`;
-    }
-    notes.push(dateRange);
-  }
-  
-  return notes.length > 0 ? notes.join(' • ') : 'جميع الطلبيات';
-}
-
-// تابع مساعد للحصول على اسم الحالة بالعربية
+// 6. دالة الحصول على اسم الحالة بالعربية
 private getStatusArabicName(status: OrderStatus): string {
   const statusNames = {
     [OrderStatus.pending]: 'قيد الانتظار',
@@ -939,6 +987,20 @@ private getStatusArabicName(status: OrderStatus): string {
   return statusNames[status] || status;
 }
 
+// 7. تنسيق التاريخ بالصيغة الميلادية
+private formatDate(date: Date | string): string {
+  const d = new Date(date);
+  const months = [
+    'يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو',
+    'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'
+  ];
+  
+  const day = d.getDate();
+  const month = months[d.getMonth()];
+  const year = d.getFullYear();
+  
+  return `${day} ${month} ${year}`;
+}
 
 // warehous
 
@@ -3561,10 +3623,8 @@ private buildWithdrawalsTable(employeesArray: any[]): string {
 }
 
 
-
-// 6. تقرير طباعة فاتورة وصل
+// 6. تقرير طباعة فاتورة وصل بعرض كامل
 async generateInvoiceReceiptHTML(invoiceId: number): Promise<string> {
-  // جلب بيانات الفاتورة
   const invoice = await this.prisma.invoice.findUnique({
     where: { id: invoiceId },
     include: {
@@ -3584,24 +3644,23 @@ async generateInvoiceReceiptHTML(invoiceId: number): Promise<string> {
     throw new BadRequestException('الفاتورة غير موجودة');
   }
 
-  // بناء HTML خاص بالفاتورة
   return this.buildInvoiceReceiptHTML(invoice);
 }
 
-// تحديث buildInvoiceReceiptHTML لإنتاج PDF بحجم الفاتورة فقط
+// تحديث buildInvoiceReceiptHTML لإنتاج PDF بعرض كامل
 private buildInvoiceReceiptHTML(invoice: any): string {
   const receiptTemplate = `
 <!doctype html>
 <html lang="ar" dir="rtl">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=80mm, initial-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>فاتورة رقم ${invoice.invoiceNumber}</title>
   <style>
     :root {
-      --ink: #1b1b1b;
-      --muted: #5b5b5b;
-      --border: #d9d9d9;
+      --ink: #000;
+      --muted: #333;
+      --border: #000;
       --bg: #ffffff;
     }
 
@@ -3612,109 +3671,122 @@ private buildInvoiceReceiptHTML(invoice: any): string {
     }
     
     html {
-      width: 80mm;
+      width: 100%;
       height: auto;
       margin: 0;
       padding: 0;
     }
     
     body {
-      width: 80mm;
+      width: 100%;
       height: auto;
       margin: 0;
-      padding: 0;
+      padding: 20px;
       background: var(--bg); 
       color: var(--ink);
       font-family: "Segoe UI", Tahoma, Arial, "Noto Kufi Arabic", sans-serif;
-      font-size: 12px;
-      line-height: 1.3;
-      overflow: visible;
+      font-size: 16px;
+      line-height: 1.5;
+      font-weight: 600;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
     }
 
     .receipt {
-      width: 80mm;
-      max-width: 80mm;
-      min-width: 80mm;
-      height: auto;
-      margin: 0;
+      width: 100%;
+      max-width: 1200px;
+      margin: 0 auto;
       background: white;
-      padding: 5mm;
+      padding: 30px;
+      border: 2px solid var(--border);
       position: relative;
-      display: block;
     }
 
     .header {
       text-align: center;
-      border-bottom: 1px dashed var(--border);
+      border-bottom: 1px solid var(--border);
       padding-bottom: 8px;
-      margin-bottom: 8px;
+      margin-bottom: 12px;
     }
 
     .company-name {
-      font-size: 16px;
-      font-weight: bold;
-      margin-bottom: 3px;
-    }
-
-    .company-info {
-      font-size: 10px;
-      color: var(--muted);
-      margin-bottom: 2px;
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--ink);
     }
 
     .invoice-type {
-      font-size: 13px;
-      font-weight: bold;
-      margin-top: 5px;
-      padding: 3px 6px;
-      background: #f0f0f0;
-      border-radius: 3px;
-      display: inline-block;
+      font-size: 16px;
+      font-weight: 700;
+      margin-top: 4px;
     }
 
     .invoice-details {
-      margin: 8px 0;
-      font-size: 10px;
+      margin: 12px 0;
+      font-size: 14px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
     }
 
     .detail-row {
-      display: flex;
-      justify-content: space-between;
-      margin: 2px 0;
+      display: inline-flex;
       align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      background: #f5f5f5;
+      border-radius: 3px;
+      border: 1px solid var(--border);
     }
 
     .detail-label {
-      font-weight: bold;
-      flex-shrink: 0;
+      font-weight: 700;
+      color: var(--ink);
+    }
+
+    .detail-value {
+      color: var(--ink);
+      font-weight: 600;
+    }
+
+    .payment-status {
+      width: auto;
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 12px;
+      background: #f5f5f5;
+      border-radius: 3px;
+      border: 1px solid var(--border);
+      font-weight: 700;
+      font-size: 14px;
+      color: var(--ink);
     }
 
     .items-table {
       width: 100%;
       border-collapse: collapse;
-      margin: 8px 0;
-      font-size: 9px;
-      table-layout: fixed;
+      margin: 15px 0;
+      font-size: 16px;
     }
 
     .items-table th,
     .items-table td {
-      padding: 3px 2px;
+      padding: 12px;
       text-align: center;
-      border-bottom: 1px solid #eee;
-      word-wrap: break-word;
-      overflow-wrap: break-word;
+      border: 1px solid var(--border);
+      font-weight: 700;
     }
 
     .items-table th {
-      background: #f5f5f5;
-      font-weight: bold;
-      font-size: 8px;
+      background: #fff;
+      font-weight: 700;
+      font-size: 16px;
+      color: var(--ink);
     }
 
     .items-table .item-name {
       text-align: right;
-      width: 35%;
+      width: 25%;
     }
 
     .items-table .unit {
@@ -3726,115 +3798,90 @@ private buildInvoiceReceiptHTML(invoice: any): string {
     }
 
     .items-table .price {
-      width: 17.5%;
+      width: 22.5%;
     }
 
     .items-table .total {
-      width: 17.5%;
+      width: 22.5%;
     }
 
     .total-section {
-      border-top: 1px dashed var(--border);
-      padding-top: 6px;
-      margin-top: 8px;
+      border-top: 2px solid var(--border);
+      padding-top: 12px;
+      margin-top: 15px;
+      max-width: 450px;
+      margin-left: auto;
     }
 
     .total-row {
       display: flex;
       justify-content: space-between;
-      margin: 2px 0;
-      font-size: 11px;
+      margin: 6px 0;
+      font-size: 16px;
+      padding: 4px;
+      font-weight: 700;
     }
 
     .total-row.final {
-      font-weight: bold;
-      font-size: 13px;
-      border-top: 1px solid var(--border);
-      padding-top: 3px;
-      margin-top: 5px;
+      font-weight: 700;
+      font-size: 18px;
+      border-top: 2px solid var(--border);
+      padding-top: 8px;
+      margin-top: 8px;
+      background: #f5f5f5;
+      border-radius: 3px;
     }
 
     .footer {
       text-align: center;
-      margin-top: 10px;
-      padding-top: 6px;
-      border-top: 1px dashed var(--border);
-      font-size: 9px;
-      color: var(--muted);
-    }
-
-    .paid-stamp {
-      position: absolute;
-      top: 15px;
-      left: 5px;
-      transform: rotate(-15deg);
-      background: #e8f5e8;
-      color: #2e7d32;
-      padding: 2px 6px;
-      border: 2px solid #4caf50;
-      border-radius: 3px;
-      font-weight: bold;
-      font-size: 9px;
-      z-index: 10;
-    }
-
-    .unpaid-stamp {
-      position: absolute;
-      top: 15px;
-      left: 5px;
-      transform: rotate(-15deg);
-      background: #ffebee;
-      color: #c62828;
-      padding: 2px 6px;
-      border: 2px solid #f44336;
-      border-radius: 3px;
-      font-weight: bold;
-      font-size: 9px;
-      z-index: 10;
+      margin-top: 15px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border);
+      font-size: 13px;
+      color: var(--ink);
+      font-weight: 700;
     }
 
     /* إعدادات الطباعة والـ PDF */
     @media print {
       @page {
-        size: 80mm auto;
-        margin: 0;
-        padding: 0;
-      }
-      
-      html {
-        width: 80mm !important;
-        height: auto !important;
-        margin: 0 !important;
-        padding: 0 !important;
-        overflow: visible !important;
+        size: A4;
+        margin: 15mm;
       }
       
       body {
-        width: 80mm !important;
-        height: auto !important;
-        margin: 0 !important;
-        padding: 0 !important;
-        background: white !important;
-        font-size: 12px !important;
-        overflow: visible !important;
+        padding: 0;
+        background: white;
+        font-weight: 600;
       }
       
       .receipt { 
-        width: 80mm !important;
-        max-width: 80mm !important;
-        min-width: 80mm !important;
-        height: auto !important;
-        margin: 0 !important;
-        padding: 3mm !important;
-        border: none !important;
-        box-shadow: none !important;
+        border: 2px solid #000;
+        box-shadow: none;
         page-break-inside: avoid;
-        transform: none !important;
-        position: relative !important;
-        display: block !important;
+        max-width: 100%;
       }
-      
-      .paid-stamp, .unpaid-stamp {
+
+      .company-name {
+        font-weight: 700;
+      }
+
+      .detail-label,
+      .detail-value {
+        font-weight: 700;
+      }
+
+      .items-table th,
+      .items-table td {
+        font-weight: 700;
+        color: #000 !important;
+      }
+
+      .total-row {
+        font-weight: 700;
+      }
+
+      .payment-status {
         -webkit-print-color-adjust: exact !important;
         print-color-adjust: exact !important;
         color-adjust: exact !important;
@@ -3845,55 +3892,14 @@ private buildInvoiceReceiptHTML(invoice: any): string {
         print-color-adjust: exact !important;
         color-adjust: exact !important;
       }
-      
-      .items-table {
-        width: 100% !important;
-        font-size: 9px !important;
-        break-inside: avoid;
-      }
-      
-      .items-table th,
-      .items-table td {
-        font-size: 8px !important;
-        padding: 2px 1px !important;
-      }
-
-      .header {
-        break-after: avoid;
-      }
-
-      .total-section {
-        break-before: avoid;
-      }
-
-      .footer {
-        break-before: avoid;
-      }
-    }
-
-    /* إعدادات لضمان الحجم الثابت */
-    @media screen {
-      html, body {
-        width: 80mm;
-        max-width: 80mm;
-        min-width: 80mm;
-      }
     }
   </style>
 </head>
 <body>
   <div class="receipt">
-    <!-- حالة الدفع -->
-    ${invoice.paidStatus ? 
-      '<div class="paid-stamp">مدفوع</div>' : 
-      '<div class="unpaid-stamp">غير مدفوع</div>'
-    }
-
     <!-- رأس الفاتورة -->
     <div class="header">
       <div class="company-name">مخبز الإحسان الدمشقي</div>
-      <div class="company-info">سوريا</div>
-      <div class="company-info">0932</div>
       <div class="invoice-type">${this.getInvoiceTypeArabic(invoice.invoiceType)} ${this.getInvoiceCategoryArabic(invoice.invoiceCategory)}</div>
     </div>
 
@@ -3901,22 +3907,49 @@ private buildInvoiceReceiptHTML(invoice: any): string {
     <div class="invoice-details">
       <div class="detail-row">
         <span class="detail-label">رقم:</span>
-        <span>${invoice.invoiceNumber.split('-').pop() || invoice.id}</span>
+        <span class="detail-value">${invoice.invoiceNumber.split('-').pop() || invoice.id}</span>
       </div>
       <div class="detail-row">
         <span class="detail-label">التاريخ:</span>
-        <span>${this.formatReceiptDate(invoice.createdAt)}</span>
+        <span class="detail-value">${this.formatReceiptDate(invoice.createdAt)}</span>
       </div>
       <div class="detail-row">
-        <span class="detail-label">الموظف المسؤول:</span>
-        <span>${invoice.employee.username}</span>
+        <span class="detail-label">الموظف:</span>
+        <span class="detail-value">${invoice.employee.username}</span>
       </div>
       ${invoice.customer ? `
       <div class="detail-row">
-        <span class="detail-label">اسم الزبون:</span>
-        <span>${invoice.customer.name}</span>
+        <span class="detail-label">الزبون:</span>
+        <span class="detail-value">${invoice.customer.name}</span>
       </div>
       ` : ''}
+      ${invoice.isBreak ? `
+      <div class="detail-row">
+        <span class="detail-label">النوع:</span>
+        <span class="detail-value">فاتورة كسر</span>
+      </div>
+      ` : ''}
+      ${invoice.trayCount ? `
+      <div class="detail-row">
+        <span class="detail-label">عدد الصاجات:</span>
+        <span class="detail-value">${invoice.trayCount}</span>
+      </div>
+      ` : ''}
+      ${invoice.employeeInvoiceType ? `
+      <div class="detail-row">
+        <span class="detail-label">نوع فاتورة الموظف:</span>
+        <span class="detail-value">${this.getEmployeeInvoiceTypeArabic(invoice.employeeInvoiceType)}</span>
+      </div>
+      ` : ''}
+      ${invoice.supplierPaymentAmount ? `
+      <div class="detail-row">
+        <span class="detail-label">المبلغ المدفوع للمورد:</span>
+        <span class="detail-value">${this.formatReceiptCurrency(invoice.supplierPaymentAmount)} ل.س</span>
+      </div>
+      ` : ''}
+      <div class="payment-status">
+        ${invoice.paidStatus ? '✓ مدفوع' : '✗ غير مدفوع'}
+      </div>
     </div>
 
     <!-- جدول المواد -->
@@ -3934,102 +3967,32 @@ private buildInvoiceReceiptHTML(invoice: any): string {
         <span>${this.formatReceiptCurrency(invoice.discount)} ل.س</span>
       </div>
       ` : ''}
+      ${invoice.additionalAmount > 0 ? `
+      <div class="total-row">
+        <span>القيمة المضافة:</span>
+        <span>${this.formatReceiptCurrency(invoice.additionalAmount)} ل.س</span>
+      </div>
+      ` : ''}
       <div class="total-row final">
-        <span>الإجمالي:</span>
-        <span>${this.formatReceiptCurrency(invoice.totalAmount - (invoice.discount || 0))} ل.س</span>
+        <span>الإجمالي النهائي:</span>
+        <span>${this.formatReceiptCurrency(invoice.totalAmount - (invoice.discount || 0) + (invoice.additionalAmount || 0))} ل.س</span>
       </div>
     </div>
 
     <!-- تذييل الفاتورة -->
     <div class="footer">
-      <div>شكراً لتعاملكم معنا</div>
-      <div>${this.formatReceiptDate(new Date())}</div>
+      <div>شكراً لتعاملكم معنا - ${this.formatReceiptDate(new Date())}</div>
     </div>
   </div>
 
   <script>
-    // إعدادات الطباعة المحسنة للحصول على PDF بحجم الفاتورة
-    function setupOptimalPrint() {
-      // تحديد حجم الصفحة بدقة
-      const printStyle = document.createElement('style');
-      printStyle.id = 'print-optimization';
-      printStyle.innerHTML = \`
-        @page {
-          size: 80mm auto;
-          margin: 0;
-          padding: 0;
-        }
-        
-        @media print {
-          html, body {
-            width: 80mm !important;
-            height: auto !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            overflow: visible !important;
-          }
-          
-          .receipt {
-            width: 80mm !important;
-            height: auto !important;
-            margin: 0 !important;
-            padding: 3mm !important;
-            page-break-inside: avoid;
-          }
-        }
-      \`;
-      document.head.appendChild(printStyle);
-
-      // إزالة أي margins إضافية
-      document.documentElement.style.margin = '0';
-      document.documentElement.style.padding = '0';
-      document.body.style.margin = '0';
-      document.body.style.padding = '0';
-    }
-
-    // ضبط الأبعاد قبل الطباعة
-    function adjustForPrint() {
-      const receipt = document.querySelector('.receipt');
-      if (receipt) {
-        receipt.style.width = '80mm';
-        receipt.style.maxWidth = '80mm';
-        receipt.style.minWidth = '80mm';
-        receipt.style.height = 'auto';
-        receipt.style.margin = '0';
-        receipt.style.padding = '3mm';
-      }
-
-      // ضبط حجم الجسم
-      document.body.style.width = '80mm';
-      document.body.style.height = 'auto';
-      document.documentElement.style.width = '80mm';
-      document.documentElement.style.height = 'auto';
-    }
-
-    // طباعة محسنة
     window.onload = function() {
-      setupOptimalPrint();
-      
       setTimeout(() => {
-        adjustForPrint();
-        
-        // طباعة مع إعدادات محسنة
         window.print();
-      }, 1000);
+      }, 500);
     };
 
-    // التعامل مع أحداث الطباعة
-    window.addEventListener('beforeprint', function() {
-      adjustForPrint();
-    });
-
-    window.addEventListener('afterprint', function() {
-      console.log('تمت الطباعة بحجم 80mm');
-    });
-
-    // إضافة دالة للطباعة اليدوية
     window.printReceipt = function() {
-      adjustForPrint();
       window.print();
     };
   </script>
@@ -4039,12 +4002,12 @@ private buildInvoiceReceiptHTML(invoice: any): string {
   return receiptTemplate;
 }
 
-// بناء جدول المواد 
+// بناء جدول المواد مع عمود الوحدة
 private buildItemsTableOptimized(items: any[]): string {
   if (!items || items.length === 0) {
     return `
       <div class="total-section">
-        <div style="text-align: center; color: #666; font-size: 10px; padding: 5px;">
+        <div style="text-align: center; color: #000; font-size: 16px; padding: 20px; font-weight: 600;">
           فاتورة مباشرة - بدون مواد
         </div>
       </div>
@@ -4055,9 +4018,10 @@ private buildItemsTableOptimized(items: any[]): string {
     <table class="items-table">
       <thead>
         <tr>
-          <th class="item-name">الصنف</th>
+          <th class="item-name">اسم الصنف</th>
+          <th class="unit">الوحدة</th>
           <th class="quantity">الكمية</th>
-          <th class="price">السعر</th>
+          <th class="price">سعر الوحدة</th>
           <th class="total">الإجمالي</th>
         </tr>
       </thead>
@@ -4066,14 +4030,15 @@ private buildItemsTableOptimized(items: any[]): string {
 
   items.forEach(item => {
     const itemName = item.item?.name || 'صنف';
-    const truncatedName = itemName.length > 8 ? itemName.substring(0, 8) + '...' : itemName;
+    const unit = item.unit || '—';
     
     tableHTML += `
       <tr>
-        <td class="item-name" title="${itemName}">${truncatedName}</td>
+        <td class="item-name">${itemName}</td>
+        <td class="unit">${unit}</td>
         <td class="quantity">${item.quantity}</td>
-        <td class="price">${this.formatReceiptCurrency(item.unitPrice)}</td>
-        <td class="total">${this.formatReceiptCurrency(item.subTotal)}</td>
+        <td class="price">${this.formatReceiptCurrency(item.unitPrice)} ل.س</td>
+        <td class="total">${this.formatReceiptCurrency(item.subTotal)} ل.س</td>
       </tr>
     `;
   });
@@ -4102,7 +4067,15 @@ private getInvoiceCategoryArabic(category: string): string {
   return categories[category] || category;
 }
 
-
+private getEmployeeInvoiceTypeArabic(type: string): string {
+  const types = {
+    'withdrawal': 'سحب',
+    'return': 'مرتجع',
+    'debtPayment': 'دفع دين',
+    'salary': 'راتب'
+  };
+  return types[type] || type;
+}
 
 private formatReceiptDate(date: Date | string): string {
   const d = new Date(date);
@@ -4124,5 +4097,4 @@ private formatReceiptCurrency(amount: number | null | undefined): string {
     maximumFractionDigits: 0 
   });
 }
-
 }
