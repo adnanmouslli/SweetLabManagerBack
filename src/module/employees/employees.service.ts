@@ -34,22 +34,111 @@ export class EmployeesService {
   
   // جلب جميع الموظفين
   async findAll() {
-    return this.prisma.employee.findMany({
-      include: {
-        workshop: true,
-        withdrawals: {
-          orderBy: {
-            date: 'desc'
-          }
+  const employees = await this.prisma.employee.findMany({
+    include: {
+      workshop: true,
+      withdrawals: {
+        orderBy: {
+          date: 'desc'
+        }
+      },
+      debts: {
+        include: {
+          relatedInvoices: true
+        }
+      },
+      productionRecords: {
+        include: {
+          item: true
         },
-        debts: {
-          where: {
-            status: 'active'
-          }
+        orderBy: {
+          date: 'desc'
+        }
+      },
+      hourRecords: {
+        orderBy: {
+          date: 'desc'
+        }
+      },
+      salaryPayments: {
+        include: {
+          invoice: true
+        },
+        orderBy: {
+          date: 'desc'
         }
       }
-    });
-  }
+    }
+  });
+
+  return employees.map(employee => {
+    const lastSettlementDate = employee.workshop?.lastSettlementDate || null;
+
+    // إجمالي السحوبات
+    const totalWithdrawals = employee.withdrawals
+      .filter(w => !lastSettlementDate || w.date > lastSettlementDate)
+      .reduce((sum, withdrawal) => sum + withdrawal.amount, 0);
+
+    // إجمالي الرواتب
+    const totalSalaries = employee.salaryPayments
+      .filter(s => !lastSettlementDate || s.date > lastSettlementDate)
+      .reduce((sum, payment) => sum + payment.amount, 0);
+
+    // إجمالي الأرباح
+    let totalEarnings = 0;
+    if (employee.workType === 'production') {
+      totalEarnings = employee.productionRecords
+        .filter(r => !lastSettlementDate || r.date > lastSettlementDate)
+        .reduce((sum, record) => sum + record.totalAmount, 0);
+    } else {
+      totalEarnings = employee.hourRecords
+        .filter(r => !lastSettlementDate || r.date > lastSettlementDate)
+        .reduce((sum, record) => sum + record.totalAmount, 0);
+    }
+
+    // الديون
+    const activeDebt = employee.debts.find(debt => debt.status === 'active');
+    const debtAmount = activeDebt ? activeDebt.remainingAmount : 0;
+
+    // الصافي
+    const netAmount = totalEarnings - totalWithdrawals;
+
+    // الرواتب حسب النوع
+    const salariesByType = {
+      daily: employee.salaryPayments
+        .filter(p => p.paymentType === 'daily' && (!lastSettlementDate || p.date > lastSettlementDate))
+        .reduce((sum, p) => sum + p.amount, 0),
+      weekly: employee.salaryPayments
+        .filter(p => p.paymentType === 'weekly' && (!lastSettlementDate || p.date > lastSettlementDate))
+        .reduce((sum, p) => sum + p.amount, 0),
+      monthly: employee.salaryPayments
+        .filter(p => p.paymentType === 'monthly' && (!lastSettlementDate || p.date > lastSettlementDate))
+        .reduce((sum, p) => sum + p.amount, 0),
+      workshop: employee.salaryPayments
+        .filter(p => p.paymentType === 'workshop' && (!lastSettlementDate || p.date > lastSettlementDate))
+        .reduce((sum, p) => sum + p.amount, 0),
+    };
+
+    return {
+      ...employee,
+      financialSummary: {
+        totalWithdrawals,
+        totalEarnings,
+        totalSalaries,
+        salariesByType,
+        debtAmount,
+        netAmount,
+        lastWorkshopSettlement: lastSettlementDate,
+        periodStart: lastSettlementDate || 'منذ البداية',
+        lastPaymentDate: employee.salaryPayments.length > 0 
+          ? employee.salaryPayments[0].date 
+          : null,
+        paymentsCount: employee.salaryPayments.length
+      }
+    };
+  });
+}
+
   
   // جلب موظف محدد
   async findOne(id: number) {
@@ -96,6 +185,8 @@ export class EmployeesService {
     }
     
     const lastSettlementDate = employee.workshop?.lastSettlementDate || null;
+    
+    console.log(lastSettlementDate);
     
     // حساب الإحصائيات المالية للموظف منذ آخر محاسبة
     const totalWithdrawals = employee.withdrawals
@@ -412,7 +503,6 @@ export class EmployeesService {
           employeeInvoiceType: invoiceType,
           paidStatus: true,
           totalAmount: paymentDto.amount,
-          notes: paymentDto.notes || `تسديد من الموظف ${employee.name}`,
           fundId: paymentDto.fundId,
           shiftId: activeShift.id,
           employeeId: currentUserId,
@@ -465,6 +555,18 @@ export class EmployeesService {
             }
           });
         }
+      }
+      else if (paymentDto.paymentType === 'returnWithdrawal'){
+
+         // Record negative withdrawal (return)
+            await prisma.employeeWithdrawal.create({
+              data: {
+                employeeId: employeeId,
+                amount: -paymentDto.amount, // Negative amount to indicate return
+                withdrawalType: 'return',
+                invoiceId: invoice.id
+              }
+            });
       }
       
       return {

@@ -25,7 +25,9 @@ export class InvoicesService {
       where: {
         status: 'open',
       },
-    }); 
+    });
+    
+    const totalAmountAfterChange = createInvoiceDto.totalAmount;
 
      const fund = await this.prisma.fund.findUnique({
       where: { id: createInvoiceDto.fundId },
@@ -82,17 +84,14 @@ export class InvoicesService {
         createInvoiceDto.invoiceType === 'expense' && 
         createInvoiceDto.invoiceCategory === 'products' &&
         createInvoiceDto.supplierPaymentAmount !== undefined) {
-      
+          
         // جلب بيانات العميل للتحقق من نوعه
         const customer = await this.prisma.customer.findUnique({
           where: { id: createInvoiceDto.customerId }
         });
 
         if (customer && customer.customerType === CustomerType.SUPPLIER) {
-          const originalTotalAmount = createInvoiceDto.totalAmount;
-          const paidAmount = createInvoiceDto.supplierPaymentAmount;
-          
-          createInvoiceDto.totalAmount = paidAmount;
+          createInvoiceDto.totalAmount = createInvoiceDto.supplierPaymentAmount;
         }
       }
     }
@@ -316,7 +315,6 @@ export class InvoicesService {
             discount: createInvoiceDto.discount || 0,
             additionalAmount: additionalAmount, // تخزين المبلغ الإضافي
             supplierPaymentAmount: createInvoiceDto.supplierPaymentAmount, // حفظ مبلغ الدفع للمورد
-            notes: invoiceNotes || null,
             fundId: createInvoiceDto.fundId,
             shiftId: activeShift.id,
             paymentDate: createInvoiceDto.paidStatus ? new Date() : null,
@@ -607,9 +605,11 @@ export class InvoicesService {
             where: { id: createInvoiceDto.customerId }
           });
 
+                       
           if (customer && customer.customerType === CustomerType.SUPPLIER) {
+
             // حساب المبلغ المتبقي الذي سيضاف لرصيد المورد
-            const remainingAmount = createInvoiceDto.totalAmount - createInvoiceDto.supplierPaymentAmount;
+            const remainingAmount = totalAmountAfterChange - createInvoiceDto.supplierPaymentAmount;
             
             if (remainingAmount > 0) {
               // تحديث رصيد المورد
@@ -622,28 +622,20 @@ export class InvoicesService {
                 }
               });
             }
-
+            
             // تحديث رصيد الصندوق بالمبلغ المدفوع فقط (إذا كانت الفاتورة مدفوعة)
             if (createInvoiceDto.paidStatus && createInvoiceDto.supplierPaymentAmount > 0) {
               await prisma.fund.update({
                 where: { id: createInvoiceDto.fundId },
                 data: {
                   currentBalance: {
-                    decrement: createInvoiceDto.supplierPaymentAmount - (createInvoiceDto.discount || 0),
+                    decrement: createInvoiceDto.supplierPaymentAmount,
                   },
                 },
               });
             }
 
-            // إضافة ملاحظة عن تقسيم المبلغ
-            if (remainingAmount > 0) {
-              await prisma.invoice.update({
-                where: { id: invoice.id },
-                data: {
-                  notes: invoice.notes 
-                }
-              });
-            }
+            
           }
         } 
         // المعالجة العادية لرصيد الصندوق للفواتير الأخرى
