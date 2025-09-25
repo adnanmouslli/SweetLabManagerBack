@@ -231,43 +231,66 @@ export class CustomersService {
   }
 
   async getCustomersList() {
-    const customers = await this.prisma.customer.findMany({
-      select: {
-        id: true,
-        name: true,
-        phone: true,
-        customerType: true,
-        supplierBalance: true,
-        category: {
-          select: {
-            id: true,
-            name: true
-          }
-        },
-        debts: {
-          where: {
-            status: 'active'
-          },
-          select: {
-            remainingAmount: true
-          }
+  const customers = await this.prisma.customer.findMany({
+    select: {
+      id: true,
+      name: true,
+      phone: true,
+      customerType: true,
+      supplierBalance: true,
+      category: {
+        select: {
+          id: true,
+          name: true
         }
       },
-      orderBy: {
-        name: 'asc'
+      debts: {
+        where: {
+          status: 'active'
+        },
+        select: {
+          remainingAmount: true
+        }
+      },
+      // إضافة فواتير الكسر
+      invoices: {
+        where: {
+          isBreak: true,
+          paidStatus: false // فقط فواتير الكسر غير المدفوعة
+        },
+        select: {
+          totalAmount: true,
+          discount: true
+        }
       }
-    });
-  
-    return customers.map(customer => ({
+    },
+    orderBy: {
+      name: 'asc'
+    }
+  });
+
+  return customers.map(customer => {
+    // حساب إجمالي الديون
+    const totalDebt = customer.debts.reduce((sum, debt) => sum + debt.remainingAmount, 0);
+    
+    // حساب إجمالي فواتير الكسر
+    const totalBreakAmount = customer.invoices.reduce((sum, invoice) => 
+      sum + (invoice.totalAmount - (invoice.discount || 0)), 0
+    );
+
+    return {
       id: customer.id,
       name: customer.name,
       phone: customer.phone,
       customerType: customer.customerType,
       supplierBalance: customer.supplierBalance,
       category: customer.category,
-      totalDebt: customer.debts.reduce((sum, debt) => sum + debt.remainingAmount, 0)
-    }));
-  }
+      totalDebt: totalDebt,
+      totalBreakAmount: totalBreakAmount, // إضافة قيمة الكسر الإجمالية
+      totalOwed: totalDebt + totalBreakAmount // إجمالي المطلوب من العميل (ديون + كسر)
+    };
+  });
+}
 
   // تابع كشف حساب العميل
   async getCustomerAccountStatement(customerId: number) {
