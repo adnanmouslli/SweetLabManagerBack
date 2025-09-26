@@ -384,7 +384,6 @@ async closeShift(actualAmount: number) {
       const universityBalance = universityFund?.currentBalance || 0;
       
       // نستخدم المبلغ الفعلي المستلم بدلاً من مجموع الأرصدة
-      const totalTransfer = actualAmount;
 
       if (boothFund) {
         await prisma.fund.update({
@@ -404,7 +403,16 @@ async closeShift(actualAmount: number) {
         where: { id: generalFund.id },
         data: {
           currentBalance: {
-            increment: totalTransfer,
+            increment: actualAmount,
+          },
+        },
+      });
+
+      await prisma.fund.update({
+        where: { id: generalFund.id },
+        data: {
+          currentBalance: {
+            decrement: expectedAmount
           },
         },
       });

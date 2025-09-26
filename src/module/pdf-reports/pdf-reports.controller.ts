@@ -67,11 +67,11 @@ export class ReportsController {
       // تحديد التواريخ الافتراضية (الشهر الحالي)
       const now = new Date();
       const defaultStartDate = startDate ? 
-        new Date(startDate) : 
+        new Date(startDate + 'T00:00:00') : 
         new Date(now.getFullYear(), now.getMonth(), 1);
       
       const defaultEndDate = endDate ? 
-        new Date(endDate) : 
+        new Date(endDate + 'T23:59:59') : 
         new Date(now.getFullYear(), now.getMonth() + 1, 0);
 
       const htmlContent = await this.pdfReportsService.generateSalesReportHTML(
@@ -164,12 +164,14 @@ async getOrdersInventoryReport(
     }
     
     if (startDate) {
-      filters.startDate = new Date(startDate);
+      filters.startDate = new Date(startDate + 'T00:00:00'); // يحافظ على نفس اليوم
     }
     
     if (endDate) {
-      filters.endDate = new Date(endDate);
+      filters.endDate = new Date(endDate + 'T23:59:59');
     }
+
+
     
     // توليد التقرير
     const htmlContent = await this.pdfReportsService.generateOrdersInventoryReportHTML(filters);
@@ -368,8 +370,8 @@ async getBoothInventoryReport(
       throw new BadRequestException('يجب تحديد تاريخ البداية والنهاية');
     }
 
-    const start = new Date(startDate);
-    const end = new Date(endDate);
+    const start = new Date(startDate + 'T00:00:00');
+    const end = new Date(endDate + 'T23:59:59');
     
     if (start > end) {
       throw new BadRequestException('تاريخ البداية يجب أن يكون قبل تاريخ النهاية');
@@ -416,8 +418,8 @@ async getItemConsumptionReport(
       throw new BadRequestException('يجب تحديد تاريخ البداية والنهاية');
     }
 
-    const start = new Date(startDate);
-    const end = new Date(endDate);
+    const start = new Date(startDate + 'T00:00:00');
+    const end = new Date(endDate + 'T23:59:59');
     
     if (start > end) {
       throw new BadRequestException('تاريخ البداية يجب أن يكون قبل تاريخ النهاية');
@@ -464,8 +466,8 @@ async getItemPurchaseReport(
       throw new BadRequestException('يجب تحديد تاريخ البداية والنهاية');
     }
 
-    const start = new Date(startDate);
-    const end = new Date(endDate);
+    const start = new Date(startDate + 'T00:00:00');
+    const end = new Date(endDate + 'T23:59:59');
     
     if (start > end) {
       throw new BadRequestException('تاريخ البداية يجب أن يكون قبل تاريخ النهاية');
@@ -567,8 +569,8 @@ async getDebtDetailsReport(
       throw new BadRequestException('يجب تحديد تاريخ البداية والنهاية');
     }
 
-    const start = new Date(startDate);
-    const end = new Date(endDate);
+    const start = new Date(startDate + 'T00:00:00');
+    const end = new Date(endDate + 'T23:59:59');
     
     if (start > end) {
       throw new BadRequestException('تاريخ البداية يجب أن يكون قبل تاريخ النهاية');
@@ -627,8 +629,8 @@ async getProductSalesReport(
       throw new BadRequestException('معرفات المنتجات غير صحيحة');
     }
 
-    const start = new Date(startDate);
-    const end = new Date(endDate);
+    const start = new Date(startDate + 'T00:00:00');
+    const end = new Date(endDate + 'T23:59:59');
     
     if (start > end) {
       throw new BadRequestException('تاريخ البداية يجب أن يكون قبل تاريخ النهاية');
@@ -675,8 +677,8 @@ async getFundsMovementReport(
       throw new BadRequestException('يجب تحديد تاريخ البداية والنهاية');
     }
 
-    const start = new Date(startDate);
-    const end = new Date(endDate);
+    const start = new Date(startDate + 'T00:00:00');
+    const end = new Date(endDate + 'T23:59:59');
     
     if (start > end) {
       throw new BadRequestException('تاريخ البداية يجب أن يكون قبل تاريخ النهاية');
@@ -785,8 +787,8 @@ async getWorkshopSalariesReport(
     
     // التحقق من التواريخ
     if (startDate && endDate) {
-      start = new Date(startDate);
-      end = new Date(endDate);
+      start = new Date(startDate + 'T00:00:00');
+      end = new Date(endDate + 'T23:59:59');
       
       if (start > end) {
         throw new BadRequestException('تاريخ البداية يجب أن يكون قبل تاريخ النهاية');
@@ -848,8 +850,8 @@ async getEmployeeWithdrawalsReport(
     
     // التحقق من التواريخ
     if (startDate && endDate) {
-      start = new Date(startDate);
-      end = new Date(endDate);
+      start = new Date(startDate + 'T00:00:00');
+      end = new Date(endDate + 'T23:59:59');
       
       if (start > end) {
         throw new BadRequestException('تاريخ البداية يجب أن يكون قبل تاريخ النهاية');

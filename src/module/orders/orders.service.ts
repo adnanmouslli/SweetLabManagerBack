@@ -156,28 +156,41 @@ async create(createOrderDto: CreateOrderDto, employeeId: number) {
   }
   
   // Determine scheduled date
-  let scheduledDate: Date;
-  
-  if (createOrderDto.scheduledFor) {
-    scheduledDate = new Date(createOrderDto.scheduledFor);
+let scheduledDate: Date;
+
+const now = this.createSyriaDate(); // تاريخ/وقت محلي (مثلاً Asia/Damascus)
+
+if (createOrderDto.scheduledFor) {
+  scheduledDate = new Date(createOrderDto.scheduledFor);
+} else {
+  const isForToday = createOrderDto.isForToday || false;
+
+  if (isForToday) {
+    // التسليم اليوم الساعة 12:00
+    scheduledDate = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      12, 0, 0
+    );
   } else {
-    const isForToday = createOrderDto.isForToday || false;
-    const now = this.createSyriaDate();
-    
-    if (isForToday) {
-      scheduledDate = new Date(
-        now.getFullYear(),
-        now.getMonth(),
-        now.getDate(),
-        12, 0, 0 
-      );
-    } else {
-      const tomorrow = new Date(now);
+    // التسليم غداً
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(12, 0, 0, 0);
+
+    // معالجة حالة الخميس (الغد = الجمعة → عطلة)
+    // getDay() → 0 الأحد , 4 الخميس , 5 الجمعة , 6 السبت
+    if (now.getDay() === 4) { 
+      // اليوم الخميس، الغد جمعة → نحرك يومين للسبت
       tomorrow.setDate(tomorrow.getDate() + 1);
-      tomorrow.setHours(12, 0, 0, 0); 
-      scheduledDate = tomorrow;
     }
+
+    scheduledDate = tomorrow;
   }
+}
+
+
   
   const orderNumber = `ORD-${Date.now()}`;
   
@@ -331,7 +344,7 @@ async create(createOrderDto: CreateOrderDto, employeeId: number) {
           data: { 
             invoiceId: breakInvoice.id,
             paidStatus: false, // Partially paid
-            status: OrderStatus.processing 
+            status: OrderStatus.pending 
           }
         });
         
