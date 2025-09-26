@@ -8,6 +8,12 @@ import { CreateEmployeeWithdrawalDto } from './dto/create-employee-withdrawal.dt
 import { CreateEmployeePaymentDto } from './dto/create-employee-payment.dto';
 
 
+import * as XLSX from 'xlsx';
+
+interface ExcelEmployeeRow {
+  'اسم الموظف': string;
+  'نظام العمل': string;
+}
 
 @Injectable()
 export class EmployeesService {
@@ -735,4 +741,103 @@ export class EmployeesService {
       }
     };
   }
+
+
+
+// دالة لتحويل نظام العمل من العربية للإنجليزية
+private convertWorkType(arabicWorkType: string): 'production' | 'hourly' {
+  const workTypeMapping = {
+    'إنتاج': 'production',
+    'انتاج': 'production',
+    'منتج': 'production',
+    'قطعة': 'production',
+    'ساعي': 'hourly',
+    'بالساعة': 'hourly',
+    'ساعة': 'hourly',
+    'يومي': 'hourly',
+    'hourly': 'hourly',
+    'production': 'production'
+  };
+  
+  const normalizedType = arabicWorkType.trim();
+  return workTypeMapping[normalizedType] || 'production';
+}
+
+async importEmployeesFromExcel(fileBuffer: Buffer) {
+  try {
+    // قراءة ملف Excel
+    const workbook = XLSX.read(fileBuffer, { type: 'buffer' });
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
+    
+    // تحويل البيانات إلى JSON
+    const excelData: ExcelEmployeeRow[] = XLSX.utils.sheet_to_json(worksheet);
+    
+    if (!excelData || excelData.length === 0) {
+      throw new BadRequestException('الملف فارغ أو لا يحتوي على بيانات صحيحة');
+    }
+
+    const results = {
+      success: 0,
+      failed: 0,
+      errors: [] as string[]
+    };
+
+    for (let i = 0; i < excelData.length; i++) {
+      const row = excelData[i];
+      const rowNumber = i + 2; // +2 لأن Excel يبدأ من 1 وهناك صف العناوين
+
+      try {
+        // التحقق من الحقول المطلوبة
+        if (!row['اسم الموظف'] || !row['نظام العمل']) {
+          results.errors.push(`الصف ${rowNumber}: اسم الموظف ونظام العمل مطلوبان`);
+          results.failed++;
+          continue;
+        }
+
+        // تحويل نظام العمل من العربية للإنجليزية
+        const workType = this.convertWorkType(row['نظام العمل']);
+
+        // التحقق من عدم وجود موظف بنفس الاسم
+        const existingEmployee = await this.prisma.employee.findFirst({
+          where: {
+            name: row['اسم الموظف'].trim()
+          }
+        });
+
+        if (existingEmployee) {
+          results.errors.push(`الصف ${rowNumber}: الموظف ${row['اسم الموظف']} موجود بالفعل`);
+          results.failed++;
+          continue;
+        }
+
+        // إنشاء الموظف الجديد
+        await this.prisma.employee.create({
+          data: {
+            name: row['اسم الموظف'].trim(),
+            workType: workType,
+            phone: null, // سيتم إضافته لاحقاً إذا لزم الأمر
+            workshopId: null // سيتم تحديده لاحقاً
+          }
+        });
+
+        results.success++;
+
+      } catch (error) {
+        results.errors.push(`الصف ${rowNumber}: ${error.message}`);
+        results.failed++;
+      }
+    }
+
+    return {
+      message: `تم استيراد ${results.success} موظف بنجاح، فشل في ${results.failed} موظف`,
+      success: results.success,
+      failed: results.failed,
+      errors: results.errors
+    };
+
+  } catch (error) {
+    throw new BadRequestException(`خطأ في قراءة الملف: ${error.message}`);
+  }
+}
 }

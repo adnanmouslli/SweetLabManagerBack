@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, Delete, Put, Query, ParseIntPipe, UseGuards, Req } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Delete, Put, Query, ParseIntPipe, UseGuards, Req, BadRequestException, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { EmployeesService } from './employees.service';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
@@ -7,6 +7,7 @@ import { CreateEmployeePaymentDto } from './dto/create-employee-payment.dto';
 import { CreateEmployeeProductionDto } from './dto/employee-production.dto';
 import { CreateEmployeeHoursDto } from './dto/employee-hours.dto';
 import { JwtAuthGuard, RolesGuard } from '@/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 
 
 @Controller('employees')
@@ -88,4 +89,25 @@ export class EmployeesController {
     const end = endDate ? new Date(endDate) : undefined;
     return this.employeesService.getFinancialSummary(id, start, end);
   }
+
+
+  @Post('import-excel')
+@UseInterceptors(FileInterceptor('file'))
+async importEmployeesFromExcel(@UploadedFile() file: any) {
+  if (!file) {
+    throw new BadRequestException('لم يتم اختيار ملف');
+  }
+
+  // التحقق من نوع الملف
+  const allowedTypes = [
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+    'application/vnd.ms-excel', // .xls
+  ];
+
+  if (!allowedTypes.includes(file.mimetype)) {
+    throw new BadRequestException('يجب أن يكون الملف من نوع Excel (.xlsx أو .xls)');
+  }
+
+  return await this.employeesService.importEmployeesFromExcel(file.buffer);
+}
 }

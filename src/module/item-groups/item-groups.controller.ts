@@ -7,13 +7,17 @@ import {
   Param, 
   Delete, 
   UseGuards,
-  Query 
+  Query, 
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException
 } from '@nestjs/common';
 import { ItemGroupsService } from './item-groups.service';
 import { CreateItemGroupDto } from './dto/create-item-group.dto';
 import { UpdateItemGroupDto } from './dto/update-item-group.dto';
 import { JwtAuthGuard, Role, Roles, RolesGuard } from '@/common';
 import { ItemType } from '@prisma/client';
+import { FileInterceptor } from '@nestjs/platform-express';
 
 
 @Controller('item-groups')
@@ -52,4 +56,25 @@ export class ItemGroupsController {
   remove(@Param('id') id: string) {
     return this.itemGroupsService.remove(+id);
   }
+
+
+  @Post('import-excel')
+@UseInterceptors(FileInterceptor('file'))
+async importItemsFromExcel(@UploadedFile() file: any) {
+  if (!file) {
+    throw new BadRequestException('لم يتم اختيار ملف');
+  }
+
+  // التحقق من نوع الملف
+  const allowedTypes = [
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+    'application/vnd.ms-excel', // .xls
+  ];
+
+  if (!allowedTypes.includes(file.mimetype)) {
+    throw new BadRequestException('يجب أن يكون الملف من نوع Excel (.xlsx أو .xls)');
+  }
+
+  return await this.itemGroupsService.importItemsFromExcel(file.buffer);
+}
 }
