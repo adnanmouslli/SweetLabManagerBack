@@ -25,7 +25,7 @@ export class EmployeesService {
       return await this.prisma.employee.create({
         data: {
           name: createEmployeeDto.name,
-          phone: createEmployeeDto.phone,
+          phone: createEmployeeDto.phone ? createEmployeeDto.phone : null,
           workType: createEmployeeDto.workType,
           workshopId: createEmployeeDto.workshopId
         }
@@ -348,7 +348,7 @@ export class EmployeesService {
           employeeInvoiceType: withdrawalDto.withdrawalType,
           paidStatus: true,
           totalAmount: withdrawalDto.amount,
-          notes: withdrawalDto.notes || `سحب للموظف ${employee.name}`,
+          notes: withdrawalDto.notes,
           fundId: withdrawalDto.fundId,
           shiftId: activeShift.id,
           employeeId: currentUserId,

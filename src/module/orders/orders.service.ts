@@ -365,7 +365,6 @@ if (createOrderDto.scheduledFor) {
               customerId: createOrderDto.customerId,
               totalTrays: createOrderDto.invoiceData.trayCount,
               status: 'pending',
-              notes: `تم تسليم ${createOrderDto.invoiceData.trayCount} صاج مع الفاتورة ${paidInvoice.invoiceNumber}`,
               invoiceId: paidInvoice.id
             }
           });
@@ -415,11 +414,7 @@ if (createOrderDto.scheduledFor) {
             totalAmount: createOrderDto.totalAmount,
             discount: createOrderDto.invoiceData?.discount || 0,
             additionalAmount: createOrderDto.invoiceData?.additionalAmount || 0,
-            notes: createOrderDto.invoiceData?.notes 
-              ? `${createOrderDto.invoiceData.notes} - فاتورة للطلبية رقم ${orderNumber}` 
-              : (createOrderDto.notes 
-                ? `${createOrderDto.notes} - فاتورة للطلبية رقم ${orderNumber}` 
-                : `فاتورة للطلبية رقم ${orderNumber}`),
+            notes: createOrderDto.invoiceData?.notes,
             fundId: appropriateFund.id, // استخدام الصندوق المناسب
             shiftId: activeShift.id,
             paymentDate: new Date(),
@@ -463,7 +458,6 @@ if (createOrderDto.scheduledFor) {
               customerId: createOrderDto.customerId,
               totalTrays: createOrderDto.invoiceData.trayCount,
               status: 'pending',
-              notes: `تم تسليم ${createOrderDto.invoiceData.trayCount} صاج مع الفاتورة ${invoiceNumber}`,
               invoiceId: standardInvoice.id
             }
           });
@@ -1061,10 +1055,7 @@ if (createOrderDto.scheduledFor) {
           discount: invoiceData?.discount || 0,
           additionalAmount: invoiceData?.additionalAmount || 0,
           notes: invoiceData?.notes 
-            ? `${invoiceData.notes} - فاتورة للطلبية رقم ${order.orderNumber}` 
-            : (order.notes 
-              ? `${order.notes} - فاتورة للطلبية رقم ${order.orderNumber}` 
-              : `فاتورة للطلبية رقم ${order.orderNumber}`),
+            ? invoiceData?.notes  : null,
           fundId: appropriateFund.id, // استخدام الصندوق المناسب
           shiftId: activeShift.id,
           paymentDate: new Date(),
@@ -1259,8 +1250,8 @@ if (createOrderDto.scheduledFor) {
         where: { id: existingOrder.invoice.id },
         data: {
           notes: existingOrder.invoice.notes 
-            ? `${existingOrder.invoice.notes} - تم إلغاء الفاتورة بسبب إلغاء الطلبية`
-            : 'تم إلغاء الفاتورة بسبب إلغاء الطلبية'
+            ? existingOrder.invoice.notes 
+            : null
         }
       });
       
