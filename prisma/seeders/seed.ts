@@ -2,7 +2,7 @@ import { execSync } from 'child_process';
 import { PrismaClient } from '@prisma/client';
 import { seedUsers } from './users.seeder';
 import { seedItemGroups } from './item-groups.seeder';
-import { seedItems } from './items.seeder';
+// import { seedItems } from './items.seeder';
 import { seedFunds } from './funds.seeder';
 import { seedShifts } from './shifts.seeder';
 import { seedInvoices } from './invoices.seeder';

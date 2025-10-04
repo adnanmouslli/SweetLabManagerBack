@@ -40,6 +40,20 @@ export class CreateItemDto {
   @IsString()
   defaultUnit: string;
 
+
+  @IsNumber()
+  @IsOptional()
+  basePrice?: number;        // السعر الأساسي
+  
+  @IsNumber()
+  @IsOptional()
+  packagingPrice?: number;   // سعر التكييس (افتراضي 0)
+  
+  @IsNumber()
+  @IsOptional()
+  deliveryPrice?: number;    // سعر التوصيل (افتراضي 0)
+
+
   // سعر البيع للوحدة الافتراضية (سيتم حسابه تلقائيًا بناءً على الوحدة الافتراضية)
   @IsNumber()
   @IsOptional()

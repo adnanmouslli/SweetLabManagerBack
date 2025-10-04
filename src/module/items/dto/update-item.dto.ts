@@ -30,6 +30,20 @@ export class UpdateItemDto {
   @IsOptional()
   defaultUnit?: string;
 
+
+  @IsNumber()
+  @IsOptional()
+  basePrice?: number;        // السعر الأساسي
+  
+  @IsNumber()
+  @IsOptional()
+  packagingPrice?: number;   // سعر التكييس (افتراضي 0)
+  
+  @IsNumber()
+  @IsOptional()
+  deliveryPrice?: number;    // سعر التوصيل (افتراضي 0)
+
+
   @IsNumber()
   @IsOptional()
   price?: number;

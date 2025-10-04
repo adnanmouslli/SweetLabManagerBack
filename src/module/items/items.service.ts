@@ -7,6 +7,25 @@ import { UpdateItemDto } from './dto/update-item.dto';
 export class ItemsService {
   constructor(private prisma: PrismaService) {}
 
+  /**
+   * حساب السعر النهائي للمادة
+   */
+  private calculateFinalPrice(basePrice: number, packagingPrice: number = 0, deliveryPrice: number = 0): number {
+    return basePrice + packagingPrice + deliveryPrice;
+  }
+
+  /**
+   * تحديث سعر الوحدة الافتراضية في units
+   */
+  private updateDefaultUnitPrice(units: any[], defaultUnit: string, newPrice: number): any[] {
+    return units.map(unitObj => {
+      if (unitObj.unit === defaultUnit) {
+        return { ...unitObj, price: newPrice };
+      }
+      return unitObj;
+    });
+  }
+
   async create(createItemDto: CreateItemDto) {
     // التحقق من وجود وحدات
     if (!createItemDto.units || createItemDto.units.length === 0) {
@@ -24,13 +43,31 @@ export class ItemsService {
       );
     }
 
-    // تحديد سعر البيع بناءً على الوحدة الافتراضية إذا لم يتم تحديده
-    if (createItemDto.price === undefined) {
+    // تحديد السعر الأساسي بناءً على الوحدة الافتراضية إذا لم يتم تحديده
+    if (createItemDto.basePrice === undefined) {
       const defaultUnitData = createItemDto.units.find(
         (unitObj) => unitObj.unit === createItemDto.defaultUnit
       );
-      createItemDto.price = defaultUnitData.price;
+      createItemDto.basePrice = defaultUnitData.price;
     }
+
+    // تعيين القيم الافتراضية لسعر التكييس والتوصيل
+    const packagingPrice = createItemDto.packagingPrice ?? 0;
+    const deliveryPrice = createItemDto.deliveryPrice ?? 0;
+
+    // حساب السعر النهائي
+    const finalPrice = this.calculateFinalPrice(
+      createItemDto.basePrice,
+      packagingPrice,
+      deliveryPrice
+    );
+
+    // تحديث سعر الوحدة الافتراضية في units ليساوي السعر النهائي
+    const updatedUnits = this.updateDefaultUnitPrice(
+      createItemDto.units,
+      createItemDto.defaultUnit,
+      finalPrice
+    );
 
     // إنشاء العنصر الجديد
     try {
@@ -39,11 +76,14 @@ export class ItemsService {
           name: createItemDto.name,
           type: createItemDto.type,
           description: createItemDto.description,
-          units: JSON.parse(JSON.stringify(createItemDto.units)),
+          units: JSON.parse(JSON.stringify(updatedUnits)),
           defaultUnit: createItemDto.defaultUnit,
-          price: createItemDto.price,
+          basePrice: createItemDto.basePrice,
+          packagingPrice: packagingPrice,
+          deliveryPrice: deliveryPrice,
+          price: finalPrice,
           cost: createItemDto.cost,
-          productionRate: createItemDto.productionRate, // إضافة سعر الإنتاج
+          productionRate: createItemDto.productionRate,
           groupId: createItemDto.groupId
         },
         include: {
@@ -51,7 +91,6 @@ export class ItemsService {
         }
       });
     } catch (error) {
-      // يمكن إضافة معالجة أخطاء إضافية هنا
       if (error.code === 'P2002') {
         throw new BadRequestException('هذا المنتج موجود بالفعل');
       }
@@ -94,7 +133,6 @@ export class ItemsService {
   
     // التحقق من الوحدات إذا تم تحديثها
     if (updateItemDto.units && updateItemDto.units.length > 0) {
-      // إذا تم تحديث الوحدة الافتراضية أيضًا
       if (updateItemDto.defaultUnit) {
         const defaultUnitExists = updateItemDto.units.some(
           (unitObj) => unitObj.unit === updateItemDto.defaultUnit
@@ -105,9 +143,7 @@ export class ItemsService {
             `الوحدة الافتراضية ${updateItemDto.defaultUnit} غير موجودة في قائمة الوحدات المحددة`
           );
         }
-      } 
-      // إذا لم يتم تحديث الوحدة الافتراضية، نتحقق من أن الوحدة الافتراضية الحالية موجودة في الوحدات الجديدة
-      else if (existingItem.defaultUnit) {
+      } else if (existingItem.defaultUnit) {
         const defaultUnitExists = updateItemDto.units.some(
           (unitObj) => unitObj.unit === existingItem.defaultUnit
         );
@@ -131,16 +167,16 @@ export class ItemsService {
       }
     }
   
-    // تحديد سعر البيع بناءً على الوحدة الافتراضية المحدثة إذا تم تحديثها
-    if (updateItemDto.defaultUnit && updateItemDto.units && !updateItemDto.price) {
+    // تحديد السعر الأساسي بناءً على الوحدة الافتراضية المحدثة إذا تم تحديثها
+    if (updateItemDto.defaultUnit && updateItemDto.units && !updateItemDto.basePrice) {
       const defaultUnitData = updateItemDto.units.find(
         (unitObj) => unitObj.unit === updateItemDto.defaultUnit
       );
       if (defaultUnitData) {
-        updateItemDto.price = defaultUnitData.price;
+        updateItemDto.basePrice = defaultUnitData.price;
       }
     }
-  
+
     // تحضير البيانات للتحديث
     const dataToUpdate: any = {};
   
@@ -150,14 +186,71 @@ export class ItemsService {
     if (updateItemDto.barcode !== undefined) dataToUpdate.barcode = updateItemDto.barcode;
     if (updateItemDto.description !== undefined) dataToUpdate.description = updateItemDto.description;
     if (updateItemDto.defaultUnit !== undefined) dataToUpdate.defaultUnit = updateItemDto.defaultUnit;
-    if (updateItemDto.price !== undefined) dataToUpdate.price = updateItemDto.price;
     if (updateItemDto.cost !== undefined) dataToUpdate.cost = updateItemDto.cost;
     if (updateItemDto.productionRate !== undefined) dataToUpdate.productionRate = updateItemDto.productionRate;
     if (updateItemDto.groupId !== undefined) dataToUpdate.groupId = updateItemDto.groupId;
+
+    // تحديد القيم الحالية أو المحدثة
+    const basePrice = updateItemDto.basePrice !== undefined 
+      ? updateItemDto.basePrice 
+      : existingItem.basePrice;
     
-    // معالجة الوحدات كـ JSON
-    if (updateItemDto.units) {
-      dataToUpdate.units = updateItemDto.units; // Prisma ستتعامل مع التحويل إلى JSON
+    const packagingPrice = updateItemDto.packagingPrice !== undefined 
+      ? updateItemDto.packagingPrice 
+      : existingItem.packagingPrice;
+    
+    const deliveryPrice = updateItemDto.deliveryPrice !== undefined 
+      ? updateItemDto.deliveryPrice 
+      : existingItem.deliveryPrice;
+
+    const defaultUnit = updateItemDto.defaultUnit !== undefined
+      ? updateItemDto.defaultUnit
+      : existingItem.defaultUnit;
+
+    // الحصول على units الحالية أو المحدثة
+    let currentUnits = updateItemDto.units 
+      ? updateItemDto.units 
+      : (existingItem.units as any[]);
+
+    let finalPrice: number;
+    let shouldUpdateUnits = false;
+
+    // تحديث القيم في dataToUpdate
+    if (updateItemDto.basePrice !== undefined) {
+      dataToUpdate.basePrice = updateItemDto.basePrice;
+    }
+    if (updateItemDto.packagingPrice !== undefined) {
+      dataToUpdate.packagingPrice = updateItemDto.packagingPrice;
+    }
+    if (updateItemDto.deliveryPrice !== undefined) {
+      dataToUpdate.deliveryPrice = updateItemDto.deliveryPrice;
+    }
+
+    // حساب السعر النهائي إذا تم تحديث أي من المكونات
+    if (updateItemDto.basePrice !== undefined || 
+        updateItemDto.packagingPrice !== undefined || 
+        updateItemDto.deliveryPrice !== undefined) {
+      finalPrice = this.calculateFinalPrice(basePrice, packagingPrice, deliveryPrice);
+      dataToUpdate.price = finalPrice;
+      shouldUpdateUnits = true;
+    }
+
+    // إذا تم تحديث السعر النهائي مباشرة
+    if (updateItemDto.price !== undefined) {
+      finalPrice = updateItemDto.price;
+      dataToUpdate.price = updateItemDto.price;
+      // إعادة حساب السعر الأساسي
+      dataToUpdate.basePrice = updateItemDto.price - packagingPrice - deliveryPrice;
+      shouldUpdateUnits = true;
+    }
+
+    // تحديث سعر الوحدة الافتراضية في units
+    if (shouldUpdateUnits && finalPrice !== undefined) {
+      currentUnits = this.updateDefaultUnitPrice(currentUnits, defaultUnit, finalPrice);
+      dataToUpdate.units = currentUnits;
+    } else if (updateItemDto.units) {
+      // إذا تم تحديث units فقط بدون تحديث الأسعار
+      dataToUpdate.units = updateItemDto.units;
     }
     
     // تحديث العنصر

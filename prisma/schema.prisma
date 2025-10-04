@@ -84,7 +84,10 @@ model Item {
   units               Json?
   defaultUnit         String
   cost                Float?
-  price               Float
+  basePrice           Float                 // السعر الأساسي للمادة
+  packagingPrice      Float                 @default(0) // سعر التكييس
+  deliveryPrice       Float                 @default(0) // سعر التوصيل
+  price               Float                 // السعر النهائي (basePrice + packagingPrice + deliveryPrice)
   productionRate      Float?
   description         String?
   groupId             Int
@@ -92,9 +95,7 @@ model Item {
   group               ItemGroup             @relation(fields: [groupId], references: [id])
   orderItems          OrderItem[]
   employeeProduction  EmployeeProduction[]
-
-
-   inventoryItem           InventoryItem?
+  inventoryItem           InventoryItem?
   inventoryStockMovements InventoryStockMovement[]
   
   @@map("items")
