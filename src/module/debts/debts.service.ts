@@ -188,7 +188,8 @@ export class DebtsService {
     if (!debt) {
       throw new NotFoundException(`الدين غير موجود`);
     }
-
+    console.log(discountDto.discountAmount , debt.remainingAmount);
+    
     // Validate discount amount - can't exceed remaining amount
     if (discountDto.discountAmount > debt.remainingAmount) {
       throw new BadRequestException(`قيمة الخصم تتجاوز المبلغ المتبقي للدين`);

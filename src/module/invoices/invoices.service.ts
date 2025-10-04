@@ -1,7 +1,7 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
-import { FundType, InvoiceCategory, InvoiceType } from '@prisma/client';
+import { FundType, InvoiceCategory, InvoiceItem, InvoiceType } from '@prisma/client';
 import { FilterInvoiceDto } from './dto/filter-invoice.dto';
 import { UpdateInvoiceDto } from './dto/update-invoice.dto';
 import { TransferHistoryQueryDto } from './dto/transfer-request.dto';
@@ -163,8 +163,6 @@ export class InvoicesService {
        throw new BadRequestException('المجموع الكلي غير صحيح');
      }
      
-     // إضافة معلومات المبلغ الإضافي إلى الملاحظات إذا وجد
-     let invoiceNotes = createInvoiceDto.notes || '';
    
       
       // التعامل مع فاتورة الكسر (isBreak = true)
@@ -182,6 +180,7 @@ export class InvoicesService {
             discount: createInvoiceDto.discount || 0,
             additionalAmount: additionalAmount, // تخزين المبلغ الإضافي
             fundId: createInvoiceDto.fundId,
+            notes: createInvoiceDto.notes || "" ,
             shiftId: activeShift.id,
             paymentDate: new Date(),
             trayCount: createInvoiceDto.trayCount,
@@ -240,6 +239,7 @@ export class InvoicesService {
             discount: 0, // لا خصم على فاتورة الكسر عادة
             additionalAmount: 0, // لا مبلغ إضافي على فاتورة الكسر
             fundId: createInvoiceDto.fundId,
+            notes: createInvoiceDto.notes || "" ,
             shiftId: activeShift.id,
             paymentDate: null,
             trayCount: 0, // لا صواني إضافية في فاتورة الكسر
@@ -316,6 +316,7 @@ export class InvoicesService {
             additionalAmount: additionalAmount, // تخزين المبلغ الإضافي
             supplierPaymentAmount: createInvoiceDto.supplierPaymentAmount, // حفظ مبلغ الدفع للمورد
             fundId: createInvoiceDto.fundId,
+            notes: createInvoiceDto.notes || "" ,
             shiftId: activeShift.id,
             paymentDate: createInvoiceDto.paidStatus ? new Date() : null,
             trayCount: createInvoiceDto.trayCount,
@@ -344,9 +345,15 @@ export class InvoicesService {
         });
         
         
-         if (createInvoiceDto.invoiceType === 'expense' && 
+         // ✅ تحديث المخزون والأسعار فوراً بعد إنشاء الفاتورة
+        if (createInvoiceDto.invoiceType === 'expense' && 
             createInvoiceDto.invoiceCategory === 'products' && 
-            createInvoiceDto.items) {
+            createInvoiceDto.items && 
+            createInvoiceDto.items.length > 0) {
+          
+          console.log('🔍 بدء تحديث المخزون والأسعار...');
+          console.log('عدد المواد:', createInvoiceDto.items.length);
+          
           await this.updateInventoryAndPrices(
             createInvoiceDto.items.map(item => ({
               itemId: item.itemId,
@@ -357,6 +364,8 @@ export class InvoicesService {
             invoice.id,
             invoice.invoiceNumber
           );
+          
+          console.log('✅ تم تحديث المخزون والأسعار بنجاح');
         }
         
         if (createInvoiceDto.invoiceCategory === 'employee' && createInvoiceDto.relatedEmployeeId) {
@@ -365,7 +374,6 @@ export class InvoicesService {
             if (createInvoiceDto.invoiceType === 'expense' && 
               createInvoiceDto.employeeInvoiceType === 'salary') {
               
-              console.log("test");
             // يمكننا إضافة سجل خاص بالأجر اليومي لتتبعه في المستقبل (اختياري)
             await prisma.employeeSalaryPayment.create({
               data: {
@@ -754,42 +762,122 @@ export class InvoicesService {
   }
 
 
-  private async updateInventoryAndPrices(invoiceItems: any[], employeeId: number, invoiceId: number, invoiceNumber: string) {
+  private async updateInventoryAndPrices(
+  invoiceItems: any[], 
+  employeeId: number, 
+  invoiceId: number, 
+  invoiceNumber: string
+) {
   for (const invoiceItem of invoiceItems) {
     // التحقق من أن المادة من النوع الخام
     const item = await this.prisma.item.findUnique({
       where: { id: invoiceItem.itemId }
     });
     
+    console.log('المادة المسترجعة:', item);
+    console.log('بيانات الفاتورة:', invoiceItem);
+    console.log('======================');
+    
     if (item && item.type === 'raw') {
-      // 1. تحديث سعر المنتج في جدول Items بآخر سعر من الفاتورة
+      // الحصول على الوحدة الافتراضية ووحدة الفاتورة
+      const defaultUnit = item.defaultUnit;
+      const invoiceUnit = invoiceItem.unit;
+      const invoiceUnitPrice = invoiceItem.unitPrice;
+      
+      // تحويل units من JsonValue إلى Array
+      const units = item.units as Array<{ unit: string; price: number; factor: number }>;
+      
+      console.log(`الوحدة الافتراضية: ${defaultUnit}`);
+      console.log(`وحدة الفاتورة: ${invoiceUnit}`);
+      console.log(`سعر الفاتورة: ${invoiceUnitPrice}`);
+      
+      // حساب السعر الجديد للوحدة الافتراضية
+      let newDefaultUnitPrice = invoiceUnitPrice;
+      
+      // إذا كانت وحدة الفاتورة مختلفة عن الوحدة الافتراضية
+      if (invoiceUnit !== defaultUnit) {
+        // البحث عن معامل التحويل لوحدة الفاتورة
+        const invoiceUnitData = units.find(u => u.unit === invoiceUnit);
+        
+        if (invoiceUnitData && invoiceUnitData.factor) {
+          // تحويل السعر إلى سعر الوحدة الافتراضية
+          // مثال: إذا كانت العبوة = 0.5 كيلو وسعرها 7.5
+          // فإن سعر الكيلو = 7.5 / 0.5 = 15
+          newDefaultUnitPrice = invoiceUnitPrice / invoiceUnitData.factor;
+          console.log(`تم تحويل السعر: ${invoiceUnitPrice} ÷ ${invoiceUnitData.factor} = ${newDefaultUnitPrice}`);
+        }
+      }
+      
+      // إعادة حساب أسعار جميع الوحدات بناءً على السعر الجديد للوحدة الافتراضية
+      const updatedUnits = units.map(unitObj => {
+        if (unitObj.unit === defaultUnit) {
+          // الوحدة الافتراضية - استخدام السعر الجديد مباشرة
+          return {
+            ...unitObj,
+            price: newDefaultUnitPrice
+          };
+        } else {
+          // الوحدات الأخرى - حساب السعر بناءً على المعامل
+          // مثال: إذا كان سعر الكيلو = 15 والعبوة factor = 0.5
+          // فإن سعر العبوة = 15 × 0.5 = 7.5
+          const calculatedPrice = newDefaultUnitPrice * unitObj.factor;
+          return {
+            ...unitObj,
+            price: calculatedPrice
+          };
+        }
+      });
+      
+      console.log('الوحدات بعد التحديث:', updatedUnits);
+      
+      // 1. تحديث سعر المنتج في جدول Items
       await this.prisma.item.update({
         where: { id: invoiceItem.itemId },
         data: {
-          price: invoiceItem.unitPrice, // تحديث السعر بآخر سعر من الفاتورة
+          price: newDefaultUnitPrice, // تحديث السعر الأساسي (للوحدة الافتراضية)
+          units: updatedUnits, // تحديث جميع الوحدات بالأسعار المحسوبة
         }
       });
+      
+      console.log(`✅ تم تحديث سعر المادة ${item.name}`);
+      console.log(`   السعر الأساسي الجديد: ${newDefaultUnitPrice}`);
 
       // 2. تحديث أو إنشاء سجل المخزون
+      // ملاحظة: يجب تحويل الكمية إلى الوحدة الافتراضية أيضاً
+      let quantityInDefaultUnit = invoiceItem.quantity;
+      
+      if (invoiceUnit !== defaultUnit) {
+        const invoiceUnitData = units.find(u => u.unit === invoiceUnit);
+        if (invoiceUnitData && invoiceUnitData.factor) {
+          // تحويل الكمية إلى الوحدة الافتراضية
+          // مثال: إذا اشترينا 10 عبوات والعبوة = 0.5 كيلو
+          // فإن الكمية بالكيلو = 10 × 0.5 = 5 كيلو
+          quantityInDefaultUnit = invoiceItem.quantity * invoiceUnitData.factor;
+          console.log(`تم تحويل الكمية: ${invoiceItem.quantity} ${invoiceUnit} = ${quantityInDefaultUnit} ${defaultUnit}`);
+        }
+      }
+      
       await this.prisma.inventoryItem.upsert({
         where: { itemId: invoiceItem.itemId },
         update: {
           currentStock: {
-            increment: invoiceItem.quantity
+            increment: quantityInDefaultUnit
           },
           lastUpdated: new Date()
         },
         create: {
           itemId: invoiceItem.itemId,
-          currentStock: invoiceItem.quantity,
+          currentStock: quantityInDefaultUnit,
           lastUpdated: new Date()
         }
       });
-
-    
+      
+      console.log(`✅ تم تحديث المخزون: إضافة ${quantityInDefaultUnit} ${defaultUnit}`);
+      console.log('======================');
     }
   }
 }
+
 
   
 
@@ -881,6 +969,7 @@ export class InvoicesService {
             username: true
           }
         },
+        relatedEmployee: true ,
         fund: true,
         shift: true,
         customer: true

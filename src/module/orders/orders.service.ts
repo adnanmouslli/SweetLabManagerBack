@@ -81,21 +81,7 @@ async create(createOrderDto: CreateOrderDto, employeeId: number) {
         notes: item.notes
       }));
       
-      // Recalculate total amount based on these items (considering discount/additional amount)
-      const rawTotal = createOrderDto.items.reduce(
-        (sum, item) => sum + (item.quantity * item.unitPrice),
-        0
-      );
       
-      // If total amount is provided and invoiceData exists with discount or additional amount,
-      // let's update the total amount correctly
-      if (createOrderDto.invoiceData) {
-        const discount = createOrderDto.invoiceData.discount || 0;
-        const additionalAmount = createOrderDto.invoiceData.additionalAmount || 0;
-        createOrderDto.totalAmount = rawTotal - discount + additionalAmount;
-      } else {
-        createOrderDto.totalAmount = rawTotal;
-      }
       
       console.log('Using last order items. New calculated total:', createOrderDto.totalAmount);
     } else {
@@ -121,37 +107,6 @@ async create(createOrderDto: CreateOrderDto, employeeId: number) {
     
     if (!existingItem) {
       throw new BadRequestException(`المنتج برقم ${item.itemId} غير موجود`);
-    }
-  }
-  
-  // Validate total amount
-  const calculatedTotal = createOrderDto.items.reduce(
-    (sum, item) => sum + (item.quantity * item.unitPrice),
-    0
-  );
-  
-  // Get discount and additional amount values (default to 0 if not provided)
-  const discount = createOrderDto.invoiceData?.discount || 0;
-  const additionalAmount = createOrderDto.invoiceData?.additionalAmount || 0;
-  
-  // More flexible validation that correctly calculates the expected total
-  const expectedTotal = calculatedTotal - discount + additionalAmount;
-  
-  if (Math.abs(expectedTotal - createOrderDto.totalAmount) > 0.01) {
-    console.log('Total amount validation failed:', {
-      calculatedItemsTotal: calculatedTotal,
-      discount: discount,
-      additionalAmount: additionalAmount,
-      expectedTotal: expectedTotal,
-      providedTotal: createOrderDto.totalAmount
-    });
-    
-    // Auto-correct the total amount if useLastOrder is true
-    if (createOrderDto.useLastOrder) {
-      console.log('Auto-correcting total amount due to useLastOrder flag');
-      createOrderDto.totalAmount = expectedTotal;
-    } else {
-      throw new BadRequestException('المجموع الكلي غير صحيح');
     }
   }
   
@@ -446,7 +401,7 @@ if (createOrderDto.scheduledFor) {
           where: { id: appropriateFund.id },
           data: {
             currentBalance: {
-              increment: createOrderDto.totalAmount - (createOrderDto.invoiceData?.discount || 0)
+              increment: createOrderDto.totalAmount
             }
           }
         });
@@ -480,6 +435,13 @@ if (createOrderDto.scheduledFor) {
       }
     }
     
+    await prisma.order.update({
+      where: {id: order.id},
+      data: {
+        invoiceId: invoice.id
+      }
+    });
+
     const updatedOrder = await prisma.order.findUnique({
       where: { id: order.id },
       include: {
