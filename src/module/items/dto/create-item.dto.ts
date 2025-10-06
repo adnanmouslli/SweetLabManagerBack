@@ -32,7 +32,6 @@ export class CreateItemDto {
 
   // مصفوفة ديناميكية من وحدات القياس
   @IsArray()
-  @ValidateNested({ each: true })
   @Type(() => UnitDto)
   units: UnitDto[];
 
