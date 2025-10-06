@@ -3128,7 +3128,6 @@ async generateWorkshopSalariesReport(workshopId?: number, startDate?: Date, endD
         include: {
           withdrawals: {
             where: {
-              withdrawalType: 'salary_advance',
               ...(startDate && endDate ? {
                 date: {
                   gte: startDate,
@@ -3446,7 +3445,6 @@ private buildWorkshopsDetailsTable(workshopsData: any[]): string {
 async generateEmployeeWithdrawalsReport(employeeId?: number, startDate?: Date, endDate?: Date): Promise<string> {
   // بناء شروط البحث
   const where: any = {
-    withdrawalType: 'salary_advance'
   };
   
   if (employeeId) {

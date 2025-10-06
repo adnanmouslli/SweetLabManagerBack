@@ -398,6 +398,9 @@ model WorkshopSettlement {
   paidAmount    Float     // المبلغ المدفوع
   date          DateTime  @default(now())
   fundId        Int
+  totalEarnings    Float    @default(0)  // أضف هذا
+  totalWithdrawals Float    @default(0)  // أضف هذا
+
   invoiceId     Int?      @unique
   notes         String?
   fund          Fund      @relation(fields: [fundId], references: [id])

@@ -31,9 +31,7 @@ async findAll() {
       employees: {
         include: {
           withdrawals: {
-            where: {
-              withdrawalType: "salary_advance"
-            }, 
+           
             orderBy: {
               date: 'desc'
             }
@@ -131,9 +129,7 @@ async findAll() {
       employees: {
         include: {
           withdrawals: {
-            where: {
-              withdrawalType: "salary_advance"
-            }, 
+            
             orderBy: {
               date: 'desc'
             }
@@ -487,6 +483,10 @@ async findAll() {
             fundId: settlementDto.fundId,
             invoiceId: mainInvoice.id,
             notes: settlementDto.notes,
+            
+            totalEarnings: summary.totalEarnings,     
+            totalWithdrawals: summary.totalWithdrawals,
+
           },
           include: {
             fund: true,
@@ -500,7 +500,6 @@ async findAll() {
             employee: {
               workshopId: id
             },
-            withdrawalType: 'salary_advance'
           }
         });
         
@@ -613,11 +612,7 @@ async findAll() {
       include: {
         employees: {
           include: {
-            withdrawals: {
-              where: {
-                withdrawalType: 'salary_advance'
-              }
-            },
+            withdrawals: true,
             productionRecords: true,
             hourRecords: true,
             debts: {

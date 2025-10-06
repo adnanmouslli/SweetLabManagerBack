@@ -73,6 +73,12 @@ export class EmployeesService {
         orderBy: {
           date: 'desc'
         }
+      },
+      invoices: {
+        orderBy: {
+          createdAt: 'desc'
+        },
+        take: 30 // أحدث 30 فاتورة
       }
     }
   });
@@ -182,7 +188,12 @@ export class EmployeesService {
           orderBy: {
             date: 'desc'
           }
+        },
+        invoices: {
+        orderBy: {
+          createdAt: 'desc'
         }
+      }
       }
     });
     

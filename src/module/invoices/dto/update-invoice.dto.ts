@@ -12,6 +12,11 @@ export class UpdateInvoiceDto {
     @Min(0)
     discount?: number; // الخصم
 
+
+    @IsOptional()
+    @IsNumber()
+    totalAmount?: number;
+
     @IsOptional()
     @IsNumber()
     @Min(0)

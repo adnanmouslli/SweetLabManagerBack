@@ -1203,8 +1203,8 @@ export class InvoicesService {
   }
 
 
- async updateInvoice(invoiceId: number, updateInvoiceDto: UpdateInvoiceDto, employeeId: number) {
-  const allowedFields = ['customerId', 'discount', 'items', 'trayCount', 'additionalAmount', 'additionalAmountNotes'];
+async updateInvoice(invoiceId: number, updateInvoiceDto: UpdateInvoiceDto, employeeId: number) {
+  const allowedFields = ['customerId', 'discount', 'items', 'trayCount', 'additionalAmount', 'additionalAmountNotes', 'totalAmount'];
 
   // تحقق من الحقول المسموح بها فقط
   const updateKeys = Object.keys(updateInvoiceDto);
@@ -1219,14 +1219,12 @@ export class InvoicesService {
     for (let i = 0; i < updateInvoiceDto.items.length; i++) {
       const item = updateInvoiceDto.items[i];
       
-      // التأكد من وجود الحقول المطلوبة
       if (!item.itemId || !item.quantity || !item.unitPrice) {
         throw new BadRequestException(`العنصر ${i + 1}: يجب توفير itemId و quantity و unitPrice`);
       }
       
-      // التأكد من أن unit موجود وهو string
       if (!item.unit || typeof item.unit !== 'string' || item.unit.trim() === '') {
-        updateInvoiceDto.items[i].unit = 'قطعة'; // قيمة افتراضية
+        updateInvoiceDto.items[i].unit = 'قطعة';
       }
     }
   }
@@ -1243,14 +1241,16 @@ export class InvoicesService {
     throw new BadRequestException('الفاتورة غير موجودة');
   }
 
+  // تحديد نوع الفاتورة (products أو direct)
+  const isProductsInvoice = existingInvoice.invoiceCategory === 'products';
+
   return this.prisma.$transaction(async (prisma) => {
-    // معالجة تحديث عدد الصواني
-    if ('trayCount' in updateInvoiceDto) {
+    // معالجة تحديث عدد الصواني (فقط للفواتير من نوع products)
+    if (isProductsInvoice && 'trayCount' in updateInvoiceDto) {
       const newTrayCount = updateInvoiceDto.trayCount || 0;
       const currentTrayCount = existingInvoice.trayCount || 0;
 
       if (currentTrayCount === 0 && newTrayCount > 0) {
-        // إضافة تتبع صواني جديد
         await prisma.trayTracking.create({
           data: {
             customerId: existingInvoice.customerId,
@@ -1260,13 +1260,11 @@ export class InvoicesService {
           },
         });
       } else if (currentTrayCount > 0 && newTrayCount > 0) {
-        // تحديث عدد الصواني الموجودة
         await prisma.trayTracking.updateMany({
           where: { invoiceId: invoiceId },
           data: { totalTrays: newTrayCount },
         });
       } else if (currentTrayCount > 0 && newTrayCount === 0) {
-        // حذف تتبع الصواني
         await prisma.trayTracking.deleteMany({ 
           where: { invoiceId: invoiceId } 
         });
@@ -1274,58 +1272,84 @@ export class InvoicesService {
     }
 
     // حساب المجموع الجديد
-    let itemsTotal = 0;
+    let newTotalAmount: number;
     
-    if (updateInvoiceDto.items && updateInvoiceDto.items.length > 0) {
-      // استخدام العناصر المحدثة
-      itemsTotal = updateInvoiceDto.items.reduce((sum, item) => {
-        return sum + (item.quantity * item.unitPrice);
-      }, 0);
+    if (isProductsInvoice) {
+      // للفواتير من نوع products: حساب المجموع من العناصر
+      let itemsTotal = 0;
+      
+      if (updateInvoiceDto.items && updateInvoiceDto.items.length > 0) {
+        itemsTotal = updateInvoiceDto.items.reduce((sum, item) => {
+          return sum + (item.quantity * item.unitPrice);
+        }, 0);
+      } else {
+        itemsTotal = existingInvoice.items.reduce((sum, item) => {
+          return sum + (item.quantity * item.unitPrice);
+        }, 0);
+      }
+      
+      const additionalAmount = updateInvoiceDto.additionalAmount !== undefined 
+        ? updateInvoiceDto.additionalAmount 
+        : existingInvoice.additionalAmount || 0;
+      
+      const discount = updateInvoiceDto.discount !== undefined 
+        ? updateInvoiceDto.discount 
+        : existingInvoice.discount || 0;
+      
+      newTotalAmount = itemsTotal + additionalAmount - discount;
     } else {
-      // استخدام العناصر الحالية إذا لم يتم تحديثها
-      itemsTotal = existingInvoice.items.reduce((sum, item) => {
-        return sum + (item.quantity * item.unitPrice);
-      }, 0);
+      // للفواتير المباشرة: استخدام totalAmount المرسل أو الحالي
+      const baseTotalAmount = updateInvoiceDto.totalAmount !== undefined
+        ? updateInvoiceDto.totalAmount
+        : existingInvoice.totalAmount;
+      
+      const discount = updateInvoiceDto.discount !== undefined 
+        ? updateInvoiceDto.discount 
+        : existingInvoice.discount || 0;
+      
+      // للفواتير المباشرة: totalAmount هو المبلغ الأساسي قبل الخصم
+      newTotalAmount = baseTotalAmount - discount;
     }
-    
-    // حساب المبلغ الإضافي
-    const additionalAmount = updateInvoiceDto.additionalAmount !== undefined 
-      ? updateInvoiceDto.additionalAmount 
-      : existingInvoice.additionalAmount || 0;
-    
-    // حساب الخصم
-    const discount = updateInvoiceDto.discount !== undefined 
-      ? updateInvoiceDto.discount 
-      : existingInvoice.discount || 0;
-    
-    // حساب المجموع النهائي
-    const newTotalAmount = itemsTotal + additionalAmount - discount;
     
     // تحضير بيانات التحديث
     const updateData: any = {
       customerId: updateInvoiceDto.customerId !== undefined 
         ? updateInvoiceDto.customerId 
         : existingInvoice.customerId,
-      discount: discount,
-      additionalAmount: additionalAmount,
-      trayCount: updateInvoiceDto.trayCount !== undefined 
-        ? updateInvoiceDto.trayCount 
-        : existingInvoice.trayCount,
+      discount: updateInvoiceDto.discount !== undefined 
+        ? updateInvoiceDto.discount 
+        : existingInvoice.discount || 0,
       totalAmount: newTotalAmount,
     };
 
-    // إضافة تحديث العناصر إذا تم إرسالها
-    if (updateInvoiceDto.items && Array.isArray(updateInvoiceDto.items)) {
-      updateData.items = {
-        deleteMany: { invoiceId: invoiceId }, // حذف العناصر القديمة
-        create: updateInvoiceDto.items.map((item) => ({
-          quantity: item.quantity,
-          unitPrice: item.unitPrice,
-          unit: item.unit || 'قطعة', // التأكد من وجود unit
-          subTotal: item.quantity * item.unitPrice,
-          itemId: item.itemId,
-        })),
-      };
+    // إضافة الحقول الخاصة بفواتير المنتجات فقط
+    if (isProductsInvoice) {
+      updateData.additionalAmount = updateInvoiceDto.additionalAmount !== undefined 
+        ? updateInvoiceDto.additionalAmount 
+        : existingInvoice.additionalAmount || 0;
+      
+      updateData.trayCount = updateInvoiceDto.trayCount !== undefined 
+        ? updateInvoiceDto.trayCount 
+        : existingInvoice.trayCount;
+
+      // إضافة تحديث العناصر إذا تم إرسالها
+      if (updateInvoiceDto.items && Array.isArray(updateInvoiceDto.items)) {
+        updateData.items = {
+          deleteMany: { invoiceId: invoiceId },
+          create: updateInvoiceDto.items.map((item) => ({
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            unit: item.unit || 'قطعة',
+            subTotal: item.quantity * item.unitPrice,
+            itemId: item.itemId,
+          })),
+        };
+      }
+    }
+
+    // إضافة additionalAmountNotes إذا تم إرساله
+    if (updateInvoiceDto.additionalAmountNotes !== undefined) {
+      updateData.additionalAmountNotes = updateInvoiceDto.additionalAmountNotes;
     }
     
     // تحديث الفاتورة
@@ -1340,10 +1364,8 @@ export class InvoicesService {
 
     // تحديث رصيد الصندوق إذا كانت الفاتورة مدفوعة
     if (existingInvoice.paidStatus) {
-      // حساب الفرق في المبلغ
-      const oldAmount = existingInvoice.totalAmount - (existingInvoice.discount || 0);
-      const newAmount = newTotalAmount - discount;
-      const amountDifference = newAmount - oldAmount;
+      const oldAmount = existingInvoice.totalAmount;
+      const amountDifference = newTotalAmount - oldAmount;
       
       if (amountDifference !== 0) {
         await prisma.fund.update({
@@ -1351,7 +1373,7 @@ export class InvoicesService {
           data: {
             currentBalance: {
               [existingInvoice.invoiceType === 'income' ? 'increment' : 'decrement']:
-                amountDifference,
+                Math.abs(amountDifference),
             },
           },
         });
