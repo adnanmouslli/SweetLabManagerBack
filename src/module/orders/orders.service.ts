@@ -42,7 +42,7 @@ export class OrdersService {
     return { fund, customer };
   }
 
-// تعديل دالة create
+  // تعديل دالة create
 async create(createOrderDto: CreateOrderDto, employeeId: number) {
   // Verify customer exists
   const customer = await this.prisma.customer.findUnique({
@@ -81,8 +81,6 @@ async create(createOrderDto: CreateOrderDto, employeeId: number) {
         notes: item.notes
       }));
       
-      
-      
       console.log('Using last order items. New calculated total:', createOrderDto.totalAmount);
     } else {
       // No previous order found
@@ -111,42 +109,40 @@ async create(createOrderDto: CreateOrderDto, employeeId: number) {
   }
   
   // Determine scheduled date
-let scheduledDate: Date;
+  let scheduledDate: Date;
 
-const now = this.createSyriaDate(); // تاريخ/وقت محلي (مثلاً Asia/Damascus)
+  const now = this.createSyriaDate(); // تاريخ/وقت محلي (مثلاً Asia/Damascus)
 
-if (createOrderDto.scheduledFor) {
-  scheduledDate = new Date(createOrderDto.scheduledFor);
-} else {
-  const isForToday = createOrderDto.isForToday || false;
-
-  if (isForToday) {
-    // التسليم اليوم الساعة 12:00
-    scheduledDate = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate(),
-      12, 0, 0
-    );
+  if (createOrderDto.scheduledFor) {
+    scheduledDate = new Date(createOrderDto.scheduledFor);
   } else {
-    // التسليم غداً
-    const tomorrow = new Date(now);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    tomorrow.setHours(12, 0, 0, 0);
+    const isForToday = createOrderDto.isForToday || false;
 
-    // معالجة حالة الخميس (الغد = الجمعة → عطلة)
-    // getDay() → 0 الأحد , 4 الخميس , 5 الجمعة , 6 السبت
-    if (now.getDay() === 4) { 
-      // اليوم الخميس، الغد جمعة → نحرك يومين للسبت
+    if (isForToday) {
+      // التسليم اليوم الساعة 12:00
+      scheduledDate = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate(),
+        12, 0, 0
+      );
+    } else {
+      // التسليم غداً
+      const tomorrow = new Date(now);
       tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(12, 0, 0, 0);
+
+      // معالجة حالة الخميس (الغد = الجمعة → عطلة)
+      // getDay() → 0 الأحد , 4 الخميس , 5 الجمعة , 6 السبت
+      if (now.getDay() === 4) { 
+        // اليوم الخميس، الغد جمعة → نحرك يومين للسبت
+        tomorrow.setDate(tomorrow.getDate() + 1);
+      }
+
+      scheduledDate = tomorrow;
     }
-
-    scheduledDate = tomorrow;
   }
-}
 
-
-  
   const orderNumber = `ORD-${Date.now()}`;
   
   return this.prisma.$transaction(async (prisma) => {
@@ -230,7 +226,7 @@ if (createOrderDto.scheduledFor) {
             totalAmount: createOrderDto.invoiceData.initialPayment,
             discount: createOrderDto.invoiceData.discount || 0,
             additionalAmount: createOrderDto.invoiceData.additionalAmount || 0,
-            fundId: appropriateFund.id, // استخدام الصندوق المناسب
+            fundId: appropriateFund.id,
             shiftId: activeShift.id,
             paymentDate: new Date(),
             trayCount: createOrderDto.invoiceData.trayCount || 0,
@@ -268,7 +264,7 @@ if (createOrderDto.scheduledFor) {
             totalAmount: remainingAmount,
             discount: 0,
             additionalAmount: 0,
-            fundId: appropriateFund.id, // استخدام الصندوق المناسب
+            fundId: appropriateFund.id,
             shiftId: activeShift.id,
             paymentDate: null,
             trayCount: 0,
@@ -293,12 +289,12 @@ if (createOrderDto.scheduledFor) {
           });
         }
         
-        // Update order to link to first invoice (paid portion)
+        // Update order to link to break invoice (unpaid portion)
         await prisma.order.update({
           where: { id: order.id },
           data: { 
             invoiceId: breakInvoice.id,
-            paidStatus: false, // Partially paid
+            paidStatus: false,
             status: OrderStatus.pending 
           }
         });
@@ -370,7 +366,7 @@ if (createOrderDto.scheduledFor) {
             discount: createOrderDto.invoiceData?.discount || 0,
             additionalAmount: createOrderDto.invoiceData?.additionalAmount || 0,
             notes: createOrderDto.invoiceData?.notes,
-            fundId: appropriateFund.id, // استخدام الصندوق المناسب
+            fundId: appropriateFund.id,
             shiftId: activeShift.id,
             paymentDate: new Date(),
             trayCount: createOrderDto.invoiceData?.trayCount || 0,
@@ -394,7 +390,14 @@ if (createOrderDto.scheduledFor) {
             }
           });
         }
-        
+
+        // Update order with invoice ID
+        await prisma.order.update({
+          where: { id: order.id },
+          data: {
+            invoiceId: standardInvoice.id
+          }
+        });
 
         // Update fund balance
         await prisma.fund.update({
@@ -435,13 +438,7 @@ if (createOrderDto.scheduledFor) {
       }
     }
     
-    await prisma.order.update({
-      where: {id: order.id},
-      data: {
-        invoiceId: invoice.id
-      }
-    });
-
+    // Get updated order with all relations
     const updatedOrder = await prisma.order.findUnique({
       where: { id: order.id },
       include: {
