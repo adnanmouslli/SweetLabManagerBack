@@ -1203,7 +1203,7 @@ export class InvoicesService {
   }
 
 
-async updateInvoice(invoiceId: number, updateInvoiceDto: UpdateInvoiceDto, employeeId: number) {
+  async updateInvoice(invoiceId: number, updateInvoiceDto: UpdateInvoiceDto, employeeId: number) {
   const allowedFields = ['customerId', 'discount', 'items', 'trayCount', 'additionalAmount', 'additionalAmountNotes', 'totalAmount'];
 
   // تحقق من الحقول المسموح بها فقط
@@ -1234,6 +1234,8 @@ async updateInvoice(invoiceId: number, updateInvoiceDto: UpdateInvoiceDto, emplo
     include: {
       items: true,
       trayTracking: true,
+      relatedDebt: true,
+      relatedEmployeeDebt: true,
     },
   });
 
@@ -1362,22 +1364,77 @@ async updateInvoice(invoiceId: number, updateInvoiceDto: UpdateInvoiceDto, emplo
       },
     });
 
-    // تحديث رصيد الصندوق إذا كانت الفاتورة مدفوعة
-    if (existingInvoice.paidStatus) {
-      const oldAmount = existingInvoice.totalAmount;
-      const amountDifference = newTotalAmount - oldAmount;
-      
-      if (amountDifference !== 0) {
-        await prisma.fund.update({
-          where: { id: existingInvoice.fundId },
+    // حساب الفرق في المبلغ
+    const oldAmount = existingInvoice.totalAmount;
+    const amountDifference = newTotalAmount - oldAmount;
+
+    // ============ معالجة تحديث الديون ============
+    
+    // تحديث الدين المرتبط بالعميل (customer debt)
+    if (existingInvoice.relatedDebt) {
+      const debt = await prisma.debt.findUnique({
+        where: { id: existingInvoice.relatedDebt.id }
+      });
+
+      if (debt) {
+        // حساب المبلغ المتبقي الجديد
+        const newRemainingAmount = debt.remainingAmount + amountDifference;
+        const newTotalAmount = debt.totalAmount + amountDifference;
+
+        // تحديث سجل الدين
+        await prisma.debt.update({
+          where: { id: debt.id },
           data: {
-            currentBalance: {
-              [existingInvoice.invoiceType === 'income' ? 'increment' : 'decrement']:
-                Math.abs(amountDifference),
-            },
-          },
+            totalAmount: newTotalAmount,
+            remainingAmount: newRemainingAmount,
+            status: newRemainingAmount <= 0 ? 'paid' : 'active',
+            notes: debt.notes 
+              ? `${debt.notes}\nتم تعديل المبلغ من ${oldAmount} إلى ${newTotalAmount}`
+              : `تم تعديل المبلغ من ${oldAmount} إلى ${newTotalAmount}`,
+            lastPaymentDate: newRemainingAmount <= 0 ? new Date() : debt.lastPaymentDate
+          }
         });
       }
+    }
+
+    // تحديث الدين المرتبط بالموظف (employee debt)
+    if (existingInvoice.relatedEmployeeDebt) {
+      const employeeDebt = await prisma.employeeDebt.findUnique({
+        where: { id: existingInvoice.relatedEmployeeDebt.id }
+      });
+
+      if (employeeDebt) {
+        // حساب المبلغ المتبقي الجديد
+        const newRemainingAmount = employeeDebt.remainingAmount + amountDifference;
+        const newTotalAmount = employeeDebt.totalAmount + amountDifference;
+
+        // تحديث سجل الدين
+        await prisma.employeeDebt.update({
+          where: { id: employeeDebt.id },
+          data: {
+            totalAmount: newTotalAmount,
+            remainingAmount: newRemainingAmount,
+            status: newRemainingAmount <= 0 ? 'paid' : 'active',
+            notes: employeeDebt.notes 
+              ? `${employeeDebt.notes}\nتم تعديل المبلغ من ${oldAmount} إلى ${newTotalAmount}`
+              : `تم تعديل المبلغ من ${oldAmount} إلى ${newTotalAmount}`,
+            lastPaymentDate: newRemainingAmount <= 0 ? new Date() : employeeDebt.lastPaymentDate
+          }
+        });
+      }
+    }
+
+    // ============ تحديث رصيد الصندوق ============
+    if (existingInvoice.paidStatus && amountDifference !== 0) {
+      await prisma.fund.update({
+        where: { id: existingInvoice.fundId },
+        data: {
+          currentBalance: {
+            [existingInvoice.invoiceType === 'income' ? 'increment' : 'decrement']:
+              Math.abs(amountDifference),
+          },
+        },
+      });
     }
 
     console.log('Updated invoice:', updatedInvoice);
@@ -1386,7 +1443,7 @@ async updateInvoice(invoiceId: number, updateInvoiceDto: UpdateInvoiceDto, emplo
     return updatedInvoice;
   });
 }
-  
+
 
   async deleteInvoice(invoiceId: number): Promise<any> {
      this.prisma.$transaction(async (prisma) => {
@@ -1558,427 +1615,427 @@ async updateInvoice(invoiceId: number, updateInvoiceDto: UpdateInvoiceDto, emplo
 
 
 
-async getCurrentShiftInvoices() {
-  try {
+  async getCurrentShiftInvoices() {
+    try {
 
-    const activeShift = await this.prisma.shift.findFirst({
-      where: {
-        status: 'open',
-      },
-    });
-
-    if (!activeShift) {
-      throw new BadRequestException('لا يوجد واردية مفتوحة');
-    }
-
-
-    const invoices = await this.prisma.invoice.findMany({
-      where: {
-        shiftId: activeShift.id,
-        fund: {
-          fundType: {
-            not: 'main'
-          }
-        }
-      },
-      include: {
-        items: {
-          include: {
-            item: true
-          }
-        },
-        relatedEmployee: true,
-        fund: true,
-        customer:true
-      },
-      orderBy: {
-        createdAt: 'desc'
-      }
-    });
-
-    const boothInvoices = invoices.filter(invoice => invoice.fund.fundType === 'booth');
-    const universityInvoices = invoices.filter(invoice => invoice.fund.fundType === 'university');
-    const generalInvoices = invoices.filter(invoice => invoice.fund.fundType === 'general');
-
-    const calculateFundTotals = (fundInvoices) => {
-      const income = fundInvoices
-        .filter(inv => inv.invoiceType === 'income' && 
-          inv.paidStatus === true
-        )
-        .reduce((sum, inv) => sum + (inv.totalAmount - (inv.discount || 0)), 0);
-      
-      const expense = fundInvoices
-        .filter(inv => inv.invoiceType === 'expense' && 
-          inv.paidStatus === true
-        )
-        .reduce((sum, inv) => sum + (inv.totalAmount - (inv.discount || 0)), 0);
-
-      return {
-        income,
-        expense,
-        net: income - expense
-      };
-    };
-    return {
-      shiftId: activeShift.id,
-      openTime: activeShift.openTime,
-      booth: {
-        invoices: boothInvoices,
-        count: boothInvoices.length,
-        totals: calculateFundTotals(boothInvoices)
-      },
-      university: {
-        invoices: universityInvoices,
-        count: universityInvoices.length,
-        totals: calculateFundTotals(universityInvoices)
-      },
-      general: {
-        invoices: generalInvoices,
-        count: generalInvoices.length,
-        totals: calculateFundTotals(generalInvoices)
-      }
-    };
-
-  } catch (error) {
-    if (error instanceof BadRequestException) {
-      throw error;
-    }
-    throw new BadRequestException('حدث خطأ أثناء جلب فواتير الواردية الحالية');
-  }
-}
-
-
-
-async convertInvoiceToDebt(invoiceId: number) {
-  // الحصول على بيانات الفاتورة الأصلية
-  const invoice = await this.prisma.invoice.findUnique({
-    where: { id: invoiceId },
-    include: {
-      customer: true,
-      items: true,
-      trayTracking: true,
-      relatedDebt: true
-    }
-  });
-
-  if (!invoice) {
-    throw new NotFoundException('الفاتورة غير موجودة');
-  }
-
-  // التحقق من أن الفاتورة غير مدفوعة
-  if (invoice.paidStatus) {
-    throw new BadRequestException('لا يمكن تحويل الفاتورة المدفوعة إلى دين');
-  }
-
-  // التحقق من وجود عميل مرتبط بالفاتورة
-  if (!invoice.customerId) {
-    throw new BadRequestException('لا يمكن تحويل الفاتورة إلى دين: العميل غير محدد');
-  }
-
-  return this.prisma.$transaction(async (prisma) => {
-    let debtRecord;
-    const debtDescription = `تم تحويل الفاتورة رقم ${invoice.invoiceNumber} إلى دين`;
-    
-    // البحث عن سجل دين نشط للعميل
-    const existingDebt = await prisma.debt.findFirst({
-      where: {
-        customerId: invoice.customerId,
-        status: 'active'
-      }
-    });
-
-    if (existingDebt) {
-      // تحديث سجل الدين الموجود
-      debtRecord = await prisma.debt.update({
-        where: { id: existingDebt.id },
-        data: {
-          totalAmount: existingDebt.totalAmount + invoice.totalAmount,
-          remainingAmount: existingDebt.remainingAmount + invoice.totalAmount,
-          notes: `${existingDebt.notes || ''}\n${debtDescription} بتاريخ ${new Date().toLocaleDateString('ar-EG')}`
-        }
-      });
-    } else {
-      // إنشاء سجل دين جديد
-      debtRecord = await prisma.debt.create({
-        data: {
-          customerId: invoice.customerId,
-          totalAmount: invoice.totalAmount,
-          remainingAmount: invoice.totalAmount,
-          status: 'active',
-          notes: debtDescription
-        }
-      });
-    }
-
-    // حذف عناصر الفاتورة
-    if (invoice.items.length > 0) {
-      await prisma.invoiceItem.deleteMany({
-        where: { invoiceId }
-      });
-    }
-
-    // معالجة الصواني المرتبطة - تحديث ملاحظات الصواني وإبقاءها في النظام
-    if (invoice.trayTracking) {
-      await prisma.trayTracking.update({
-        where: { id: invoice.trayTracking.id },
-        data: { 
-          notes: `${invoice.trayTracking.notes || ''}\n تم تحويل الفاتورة المرتبطة إلى دين`,
-          invoiceId: null // فك الارتباط مع الفاتورة التي سيتم حذفها
-        }
-      });
-    }
-
-    // حذف الفاتورة
-    await prisma.invoice.delete({
-      where: { id: invoiceId }
-    });
-
-    // إرجاع معلومات عن الدين
-    return {
-      message: 'تم تحويل الفاتورة إلى دين بنجاح',
-      debtRecord,
-      customerName: invoice.customer?.name || 'غير معروف',
-      invoiceAmount: invoice.totalAmount,
-      originalInvoiceNumber: invoice.invoiceNumber
-    };
-  });
-}
-
-
-async getRawMaterialExpenseInvoices(query?: FilterInvoiceDto) {
-  try {
-    // التحقق من حالة المصفاة إذا تم تمريرها
-    const where: any = {
-      invoiceType: 'expense',
-      invoiceCategory: 'products',
-      items: {
-        some: {
-          item: {
-            type: 'raw'
-          }
-        }
-      }
-    };
-
-    // إضافة مصفاة إضافية من الاستعلام إذا وجدت
-    if (query) {
-      if (query.paidStatus !== undefined) {
-        where.paidStatus = query.paidStatus;
-      }
-      
-      if (query.fundId) {
-        where.fundId = Number(query.fundId);
-      }
-      
-      if (query.startDate || query.endDate) {
-        where.createdAt = {};
-        
-        if (query.startDate) {
-          where.createdAt.gte = new Date(query.startDate);
-        }
-        
-        if (query.endDate) {
-          where.createdAt.lte = new Date(query.endDate);
-        }
-      }
-    }
-
-    // جلب الفواتير مع تضمين البيانات المرتبطة
-    const invoices = await this.prisma.invoice.findMany({
-      where,
-      include: {
-        items: {
-          include: {
-            item: true
-          }
-        },
-        employee: {
-          select: {
-            username: true
-          }
-        },
-        fund: true,
-        customer: true
-      },
-      orderBy: {
-        createdAt: 'desc'
-      }
-    });
-
-    // حساب إحصاءات المواد الأولية
-    const materialStats = this.calculateRawMaterialStats(invoices);
-
-    return {
-      invoices,
-      totalCount: invoices.length,
-      totalAmount: invoices.reduce((sum, invoice) => sum + invoice.totalAmount, 0),
-      paidAmount: invoices
-        .filter(invoice => invoice.paidStatus)
-        .reduce((sum, invoice) => sum + invoice.totalAmount, 0),
-      unpaidAmount: invoices
-        .filter(invoice => !invoice.paidStatus)
-        .reduce((sum, invoice) => sum + invoice.totalAmount, 0),
-      rawMaterialStats: materialStats
-    };
-  } catch (error) {
-    console.error('Error in getRawMaterialExpenseInvoices:', error);
-    throw new BadRequestException('حدث خطأ أثناء جلب فواتير المواد الأولية');
-  }
-}
-
-
-async getInventoryItems() {
-  const inventoryItems = await this.prisma.inventoryItem.findMany({
-    where: {
-      currentStock: {
-        gt: 0
-      }
-    },
-    include: {
-      item: true
-    },
-    orderBy: {
-      item: {
-        name: 'asc'
-      }
-    }
-  });
-
-  // حساب متوسط سعر الشراء لكل مادة
-  const itemsWithAveragePrice = await Promise.all(
-    inventoryItems.map(async (inventoryItem) => {
-      const movements = await this.prisma.inventoryStockMovement.findMany({
+      const activeShift = await this.prisma.shift.findFirst({
         where: {
-          itemId: inventoryItem.itemId,
-          movementType: 'purchase',
-          unitPrice: { not: null }
+          status: 'open',
+        },
+      });
+
+      if (!activeShift) {
+        throw new BadRequestException('لا يوجد واردية مفتوحة');
+      }
+
+
+      const invoices = await this.prisma.invoice.findMany({
+        where: {
+          shiftId: activeShift.id,
+          fund: {
+            fundType: {
+              not: 'main'
+            }
+          }
+        },
+        include: {
+          items: {
+            include: {
+              item: true
+            }
+          },
+          relatedEmployee: true,
+          fund: true,
+          customer:true
         },
         orderBy: {
           createdAt: 'desc'
         }
       });
 
-      let averagePrice = 0;
-      if (movements.length > 0) {
-        const totalCost = movements.reduce((sum, movement) => sum + (movement.totalCost || 0), 0);
-        const totalQuantity = movements.reduce((sum, movement) => sum + movement.quantity, 0);
-        averagePrice = totalQuantity > 0 ? totalCost / totalQuantity : 0;
-      }
+      const boothInvoices = invoices.filter(invoice => invoice.fund.fundType === 'booth');
+      const universityInvoices = invoices.filter(invoice => invoice.fund.fundType === 'university');
+      const generalInvoices = invoices.filter(invoice => invoice.fund.fundType === 'general');
 
-      return {
-        ...inventoryItem,
-        averageUnitPrice: averagePrice,
-        totalValue: inventoryItem.currentStock * averagePrice
+      const calculateFundTotals = (fundInvoices) => {
+        const income = fundInvoices
+          .filter(inv => inv.invoiceType === 'income' && 
+            inv.paidStatus === true
+          )
+          .reduce((sum, inv) => sum + (inv.totalAmount - (inv.discount || 0)), 0);
+        
+        const expense = fundInvoices
+          .filter(inv => inv.invoiceType === 'expense' && 
+            inv.paidStatus === true
+          )
+          .reduce((sum, inv) => sum + (inv.totalAmount - (inv.discount || 0)), 0);
+
+        return {
+          income,
+          expense,
+          net: income - expense
+        };
       };
-    })
-  );
-
-  return itemsWithAveragePrice;
-}
-
-// 2. تابع إجراء الجرد المبسط
-async performInventoryAudit(auditData: { itemId: number; countedStock: number }[], employeeId: number) {
-  return this.prisma.$transaction(async (prisma) => {
-    let totalValueDifference = 0;
-    let totalItemsProcessed = 0;
-    const processedItems = [];
-
-    // معالجة كل مادة في الجرد
-    for (const auditItemData of auditData) {
-      // جلب المادة من المخزون
-      const inventoryItem = await prisma.inventoryItem.findUnique({
-        where: { itemId: auditItemData.itemId },
-        include: { item: true }
-      });
-
-      if (!inventoryItem) {
-        throw new BadRequestException(`المادة رقم ${auditItemData.itemId} غير موجودة في المخزون`);
-      }
-
-      // حساب متوسط سعر الشراء
-      const movements = await prisma.inventoryStockMovement.findMany({
-        where: {
-          itemId: auditItemData.itemId,
-          movementType: 'purchase',
-          unitPrice: { not: null }
+      return {
+        shiftId: activeShift.id,
+        openTime: activeShift.openTime,
+        booth: {
+          invoices: boothInvoices,
+          count: boothInvoices.length,
+          totals: calculateFundTotals(boothInvoices)
+        },
+        university: {
+          invoices: universityInvoices,
+          count: universityInvoices.length,
+          totals: calculateFundTotals(universityInvoices)
+        },
+        general: {
+          invoices: generalInvoices,
+          count: generalInvoices.length,
+          totals: calculateFundTotals(generalInvoices)
         }
-      });
+      };
 
-      let averagePrice = 0;
-      if (movements.length > 0) {
-        const totalCost = movements.reduce((sum, movement) => sum + (movement.totalCost || 0), 0);
-        const totalQuantity = movements.reduce((sum, movement) => sum + movement.quantity, 0);
-        averagePrice = totalQuantity > 0 ? totalCost / totalQuantity : 0;
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw error;
       }
-
-      const previousStock = inventoryItem.currentStock;
-      const difference = auditItemData.countedStock - previousStock;
-      const totalValue = difference * averagePrice;
-
-      // تجميع المعلومات للتقرير
-      processedItems.push({
-        itemName: inventoryItem.item.name,
-        itemUnit: inventoryItem.item.units,
-        previousStock,
-        countedStock: auditItemData.countedStock,
-        difference,
-        unitPrice: averagePrice,
-        totalValue
-      });
-
-      totalValueDifference += totalValue;
-      totalItemsProcessed++;
-
-      // تحديث المخزون
-      await prisma.inventoryItem.update({
-        where: { itemId: auditItemData.itemId },
-        data: {
-          currentStock: auditItemData.countedStock,
-          lastUpdated: new Date()
-        }
-      });
-
-      // تسجيل حركة المخزون للجرد (إذا كان هناك فرق)
-      if (difference !== 0) {
-        await prisma.inventoryStockMovement.create({
-          data: {
-            itemId: auditItemData.itemId,
-            movementType: 'inventory',
-            quantity: difference,
-            unitPrice: averagePrice,
-            totalCost: totalValue,
-            notes: difference > 0 
-              ? `زيادة في الجرد: ${Math.abs(difference)} ${inventoryItem.item.units}`
-              : `نقص في الجرد: ${Math.abs(difference)} ${inventoryItem.item.units}`,
-            employeeId
-          }
-        });
-      }
+      throw new BadRequestException('حدث خطأ أثناء جلب فواتير الواردية الحالية');
     }
+  }
 
-    // إنشاء سجل الجرد العام (بدون تفاصيل المنتجات)
-    const audit = await prisma.inventoryAudit.create({
-      data: {
-        employeeId,
-        totalItemsCount: totalItemsProcessed,
-        totalValueDifference,
-        notes: `جرد مخزون بتاريخ ${new Date().toLocaleDateString('ar-EG')} - تم جرد ${totalItemsProcessed} مادة`
+
+
+  async convertInvoiceToDebt(invoiceId: number) {
+    // الحصول على بيانات الفاتورة الأصلية
+    const invoice = await this.prisma.invoice.findUnique({
+      where: { id: invoiceId },
+      include: {
+        customer: true,
+        items: true,
+        trayTracking: true,
+        relatedDebt: true
       }
     });
 
-    return {
-      audit,
-      processedItems, // تفاصيل المعالجة للعرض في الواجهة
-      summary: {
-        totalItems: totalItemsProcessed,
-        totalValueDifference,
-        itemsWithIncrease: processedItems.filter(item => item.difference > 0).length,
-        itemsWithDecrease: processedItems.filter(item => item.difference < 0).length,
-        itemsUnchanged: processedItems.filter(item => item.difference === 0).length
+    if (!invoice) {
+      throw new NotFoundException('الفاتورة غير موجودة');
+    }
+
+    // التحقق من أن الفاتورة غير مدفوعة
+    if (invoice.paidStatus) {
+      throw new BadRequestException('لا يمكن تحويل الفاتورة المدفوعة إلى دين');
+    }
+
+    // التحقق من وجود عميل مرتبط بالفاتورة
+    if (!invoice.customerId) {
+      throw new BadRequestException('لا يمكن تحويل الفاتورة إلى دين: العميل غير محدد');
+    }
+
+    return this.prisma.$transaction(async (prisma) => {
+      let debtRecord;
+      const debtDescription = `تم تحويل الفاتورة رقم ${invoice.invoiceNumber} إلى دين`;
+      
+      // البحث عن سجل دين نشط للعميل
+      const existingDebt = await prisma.debt.findFirst({
+        where: {
+          customerId: invoice.customerId,
+          status: 'active'
+        }
+      });
+
+      if (existingDebt) {
+        // تحديث سجل الدين الموجود
+        debtRecord = await prisma.debt.update({
+          where: { id: existingDebt.id },
+          data: {
+            totalAmount: existingDebt.totalAmount + invoice.totalAmount,
+            remainingAmount: existingDebt.remainingAmount + invoice.totalAmount,
+            notes: `${existingDebt.notes || ''}\n${debtDescription} بتاريخ ${new Date().toLocaleDateString('ar-EG')}`
+          }
+        });
+      } else {
+        // إنشاء سجل دين جديد
+        debtRecord = await prisma.debt.create({
+          data: {
+            customerId: invoice.customerId,
+            totalAmount: invoice.totalAmount,
+            remainingAmount: invoice.totalAmount,
+            status: 'active',
+            notes: debtDescription
+          }
+        });
       }
-    };
-  });
-}
+
+      // حذف عناصر الفاتورة
+      if (invoice.items.length > 0) {
+        await prisma.invoiceItem.deleteMany({
+          where: { invoiceId }
+        });
+      }
+
+      // معالجة الصواني المرتبطة - تحديث ملاحظات الصواني وإبقاءها في النظام
+      if (invoice.trayTracking) {
+        await prisma.trayTracking.update({
+          where: { id: invoice.trayTracking.id },
+          data: { 
+            notes: `${invoice.trayTracking.notes || ''}\n تم تحويل الفاتورة المرتبطة إلى دين`,
+            invoiceId: null // فك الارتباط مع الفاتورة التي سيتم حذفها
+          }
+        });
+      }
+
+      // حذف الفاتورة
+      await prisma.invoice.delete({
+        where: { id: invoiceId }
+      });
+
+      // إرجاع معلومات عن الدين
+      return {
+        message: 'تم تحويل الفاتورة إلى دين بنجاح',
+        debtRecord,
+        customerName: invoice.customer?.name || 'غير معروف',
+        invoiceAmount: invoice.totalAmount,
+        originalInvoiceNumber: invoice.invoiceNumber
+      };
+    });
+  }
+
+
+  async getRawMaterialExpenseInvoices(query?: FilterInvoiceDto) {
+    try {
+      // التحقق من حالة المصفاة إذا تم تمريرها
+      const where: any = {
+        invoiceType: 'expense',
+        invoiceCategory: 'products',
+        items: {
+          some: {
+            item: {
+              type: 'raw'
+            }
+          }
+        }
+      };
+
+      // إضافة مصفاة إضافية من الاستعلام إذا وجدت
+      if (query) {
+        if (query.paidStatus !== undefined) {
+          where.paidStatus = query.paidStatus;
+        }
+        
+        if (query.fundId) {
+          where.fundId = Number(query.fundId);
+        }
+        
+        if (query.startDate || query.endDate) {
+          where.createdAt = {};
+          
+          if (query.startDate) {
+            where.createdAt.gte = new Date(query.startDate);
+          }
+          
+          if (query.endDate) {
+            where.createdAt.lte = new Date(query.endDate);
+          }
+        }
+      }
+
+      // جلب الفواتير مع تضمين البيانات المرتبطة
+      const invoices = await this.prisma.invoice.findMany({
+        where,
+        include: {
+          items: {
+            include: {
+              item: true
+            }
+          },
+          employee: {
+            select: {
+              username: true
+            }
+          },
+          fund: true,
+          customer: true
+        },
+        orderBy: {
+          createdAt: 'desc'
+        }
+      });
+
+      // حساب إحصاءات المواد الأولية
+      const materialStats = this.calculateRawMaterialStats(invoices);
+
+      return {
+        invoices,
+        totalCount: invoices.length,
+        totalAmount: invoices.reduce((sum, invoice) => sum + invoice.totalAmount, 0),
+        paidAmount: invoices
+          .filter(invoice => invoice.paidStatus)
+          .reduce((sum, invoice) => sum + invoice.totalAmount, 0),
+        unpaidAmount: invoices
+          .filter(invoice => !invoice.paidStatus)
+          .reduce((sum, invoice) => sum + invoice.totalAmount, 0),
+        rawMaterialStats: materialStats
+      };
+    } catch (error) {
+      console.error('Error in getRawMaterialExpenseInvoices:', error);
+      throw new BadRequestException('حدث خطأ أثناء جلب فواتير المواد الأولية');
+    }
+  }
+
+
+  async getInventoryItems() {
+    const inventoryItems = await this.prisma.inventoryItem.findMany({
+      where: {
+        currentStock: {
+          gt: 0
+        }
+      },
+      include: {
+        item: true
+      },
+      orderBy: {
+        item: {
+          name: 'asc'
+        }
+      }
+    });
+
+    // حساب متوسط سعر الشراء لكل مادة
+    const itemsWithAveragePrice = await Promise.all(
+      inventoryItems.map(async (inventoryItem) => {
+        const movements = await this.prisma.inventoryStockMovement.findMany({
+          where: {
+            itemId: inventoryItem.itemId,
+            movementType: 'purchase',
+            unitPrice: { not: null }
+          },
+          orderBy: {
+            createdAt: 'desc'
+          }
+        });
+
+        let averagePrice = 0;
+        if (movements.length > 0) {
+          const totalCost = movements.reduce((sum, movement) => sum + (movement.totalCost || 0), 0);
+          const totalQuantity = movements.reduce((sum, movement) => sum + movement.quantity, 0);
+          averagePrice = totalQuantity > 0 ? totalCost / totalQuantity : 0;
+        }
+
+        return {
+          ...inventoryItem,
+          averageUnitPrice: averagePrice,
+          totalValue: inventoryItem.currentStock * averagePrice
+        };
+      })
+    );
+
+    return itemsWithAveragePrice;
+  }
+
+  // 2. تابع إجراء الجرد المبسط
+  async performInventoryAudit(auditData: { itemId: number; countedStock: number }[], employeeId: number) {
+    return this.prisma.$transaction(async (prisma) => {
+      let totalValueDifference = 0;
+      let totalItemsProcessed = 0;
+      const processedItems = [];
+
+      // معالجة كل مادة في الجرد
+      for (const auditItemData of auditData) {
+        // جلب المادة من المخزون
+        const inventoryItem = await prisma.inventoryItem.findUnique({
+          where: { itemId: auditItemData.itemId },
+          include: { item: true }
+        });
+
+        if (!inventoryItem) {
+          throw new BadRequestException(`المادة رقم ${auditItemData.itemId} غير موجودة في المخزون`);
+        }
+
+        // حساب متوسط سعر الشراء
+        const movements = await prisma.inventoryStockMovement.findMany({
+          where: {
+            itemId: auditItemData.itemId,
+            movementType: 'purchase',
+            unitPrice: { not: null }
+          }
+        });
+
+        let averagePrice = 0;
+        if (movements.length > 0) {
+          const totalCost = movements.reduce((sum, movement) => sum + (movement.totalCost || 0), 0);
+          const totalQuantity = movements.reduce((sum, movement) => sum + movement.quantity, 0);
+          averagePrice = totalQuantity > 0 ? totalCost / totalQuantity : 0;
+        }
+
+        const previousStock = inventoryItem.currentStock;
+        const difference = auditItemData.countedStock - previousStock;
+        const totalValue = difference * averagePrice;
+
+        // تجميع المعلومات للتقرير
+        processedItems.push({
+          itemName: inventoryItem.item.name,
+          itemUnit: inventoryItem.item.units,
+          previousStock,
+          countedStock: auditItemData.countedStock,
+          difference,
+          unitPrice: averagePrice,
+          totalValue
+        });
+
+        totalValueDifference += totalValue;
+        totalItemsProcessed++;
+
+        // تحديث المخزون
+        await prisma.inventoryItem.update({
+          where: { itemId: auditItemData.itemId },
+          data: {
+            currentStock: auditItemData.countedStock,
+            lastUpdated: new Date()
+          }
+        });
+
+        // تسجيل حركة المخزون للجرد (إذا كان هناك فرق)
+        if (difference !== 0) {
+          await prisma.inventoryStockMovement.create({
+            data: {
+              itemId: auditItemData.itemId,
+              movementType: 'inventory',
+              quantity: difference,
+              unitPrice: averagePrice,
+              totalCost: totalValue,
+              notes: difference > 0 
+                ? `زيادة في الجرد: ${Math.abs(difference)} ${inventoryItem.item.units}`
+                : `نقص في الجرد: ${Math.abs(difference)} ${inventoryItem.item.units}`,
+              employeeId
+            }
+          });
+        }
+      }
+
+      // إنشاء سجل الجرد العام (بدون تفاصيل المنتجات)
+      const audit = await prisma.inventoryAudit.create({
+        data: {
+          employeeId,
+          totalItemsCount: totalItemsProcessed,
+          totalValueDifference,
+          notes: `جرد مخزون بتاريخ ${new Date().toLocaleDateString('ar-EG')} - تم جرد ${totalItemsProcessed} مادة`
+        }
+      });
+
+      return {
+        audit,
+        processedItems, // تفاصيل المعالجة للعرض في الواجهة
+        summary: {
+          totalItems: totalItemsProcessed,
+          totalValueDifference,
+          itemsWithIncrease: processedItems.filter(item => item.difference > 0).length,
+          itemsWithDecrease: processedItems.filter(item => item.difference < 0).length,
+          itemsUnchanged: processedItems.filter(item => item.difference === 0).length
+        }
+      };
+    });
+  }
 
 // 3. تابع لجلب تاريخ الجرد (مبسط)
 async getInventoryAuditHistory(limit = 10) {

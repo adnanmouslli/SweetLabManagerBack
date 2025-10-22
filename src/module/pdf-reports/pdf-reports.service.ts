@@ -4076,8 +4076,15 @@ private buildInvoiceReceiptHTML(invoice: any): string {
 
     <!-- تذييل الفاتورة -->
     <div class="footer">
+      ${invoice.notes ? `
+      <div style="text-align: right; margin-bottom: 15px; padding: 12px; background: #f9f9f9; border-right: 3px solid var(--border); font-weight: 700; font-size: 22px;">
+        <div style="font-weight: 800; margin-bottom: 8px;">ملاحظات:</div>
+        <div>${invoice.notes}</div>
+      </div>
+      ` : ''}
       <div>شكراً لتعاملكم معنا - ${this.formatReceiptDate(new Date())}</div>
     </div>
+    
   </div>
 
   <script>
