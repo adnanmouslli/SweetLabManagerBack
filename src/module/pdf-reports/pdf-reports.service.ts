@@ -3703,7 +3703,7 @@ async generateInvoiceReceiptHTML(invoiceId: number): Promise<string> {
   return this.buildInvoiceReceiptHTML(invoice);
 }
 
-// تحديث buildInvoiceReceiptHTML مع تحسين أحجام الخط
+// تحديث buildInvoiceReceiptHTML مع إصلاح الفراغ الزائد
 private buildInvoiceReceiptHTML(invoice: any): string {
   const receiptTemplate = `
 <!doctype html>
@@ -3737,12 +3737,12 @@ private buildInvoiceReceiptHTML(invoice: any): string {
       width: 100%;
       height: auto;
       margin: 0;
-      padding: 20px;
+      padding: 0;
       background: var(--bg); 
       color: var(--ink);
       font-family: "Segoe UI", Tahoma, Arial, "Noto Kufi Arabic", sans-serif;
-      font-size: 24px; /* زيادة من 20px إلى 24px */
-      line-height: 1.6; /* تحسين المسافة بين الأسطر */
+      font-size: 24px;
+      line-height: 1.6;
       font-weight: 600;
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
@@ -3751,98 +3751,98 @@ private buildInvoiceReceiptHTML(invoice: any): string {
     .receipt {
       width: 100%;
       max-width: 1200px;
-      margin: 0 auto;
+      margin: 0;
       background: white;
-      padding: 30px;
+      padding: 15px;
       border: 2px solid var(--border);
       position: relative;
     }
 
     .header {
       text-align: center;
-      border-bottom: 2px solid var(--border); /* زيادة سمك الحد */
-      padding-bottom: 12px; /* زيادة المساحة */
-      margin-bottom: 16px; /* زيادة المساحة */
+      border-bottom: 2px solid var(--border);
+      padding-bottom: 12px;
+      margin-bottom: 16px;
     }
 
     .company-name {
-      font-size: 38px; /* زيادة من 32px إلى 38px */
-      font-weight: 800; /* زيادة سمك الخط */
+      font-size: 38px;
+      font-weight: 800;
       color: var(--ink);
       margin-bottom: 6px;
     }
 
     .invoice-type {
-      font-size: 26px; /* زيادة من 22px إلى 26px */
+      font-size: 26px;
       font-weight: 700;
       margin-top: 6px;
     }
 
     .invoice-details {
-      margin: 16px 0; /* زيادة المساحة */
-      font-size: 22px; /* زيادة من 18px إلى 22px */
+      margin: 16px 0;
+      font-size: 22px;
       display: flex;
       flex-wrap: wrap;
-      gap: 10px; /* زيادة المسافة بين العناصر */
+      gap: 10px;
     }
 
     .detail-row {
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      padding: 10px 14px; /* زيادة الحشو */
+      padding: 10px 14px;
       background: #f5f5f5;
       border-radius: 4px;
       border: 1px solid var(--border);
-      font-size: 22px; /* تأكيد الحجم */
+      font-size: 22px;
     }
 
     .detail-label {
-      font-weight: 800; /* زيادة سمك الخط */
+      font-weight: 800;
       color: var(--ink);
     }
 
     .detail-value {
       color: var(--ink);
-      font-weight: 700; /* زيادة سمك الخط */
+      font-weight: 700;
     }
 
     .payment-status {
       width: auto;
       display: inline-flex;
       align-items: center;
-      padding: 10px 18px; /* زيادة الحشو */
+      padding: 10px 18px;
       background: #f5f5f5;
       border-radius: 4px;
-      border: 2px solid var(--border); /* زيادة سمك الحد */
-      font-weight: 800; /* زيادة سمك الخط */
-      font-size: 22px; /* زيادة الحجم من 18px */
+      border: 2px solid var(--border);
+      font-weight: 800;
+      font-size: 22px;
       color: var(--ink);
     }
 
     .items-table {
       width: 100%;
       border-collapse: collapse;
-      margin: 20px 0; /* زيادة المساحة */
-      font-size: 24px; /* زيادة من 20px إلى 24px */
+      margin: 20px 0;
+      font-size: 24px;
     }
 
     .items-table th,
     .items-table td {
-      padding: 18px 12px; /* زيادة الحشو العمودي */
+      padding: 18px 12px;
       text-align: center;
-      border: 2px solid var(--border); /* زيادة سمك الحد */
+      border: 2px solid var(--border);
       font-weight: 700;
-      font-size: 24px; /* تأكيد الحجم */
+      font-size: 24px;
       line-height: 1.4;
     }
 
     .items-table th {
       background: #fff;
-      font-weight: 800; /* زيادة سمك الخط */
-      font-size: 26px; /* زيادة حجم عناوين الجدول */
+      font-weight: 800;
+      font-size: 26px;
       color: var(--ink);
-      padding: 20px 12px; /* زيادة الحشو للعناوين */
+      padding: 20px 12px;
     }
 
     .items-table .item-name {
@@ -3867,55 +3867,61 @@ private buildInvoiceReceiptHTML(invoice: any): string {
     }
 
     .total-section {
-      border-top: 3px solid var(--border); /* زيادة سمك الحد */
-      padding-top: 16px; /* زيادة المساحة */
-      margin-top: 20px; /* زيادة المساحة */
-      max-width: 500px; /* زيادة العرض قليلاً */
+      border-top: 3px solid var(--border);
+      padding-top: 16px;
+      margin-top: 20px;
+      max-width: 500px;
       margin-left: auto;
     }
 
     .total-row {
       display: flex;
       justify-content: space-between;
-      margin: 8px 0; /* زيادة المسافة */
-      font-size: 24px; /* زيادة من 20px إلى 24px */
-      padding: 6px; /* زيادة الحشو */
+      margin: 8px 0;
+      font-size: 24px;
+      padding: 6px;
       font-weight: 700;
     }
 
     .total-row.final {
-      font-weight: 800; /* زيادة سمك الخط */
-      font-size: 28px; /* زيادة من 24px إلى 28px */
-      border-top: 3px solid var(--border); /* زيادة سمك الحد */
-      padding-top: 12px; /* زيادة المساحة */
-      margin-top: 12px; /* زيادة المساحة */
+      font-weight: 800;
+      font-size: 28px;
+      border-top: 3px solid var(--border);
+      padding-top: 12px;
+      margin-top: 12px;
       background: #f5f5f5;
       border-radius: 4px;
-      padding: 14px 6px; /* زيادة الحشو */
+      padding: 14px 6px;
     }
 
     .footer {
       text-align: center;
-      margin-top: 20px; /* زيادة المساحة */
-      padding-top: 15px; /* زيادة المساحة */
-      border-top: 2px solid var(--border); /* زيادة سمك الحد */
-      font-size: 20px; /* زيادة من 16px إلى 20px */
+      margin-top: 20px;
+      padding-top: 15px;
+      border-top: 2px solid var(--border);
+      font-size: 20px;
       color: var(--ink);
       font-weight: 700;
     }
 
-    /* إعدادات الطباعة والـ PDF */
+    /* إعدادات الطباعة والـ PDF - محسّنة لإزالة الفراغ الزائد */
     @media print {
       @page {
         size: A4;
-        margin: 10mm; /* تقليل الهوامش لاستيعاب الخط الأكبر */
+        margin: 0mm;
+      }
+      
+      html {
+        margin: 0;
+        padding: 0;
       }
       
       body {
         padding: 0;
+        margin: 0;
         background: white;
         font-weight: 600;
-        font-size: 24px; /* تأكيد الحجم للطباعة */
+        font-size: 24px;
       }
       
       .receipt { 
@@ -3923,43 +3929,44 @@ private buildInvoiceReceiptHTML(invoice: any): string {
         box-shadow: none;
         page-break-inside: avoid;
         max-width: 100%;
-        padding: 20px; /* تقليل الحشو للطباعة */
+        margin: 0;
+        padding: 15px;
       }
 
       .company-name {
         font-weight: 800;
-        font-size: 38px; /* تأكيد الحجم للطباعة */
+        font-size: 38px;
       }
 
       .invoice-type {
-        font-size: 26px; /* تأكيد الحجم للطباعة */
+        font-size: 26px;
       }
 
       .detail-label,
       .detail-value {
         font-weight: 700;
-        font-size: 22px; /* تأكيد الحجم للطباعة */
+        font-size: 22px;
       }
 
       .items-table th,
       .items-table td {
         font-weight: 700;
         color: #000 !important;
-        font-size: 24px !important; /* تأكيد الحجم للطباعة */
-        padding: 16px 12px; /* تعديل الحشو للطباعة */
+        font-size: 24px !important;
+        padding: 16px 12px;
       }
 
       .items-table th {
-        font-size: 26px !important; /* تأكيد حجم العناوين للطباعة */
+        font-size: 26px !important;
       }
 
       .total-row {
         font-weight: 700;
-        font-size: 24px; /* تأكيد الحجم للطباعة */
+        font-size: 24px;
       }
 
       .total-row.final {
-        font-size: 28px !important; /* تأكيد الحجم النهائي للطباعة */
+        font-size: 28px !important;
       }
 
       .payment-status {
@@ -3984,9 +3991,9 @@ private buildInvoiceReceiptHTML(invoice: any): string {
     .no-items-message {
       text-align: center; 
       color: #000; 
-      font-size: 24px; /* زيادة حجم رسالة عدم وجود مواد */
+      font-size: 24px;
       padding: 25px; 
-      font-weight: 700; /* زيادة سمك الخط */
+      font-weight: 700;
     }
   </style>
 </head>
@@ -4152,6 +4159,7 @@ private buildItemsTableOptimized(items: any[]): string {
 
   return tableHTML;
 }
+
 
 // دالة تحويل الأرقام من العربية إلى الإنجليزية
 private convertToEnglishNumbers(text: any): string {

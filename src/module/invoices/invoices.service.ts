@@ -1364,9 +1364,15 @@ export class InvoicesService {
       },
     });
 
+    let amountDifference;
     // حساب الفرق في المبلغ
     const oldAmount = existingInvoice.totalAmount;
-    const amountDifference = newTotalAmount - oldAmount;
+
+    if(existingInvoice.invoiceType == "expense")
+      amountDifference = newTotalAmount - oldAmount;
+    else 
+      amountDifference = oldAmount - newTotalAmount;
+
 
     // ============ معالجة تحديث الديون ============
     
@@ -1377,9 +1383,15 @@ export class InvoicesService {
       });
 
       if (debt) {
-        // حساب المبلغ المتبقي الجديد
-        const newRemainingAmount = debt.remainingAmount + amountDifference;
-        const newTotalAmount = debt.totalAmount + amountDifference;
+        let newRemainingAmount;
+        let newTotalAmount;
+        if(existingInvoice.invoiceType == "expense"){
+          // حساب المبلغ المتبقي الجديد
+           newRemainingAmount = debt.remainingAmount + amountDifference;
+           newTotalAmount = debt.totalAmount + amountDifference;
+        } else {
+           newRemainingAmount = debt.remainingAmount + amountDifference;
+        }
 
         // تحديث سجل الدين
         await prisma.debt.update({
