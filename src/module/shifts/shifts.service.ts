@@ -731,6 +731,7 @@ async getShiftInvoicesByFund(shiftId: number) {
             fund: true,
             customer: true,
             employee: true,
+            relatedEmployee: true ,
             items: {
               include: {
                 item: true, // جلب تفاصيل المنتج

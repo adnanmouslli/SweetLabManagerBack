@@ -3679,7 +3679,7 @@ private buildWithdrawalsTable(employeesArray: any[]): string {
 }
 
 
-// 6. تقرير طباعة فاتورة وصل بعرض كامل
+// 6. تقرير طباعة فاتورة وصل بتصميم محسّن
 async generateInvoiceReceiptHTML(invoiceId: number): Promise<string> {
   const invoice = await this.prisma.invoice.findUnique({
     where: { id: invoiceId },
@@ -3703,397 +3703,292 @@ async generateInvoiceReceiptHTML(invoiceId: number): Promise<string> {
   return this.buildInvoiceReceiptHTML(invoice);
 }
 
-// تحديث buildInvoiceReceiptHTML مع إصلاح الفراغ الزائد
 private buildInvoiceReceiptHTML(invoice: any): string {
   const receiptTemplate = `
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>فاتورة رقم ${invoice.invoiceNumber}</title>
   <style>
-    :root {
-      --ink: #000;
-      --muted: #333;
-      --border: #000;
-      --bg: #ffffff;
-    }
-
-    * { 
+    * {
+      margin: 0;
+      padding: 0;
       box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
-    
-    html {
-      width: 100%;
-      height: auto;
-      margin: 0;
-      padding: 0;
     }
     
     body {
-      width: 100%;
-      height: auto;
-      margin: 0;
-      padding: 0;
-      background: var(--bg); 
-      color: var(--ink);
-      font-family: "Segoe UI", Tahoma, Arial, "Noto Kufi Arabic", sans-serif;
-      font-size: 24px;
-      line-height: 1.6;
+      font-family: 'Segoe UI', Tahoma, Arial, 'Noto Kufi Arabic', sans-serif;
+      padding: 15px;
+      background: #fff;
+      color: #000;
+      font-size: 13px;
+      line-height: 1.4;
       font-weight: 600;
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
     }
-
-    .receipt {
-      width: 100%;
-      max-width: 1200px;
-      margin: 0;
-      background: white;
-      padding: 15px;
-      border: 2px solid var(--border);
-      position: relative;
-    }
-
+    
     .header {
       text-align: center;
-      border-bottom: 2px solid var(--border);
-      padding-bottom: 12px;
-      margin-bottom: 16px;
+      margin-bottom: 10px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #000;
     }
-
-    .company-name {
-      font-size: 38px;
-      font-weight: 800;
-      color: var(--ink);
-      margin-bottom: 6px;
+    
+    .header .bakery-name {
+      font-size: 18px;
+      font-weight: bold;
+      color: #000;
+      margin-bottom: 3px;
     }
-
-    .invoice-type {
-      font-size: 26px;
+    
+    .header h1 {
+      font-size: 16px;
+      font-weight: bold;
+      color: #000;
+      margin-bottom: 3px;
+    }
+    
+    .header .summary {
+      font-size: 12px;
+      color: #000;
       font-weight: 700;
-      margin-top: 6px;
     }
 
     .invoice-details {
-      margin: 16px 0;
-      font-size: 22px;
       display: flex;
       flex-wrap: wrap;
-      gap: 10px;
-    }
-
-    .detail-row {
-      display: inline-flex;
-      align-items: center;
       gap: 8px;
-      padding: 10px 14px;
-      background: #f5f5f5;
-      border-radius: 4px;
-      border: 1px solid var(--border);
-      font-size: 22px;
+      margin: 8px 0;
+      justify-content: center;
     }
 
-    .detail-label {
-      font-weight: 800;
-      color: var(--ink);
-    }
-
-    .detail-value {
-      color: var(--ink);
+    .detail-item {
+      font-size: 12px;
       font-weight: 700;
+      color: #000;
+      padding: 4px 8px;
+      background: #fff;
+      border: 1px solid #000;
+      border-radius: 2px;
     }
 
-    .payment-status {
-      width: auto;
-      display: inline-flex;
-      align-items: center;
-      padding: 10px 18px;
-      background: #f5f5f5;
-      border-radius: 4px;
-      border: 2px solid var(--border);
-      font-weight: 800;
-      font-size: 22px;
-      color: var(--ink);
+    .detail-item .label {
+      font-weight: bold;
+      margin-left: 4px;
     }
-
-    .items-table {
+    
+    table {
       width: 100%;
       border-collapse: collapse;
-      margin: 20px 0;
-      font-size: 24px;
+      margin-top: 10px;
     }
-
-    .items-table th,
-    .items-table td {
-      padding: 18px 12px;
-      text-align: center;
-      border: 2px solid var(--border);
-      font-weight: 700;
-      font-size: 24px;
-      line-height: 1.4;
-    }
-
-    .items-table th {
+    
+    th {
       background: #fff;
-      font-weight: 800;
-      font-size: 26px;
-      color: var(--ink);
-      padding: 20px 12px;
+      color: #000;
+      padding: 10px 6px;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 700;
+      border: 1px solid #000;
     }
-
-    .items-table .item-name {
-      text-align: right;
-      width: 25%;
+    
+    td {
+      padding: 8px;
+      border: 1px solid #000;
+      font-size: 12px;
+      background: #fff;
+      color: #000;
+      font-weight: 600;
     }
-
-    .items-table .unit {
-      width: 15%;
-    }
-
-    .items-table .quantity {
-      width: 15%;
-    }
-
-    .items-table .price {
-      width: 22.5%;
-    }
-
-    .items-table .total {
-      width: 22.5%;
-    }
-
-    .total-section {
-      border-top: 3px solid var(--border);
-      padding-top: 16px;
-      margin-top: 20px;
-      max-width: 500px;
-      margin-left: auto;
-    }
-
+    
     .total-row {
-      display: flex;
-      justify-content: space-between;
-      margin: 8px 0;
-      font-size: 24px;
-      padding: 6px;
+      font-weight: 700;
+      border-top: 2px solid #000 !important;
+    }
+    
+    .total-row td {
+      padding: 10px 6px;
+      font-size: 13px;
+      background: #fff;
       font-weight: 700;
     }
+    
+    .text-right {
+      text-align: right;
+    }
+    
+    .text-center {
+      text-align: center;
+    }
+    
+    .text-bold {
+      font-weight: bold;
+    }
+    
+    .text-primary {
+      color: #000;
+      font-weight: bold;
+    }
 
-    .total-row.final {
-      font-weight: 800;
-      font-size: 28px;
-      border-top: 3px solid var(--border);
-      padding-top: 12px;
-      margin-top: 12px;
-      background: #f5f5f5;
-      border-radius: 4px;
-      padding: 14px 6px;
+    .no-items-message {
+      text-align: center;
+      padding: 30px;
+      color: #000;
+      font-size: 13px;
+      font-weight: 700;
+      border: 1px solid #000;
+      margin-top: 10px;
     }
 
     .footer {
       text-align: center;
-      margin-top: 20px;
-      padding-top: 15px;
-      border-top: 2px solid var(--border);
-      font-size: 20px;
-      color: var(--ink);
+      margin-top: 10px;
+      padding-top: 8px;
+      border-top: 1px solid #000;
+      font-size: 12px;
+      color: #000;
       font-weight: 700;
     }
 
-    /* إعدادات الطباعة والـ PDF - محسّنة لإزالة الفراغ الزائد */
+    .payment-status {
+      font-size: 12px;
+      font-weight: 700;
+      color: #000;
+    }
+
+    .break-invoice-badge {
+      color: #c41c3b;
+      font-weight: bold;
+    }
+    
     @media print {
       @page {
         size: A4;
-        margin: 0mm;
-      }
-      
-      html {
-        margin: 0;
-        padding: 0;
+        margin: 10mm;
       }
       
       body {
         padding: 0;
-        margin: 0;
-        background: white;
-        font-weight: 600;
-        font-size: 24px;
-      }
-      
-      .receipt { 
-        border: 2px solid #000;
-        box-shadow: none;
-        page-break-inside: avoid;
-        max-width: 100%;
-        margin: 0;
-        padding: 15px;
-      }
-
-      .company-name {
-        font-weight: 800;
-        font-size: 38px;
-      }
-
-      .invoice-type {
-        font-size: 26px;
-      }
-
-      .detail-label,
-      .detail-value {
-        font-weight: 700;
-        font-size: 22px;
-      }
-
-      .items-table th,
-      .items-table td {
+        font-size: 12px;
         font-weight: 700;
         color: #000 !important;
-        font-size: 24px !important;
-        padding: 16px 12px;
       }
-
-      .items-table th {
-        font-size: 26px !important;
+      
+      .header .bakery-name {
+        font-size: 17px;
       }
-
-      .total-row {
+      
+      .header h1 {
+        font-size: 15px;
+      }
+      
+      .header .summary {
+        font-size: 11px;
         font-weight: 700;
-        font-size: 24px;
       }
 
-      .total-row.final {
-        font-size: 28px !important;
+      .invoice-details {
+        margin: 8px 0;
       }
 
-      .payment-status {
-        -webkit-print-color-adjust: exact !important;
-        print-color-adjust: exact !important;
-        color-adjust: exact !important;
-        font-size: 22px !important;
+      .detail-item {
+        font-size: 11px;
+        font-weight: 700;
+        padding: 3px 6px;
+      }
+      
+      th {
+        font-size: 12px;
+        padding: 8px 5px;
+        font-weight: 700;
+        color: #000 !important;
+      }
+      
+      td {
+        font-size: 11px;
+        padding: 7px 5px;
+        font-weight: 700;
+        color: #000 !important;
+      }
+      
+      .total-row td {
+        font-size: 12px;
+        font-weight: 700;
       }
 
       .footer {
-        font-size: 20px !important;
+        font-size: 11px;
+        font-weight: 700;
       }
       
       * {
         -webkit-print-color-adjust: exact !important;
         print-color-adjust: exact !important;
-        color-adjust: exact !important;
       }
-    }
-
-    /* تحسينات إضافية للوضوح */
-    .no-items-message {
-      text-align: center; 
-      color: #000; 
-      font-size: 24px;
-      padding: 25px; 
-      font-weight: 700;
     }
   </style>
 </head>
 <body>
-  <div class="receipt">
-    <!-- رأس الفاتورة -->
-    <div class="header">
-      <div class="company-name">مخبز الإحسان الدمشقي</div>
-      <div class="invoice-type">${this.getInvoiceTypeArabic(invoice.invoiceType)} ${this.getInvoiceCategoryArabic(invoice.invoiceCategory)}</div>
+  <div class="header">
+    <div class="bakery-name">مخبز الإحسان الدمشقي</div>
+    <h1>${this.getInvoiceTypeArabic(invoice.invoiceType)} ${this.getInvoiceCategoryArabic(invoice.invoiceCategory)}</h1>
+    <div class="summary">
+      رقم الفاتورة: ${this.convertToEnglishNumbers(invoice.invoiceNumber.split('-').pop() || invoice.id)} | 
+      التاريخ: ${this.formatReceiptDate(invoice.createdAt)} | 
+      الموظف: ${invoice.employee.username}
+      ${invoice.paidStatus ? ' | ✓ مدفوع' : ' | ✗ غير مدفوع'}
     </div>
-
-    <!-- تفاصيل الفاتورة -->
-    <div class="invoice-details">
-      <div class="detail-row">
-        <span class="detail-label">رقم:</span>
-        <span class="detail-value">${this.convertToEnglishNumbers(invoice.invoiceNumber.split('-').pop() || invoice.id)}</span>
-      </div>
-      <div class="detail-row">
-        <span class="detail-label">التاريخ:</span>
-        <span class="detail-value">${this.formatReceiptDate(invoice.createdAt)}</span>
-      </div>
-      <div class="detail-row">
-        <span class="detail-label">الموظف:</span>
-        <span class="detail-value">${invoice.employee.username}</span>
-      </div>
-      ${invoice.customer ? `
-      <div class="detail-row">
-        <span class="detail-label">الزبون:</span>
-        <span class="detail-value">${invoice.customer.name}</span>
-      </div>
-      ` : ''}
-      ${invoice.isBreak ? `
-      <div class="detail-row">
-        <span class="detail-label">النوع:</span>
-        <span class="detail-value">فاتورة كسر</span>
-      </div>
-      ` : ''}
-      ${invoice.trayCount ? `
-      <div class="detail-row">
-        <span class="detail-label">عدد الصاجات:</span>
-        <span class="detail-value">${this.convertToEnglishNumbers(invoice.trayCount)}</span>
-      </div>
-      ` : ''}
-      ${invoice.employeeInvoiceType ? `
-      <div class="detail-row">
-        <span class="detail-label">نوع فاتورة الموظف:</span>
-        <span class="detail-value">${this.getEmployeeInvoiceTypeArabic(invoice.employeeInvoiceType)}</span>
-      </div>
-      ` : ''}
-      ${invoice.supplierPaymentAmount ? `
-      <div class="detail-row">
-        <span class="detail-label">المبلغ المدفوع للمورد:</span>
-        <span class="detail-value">${this.formatReceiptCurrency(invoice.supplierPaymentAmount)} ل.س</span>
-      </div>
-      ` : ''}
-      <div class="payment-status">
-        ${invoice.paidStatus ? '✓ مدفوع' : '✗ غير مدفوع'}
-      </div>
-    </div>
-
-    <!-- جدول المواد -->
-    ${this.buildItemsTableOptimized(invoice.items)}
-
-    <!-- قسم المجاميع -->
-    <div class="total-section">
-      <div class="total-row">
-        <span>المجموع:</span>
-        <span>${this.formatReceiptCurrency(invoice.totalAmount)} ل.س</span>
-      </div>
-      ${invoice.discount > 0 ? `
-      <div class="total-row">
-        <span>الخصم:</span>
-        <span>${this.formatReceiptCurrency(invoice.discount)} ل.س</span>
-      </div>
-      ` : ''}
-      ${invoice.additionalAmount > 0 ? `
-      <div class="total-row">
-        <span>القيمة المضافة:</span>
-        <span>${this.formatReceiptCurrency(invoice.additionalAmount)} ل.س</span>
-      </div>
-      ` : ''}
-      <div class="total-row final">
-        <span>الإجمالي النهائي:</span>
-        <span>${this.formatReceiptCurrency(invoice.totalAmount - (invoice.discount || 0) + (invoice.additionalAmount || 0))} ل.س</span>
-      </div>
-    </div>
-
-    <!-- تذييل الفاتورة -->
-    <div class="footer">
-      ${invoice.notes ? `
-      <div style="text-align: right; margin-bottom: 15px; padding: 12px; background: #f9f9f9; border-right: 3px solid var(--border); font-weight: 700; font-size: 22px;">
-        <div style="font-weight: 800; margin-bottom: 8px;">ملاحظات:</div>
-        <div>${invoice.notes}</div>
-      </div>
-      ` : ''}
-      <div>شكراً لتعاملكم معنا - ${this.formatReceiptDate(new Date())}</div>
-    </div>
-    
   </div>
 
+  <div class="invoice-details">
+    ${invoice.customer ? `
+    <div class="detail-item">
+      <span class="label">الزبون:</span>
+      ${invoice.customer.name}
+    </div>
+    ` : ''}
+    ${invoice.isBreak ? `
+    <div class="detail-item">
+      <span class="label break-invoice-badge">نوع:</span>
+      <span class="break-invoice-badge">فاتورة كسر</span>
+    </div>
+    ` : ''}
+    ${invoice.trayCount ? `
+    <div class="detail-item">
+      <span class="label">الصاجات:</span>
+      ${this.convertToEnglishNumbers(invoice.trayCount)}
+    </div>
+    ` : ''}
+    ${invoice.employeeInvoiceType ? `
+    <div class="detail-item">
+      <span class="label">نوع الفاتورة:</span>
+      ${this.getEmployeeInvoiceTypeArabic(invoice.employeeInvoiceType)}
+    </div>
+    ` : ''}
+    ${invoice.supplierPaymentAmount ? `
+    <div class="detail-item">
+      <span class="label">مبلغ المورد:</span>
+      ${this.formatReceiptCurrency(invoice.supplierPaymentAmount)} ل.س
+    </div>
+    ` : ''}
+  </div>
+
+  ${this.buildItemsTableOptimized(invoice.items)}
+
+  <div class="footer">
+    ${invoice.notes ? `
+    <div style="text-align: right; margin-bottom: 8px; padding: 8px; background: #fff; border-right: 2px solid #000; font-weight: 700; font-size: 12px;">
+      <div style="font-weight: bold; margin-bottom: 4px;">ملاحظات:</div>
+      <div>${invoice.notes}</div>
+    </div>
+    ` : ''}
+    <div>شكراً لتعاملكم معنا - ${this.formatReceiptDate(new Date())}</div>
+  </div>
+  
   <script>
     window.onload = function() {
       setTimeout(() => {
@@ -4111,53 +4006,61 @@ private buildInvoiceReceiptHTML(invoice: any): string {
   return receiptTemplate;
 }
 
-// تحديث buildItemsTableOptimized مع تحسين رسالة عدم وجود مواد
+// تحديث buildItemsTableOptimized مع نفس أسلوب تقرير الطلبيات
 private buildItemsTableOptimized(items: any[]): string {
   if (!items || items.length === 0) {
     return `
-      <div class="total-section">
-        <div class="no-items-message">
-          فاتورة مباشرة - بدون مواد
-        </div>
+      <div class="no-items-message">
+        فاتورة مباشرة - بدون مواد
       </div>
     `;
   }
 
-  let tableHTML = `
-    <table class="items-table">
+  const rows = items.map(item => {
+    const itemName = item.item?.name || 'صنف';
+    const unit = item.unit || '—';
+    const quantity = item.quantity;
+    const unitPrice = item.unitPrice;
+    const subTotal = item.subTotal;
+
+    return `
+      <tr>
+        <td class="text-center text-bold">${itemName}</td>
+        <td class="text-center">${unit}</td>
+        <td class="text-center text-bold">${this.convertToEnglishNumbers(quantity)}</td>
+        <td class="text-center text-primary">${this.formatReceiptCurrency(unitPrice)} ل.س</td>
+        <td class="text-center text-primary">${this.formatReceiptCurrency(subTotal)} ل.س</td>
+      </tr>
+    `;
+  }).join('');
+
+  // حساب الإجماليات
+  const totalQuantity = items.reduce((sum, item) => sum + item.quantity, 0);
+  const totalAmount = items.reduce((sum, item) => sum + item.subTotal, 0);
+
+  const finalTotal = totalAmount - (items[0]?.invoice?.discount || 0) + (items[0]?.invoice?.additionalAmount || 0);
+
+  return `
+    <table>
       <thead>
         <tr>
-          <th class="item-name">اسم الصنف</th>
-          <th class="unit">الوحدة</th>
-          <th class="quantity">الكمية</th>
-          <th class="price">سعر الوحدة</th>
-          <th class="total">الإجمالي</th>
+          <th style="width: 30%">اسم الصنف</th>
+          <th style="width: 18%">الوحدة</th>
+          <th style="width: 17%">الكمية</th>
+          <th style="width: 17%">سعر الوحدة</th>
+          <th style="width: 18%">الإجمالي</th>
         </tr>
       </thead>
       <tbody>
-  `;
-
-  items.forEach(item => {
-    const itemName = item.item?.name || 'صنف';
-    const unit = item.unit || '—';
-    
-    tableHTML += `
-      <tr>
-        <td class="item-name">${itemName}</td>
-        <td class="unit">${unit}</td>
-        <td class="quantity">${this.convertToEnglishNumbers(item.quantity)}</td>
-        <td class="price">${this.formatReceiptCurrency(item.unitPrice)} ل.س</td>
-        <td class="total">${this.formatReceiptCurrency(item.subTotal)} ل.س</td>
-      </tr>
-    `;
-  });
-
-  tableHTML += `
+        ${rows}
+        <tr class="total-row">
+          <td colspan="2" class="text-center">المجموع</td>
+          <td class="text-center">${totalQuantity}</td>
+          <td colspan="2" class="text-center">${this.formatReceiptCurrency(totalAmount)} ل.س</td>
+        </tr>
       </tbody>
     </table>
   `;
-
-  return tableHTML;
 }
 
 
