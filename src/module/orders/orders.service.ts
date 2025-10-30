@@ -1010,7 +1010,7 @@ async create(createOrderDto: CreateOrderDto, employeeId: number) {
           invoiceCategory: 'products',
           customerId: order.customerId,
           paidStatus: invoiceData.paidStatus,
-          totalAmount: order.totalAmount,
+          totalAmount: order.totalAmount + (invoiceData?.additionalAmount || 0) - (invoiceData?.discount || 0),
           discount: invoiceData?.discount || 0,
           additionalAmount: invoiceData?.additionalAmount || 0,
           notes: invoiceData?.notes 

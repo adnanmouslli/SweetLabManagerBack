@@ -1731,16 +1731,26 @@ private buildComparisonNotes(period1Data: any, period2Data: any): string {
 
   
 
-// إضافة هذه التوابع الثلاثة إلى PDFReportsService
 
-// 1. تقرير جرد البسطة
+/**
+ * تقرير جرد البسطة
+ * جدول يوضح:
+ * - الأيام (من البداية إلى النهاية)
+ * - الواردية الصباحية والمسائية
+ * - إجمالي مبيعات كل واردية
+ * - إجمالي المحصل في كل يوم
+ * - الإجمالي الكلي لكل الأيام
+ */
 async generateBoothInventoryReport(startDate: Date, endDate: Date): Promise<string> {
-  // جلب فواتير البسطة في الفترة المحددة
+  // جلب جميع فواتير البسطة (دخل فقط) في الفترة المحددة
+
+  console.log(startDate , endDate)
   const boothInvoices = await this.prisma.invoice.findMany({
     where: {
       fund: {
-        fundType: 'booth'
+        fundType: FundType.general
       },
+      invoiceType: 'income',
       paidStatus: true,
       createdAt: {
         gte: startDate,
@@ -1748,97 +1758,336 @@ async generateBoothInventoryReport(startDate: Date, endDate: Date): Promise<stri
       }
     },
     include: {
-      customer: true
+      shift: true // للحصول على نوع الواردية
     },
     orderBy: {
-      createdAt: 'desc'
+      createdAt: 'asc'
     }
   });
+  console.log(boothInvoices)
 
-  // حساب الإجماليات
-  const totalIncome = boothInvoices
-    .filter(invoice => invoice.invoiceType === 'income')
-    .reduce((sum, invoice) => sum + (invoice.totalAmount - (invoice.discount || 0)), 0);
+  // تنظيم البيانات حسب الأيام والواردية
+  const dailyData = new Map<string, any>();
+  let grandTotal = 0;
 
-  const totalExpense = boothInvoices
-    .filter(invoice => invoice.invoiceType === 'expense')
-    .reduce((sum, invoice) => sum + (invoice.totalAmount - (invoice.discount || 0)), 0);
+  boothInvoices.forEach(invoice => {
+    const dateKey = this.formatDateKey(invoice.createdAt); // مثل: "2024-01-15"
+    const dateDisplay = this.formatDate(invoice.createdAt); // مثل: "15 يناير 2024"
+    
+    if (!dailyData.has(dateKey)) {
+      dailyData.set(dateKey, {
+        dateKey,
+        dateDisplay,
+        shifts: {},
+        dayTotal: 0
+      });
+    }
 
-  const netIncome = totalIncome - totalExpense;
+    const day = dailyData.get(dateKey);
+    const shiftType = invoice.shift?.shiftType || 'unknown';
+    const amount = invoice.totalAmount - (invoice.discount || 0);
 
-  // بناء HTML التقرير
-  let template = this.getHTMLTemplate();
-  
-  const replacements = {
-    '{{REPORT_TITLE}}': 'تقرير جرد البسطة',
-    '{{REPORT_SUBTITLE}}': `من ${this.formatDate(startDate)} إلى ${this.formatDate(endDate)}`,
-    '{{CUSTOMER_NAME}}': '—',
-    '{{CUSTOMER_PHONE}}': '—',
-    '{{CUSTOMER_CATEGORY}}': '—',
-    '{{TOTAL_UNPAID}}': `${boothInvoices.length} فاتورة`,
-    '{{TOTAL_BREAK}}': this.formatCurrency(totalIncome),
-    '{{TOTAL_DEBTS}}': this.formatCurrency(totalExpense),
-    '{{GRAND_TOTAL}}': this.formatCurrency(netIncome),
-    '{{NOTES}}': `صافي دخل البسطة: ${this.formatCurrency(netIncome)}`
-  };
+    if (!day.shifts[shiftType]) {
+      day.shifts[shiftType] = {
+        type: shiftType === 'morning' ? 'الصباحية' : 'المسائية',
+        total: 0
+      };
+    }
 
-  // استبدال عناوين قسم الملخص بعناوين مناسبة للبسطة
-  const boothSummaryHTML = `
-    <section class="section" id="account-summary">
-      <h3>ملخص جرد البسطة</h3>
-      <div class="cards">
-        <div class="card"><div class="label">عدد الفواتير</div><div class="value">${boothInvoices.length}</div></div>
-        <div class="card"><div class="label">إجمالي الدخل</div><div class="value">${this.formatCurrency(totalIncome)}</div></div>
-        <div class="card"><div class="label">إجمالي الصرف</div><div class="value">${this.formatCurrency(totalExpense)}</div></div>
-      </div>
-      <p class="note" style="margin-top:6px">صافي الدخل: <strong>${this.formatCurrency(netIncome)}</strong></p>
-    </section>
-  `;
-
-  Object.entries(replacements).forEach(([key, value]) => {
-    template = template.replace(new RegExp(key, 'g'), value);
+    day.shifts[shiftType].total += amount;
+    day.dayTotal += amount;
+    grandTotal += amount;
   });
 
- 
-  // استبدال قسم الملخص بملخص البسطة
-  template = template.replace(/(<section class="section" id="account-summary">[\s\S]*?<\/section>)/g, boothSummaryHTML);
+  // تحويل البيانات إلى مصفوفة مرتبة
+  const sortedDays = Array.from(dailyData.values()).sort((a, b) => {
+    return new Date(a.dateKey).getTime() - new Date(b.dateKey).getTime();
+  });
 
-  // بناء جدول الفواتير
-  const invoicesRows = boothInvoices.map(invoice => `
-    <tr>
-      <td style="text-align:center">${invoice.invoiceNumber}</td>
-      <td style="text-align:center">${this.formatDate(invoice.createdAt)}</td>
-      <td style="text-align:center">${invoice.invoiceType === 'income' ? 'دخل' : 'صرف'}</td>
-      <td style="text-align:center">${invoice.customer?.name || '—'}</td>
-      <td style="text-align:center">${this.formatCurrency(invoice.totalAmount - (invoice.discount || 0))}</td>
-    </tr>
-  `).join('');
+  // بناء صفوف الجدول
+  const tableRows = sortedDays.map(day => {
+    const morningShift = day.shifts['morning'];
+    const eveningShift = day.shifts['evening'];
 
-  const tableHTML = `
-    <section class="section">
-      <h3>تفاصيل فواتير البسطة</h3>
+    const morningText = morningShift 
+      ? `الصباحية: ${this.formatCurrency(morningShift.total)}`
+      : '';
+    
+    const eveningText = eveningShift 
+      ? `المسائية: ${this.formatCurrency(eveningShift.total)}`
+      : '';
+
+    const shiftsText = [morningText, eveningText].filter(t => t).join(' + ');
+
+    return `
+      <tr>
+        <td class="date-cell">${day.dateDisplay}</td>
+        <td class="shifts-cell">${shiftsText || '—'}</td>
+        <td class="total-cell">${this.formatCurrency(day.dayTotal)}</td>
+      </tr>
+    `;
+  }).join('');
+
+  // بناء HTML التقرير
+  const htmlContent = `
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>تقرير جرد البسطة</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+    }
+
+    body {
+      font-family: Arial, sans-serif;
+      background: #ffffff;
+      color: #333333;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .container {
+      width: 100%;
+      margin: 0;
+      background: white;
+      padding: 20mm 15mm;
+    }
+
+    .header {
+      text-align: center;
+      margin-bottom: 20mm;
+      border-bottom: 3px solid #000000;
+      padding-bottom: 12mm;
+    }
+
+    .bakery-name {
+      font-size: 18px;
+      font-weight: bold;
+      color: #000000;
+      margin-bottom: 6px;
+    }
+
+    .report-title {
+      font-size: 15px;
+      font-weight: bold;
+      color: #000000;
+      margin-bottom: 5px;
+    }
+
+    .date-range {
+      font-size: 11px;
+      color: #555555;
+    }
+
+    .section {
+      margin-bottom: 20mm;
+      page-break-inside: avoid;
+    }
+
+    .section-title {
+      font-size: 13px;
+      font-weight: bold;
+      color: #000000;
+      padding: 8px 10px;
+      margin-bottom: 10px;
+      border-bottom: 2px solid #000000;
+      background: #f8f8f8;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 10mm;
+    }
+
+    th {
+      background: #e8e8e8;
+      color: #000000;
+      padding: 8px;
+      text-align: center;
+      font-weight: bold;
+      border: 1px solid #999999;
+      font-size: 11px;
+    }
+
+    td {
+      padding: 8px;
+      border: 1px solid #999999;
+      font-size: 11px;
+      background: #ffffff;
+    }
+
+    tr:nth-child(even) td {
+      background: #f8f8f8;
+    }
+
+    .date-cell {
+      text-align: center;
+      font-weight: bold;
+      width: 20%;
+    }
+
+    .shifts-cell {
+      text-align: right;
+      width: 50%;
+    }
+
+    .total-cell {
+      text-align: center;
+      font-weight: bold;
+      width: 30%;
+    }
+
+    .total-row {
+      background: #d9d9d9 !important;
+      font-weight: bold;
+      border-top: 2px solid #000000;
+    }
+
+    .total-row td {
+      background: #d9d9d9 !important;
+      border: 1px solid #999999;
+    }
+
+    .summary-box {
+      margin-bottom: 10px;
+      padding: 10px;
+      background: #f8f8f8;
+      border-left: 3px solid #000000;
+      font-size: 11px;
+    }
+
+    .summary-label {
+      font-weight: bold;
+      margin-bottom: 5px;
+    }
+
+    .summary-value {
+      font-size: 13px;
+      font-weight: bold;
+      color: #000000;
+    }
+
+    @media print {
+      body {
+        background: white;
+        margin: 0;
+        padding: 0;
+      }
+
+      .container {
+        margin: 0;
+        padding: 20mm 15mm;
+      }
+
+      .section {
+        page-break-inside: avoid;
+      }
+
+      table {
+        page-break-inside: avoid;
+      }
+
+      * {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+    }
+
+    @page {
+      size: A4;
+      margin: 12mm;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- الرأس -->
+    <div class="header">
+      <div class="bakery-name">مخبز الإحسان الدمشقي</div>
+      <div class="report-title">تقرير جرد البسطة</div>
+      <div class="date-range">من ${this.formatDate(startDate)} إلى ${this.formatDate(endDate)}</div>
+    </div>
+
+    <!-- القسم الرئيسي -->
+    <div class="section">
+      <div class="section-title">تفاصيل مبيعات البسطة حسب الأيام</div>
+
+      <!-- ملخص سريع -->
+      <div class="summary-box">
+        <div class="summary-label">إجمالي المبيعات</div>
+        <div class="summary-value">${this.formatCurrency(grandTotal)}</div>
+      </div>
+
+      <!-- الجدول -->
       <table>
         <thead>
           <tr>
-            <th>رقم الفاتورة</th>
-            <th>التاريخ</th>
-            <th>النوع</th>
-            <th>العميل</th>
-            <th>المبلغ</th>
+            <th>اليوم</th>
+            <th>الواردية</th>
+            <th>إجمالي المبيعات</th>
           </tr>
         </thead>
         <tbody>
-          ${invoicesRows}
+          ${tableRows}
+          <tr class="total-row">
+            <td colspan="2" style="text-align: center;">المجموع الكلي</td>
+            <td style="text-align: center;">${this.formatCurrency(grandTotal)}</td>
+          </tr>
         </tbody>
       </table>
-    </section>
+    </div>
+
+    <!-- معلومات إضافية -->
+    <div class="section">
+      <div class="section-title">الملخص</div>
+      <div class="summary-box">
+        <div><span class="summary-label">عدد الأيام:</span> ${sortedDays.length} يوم</div>
+      </div>
+      <div class="summary-box">
+        <div><span class="summary-label">عدد الفواتير:</span> ${boothInvoices.length} فاتورة</div>
+      </div>
+      <div class="summary-box">
+        <div><span class="summary-label">إجمالي المبيعات:</span> <strong>${this.formatCurrency(grandTotal)}</strong></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    window.addEventListener('load', function() {
+      setTimeout(() => {
+        window.print();
+      }, 500);
+    });
+  </script>
+</body>
+</html>
   `;
 
-  template = template.replace(/(<section class="section" id="unpaid-section">[\s\S]*?<\/section>)/g, tableHTML);
-  template = template.replace('{{ADDITIONAL_SECTIONS}}', '');
-
-  return template;
+  return htmlContent;
 }
+
+/**
+ * دالة مساعدة: تنسيق التاريخ لاستخدام كمفتاح (YYYY-MM-DD)
+ */
+private formatDateKey(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+
 
 // 2. تقرير جرد استهلاك مادة معينة
 async generateItemConsumptionReport(itemId: number, startDate: Date, endDate: Date): Promise<string> {
@@ -3111,43 +3360,55 @@ private formatDateTime(date: Date): string {
 }
 
 
-// 1. تقرير أجور الورشات
-async generateWorkshopSalariesReport(workshopId?: number, startDate?: Date, endDate?: Date): Promise<string> {
+/**
+ * تقرير أجور الورشات
+ * يحتوي على 3 جداول لكل ورشة:
+ * 1. جدول الإنتاج اليومي (اليوم، المواد، الإجمالي)
+ * 2. جدول الملخص المالي (الدخل، السحوبات، المستحق، المأخوذ)
+ * 3. جدول تفاصيل الموظفين (الاسم، المستحق، السحب، المتبقي)
+ */
+async generateWorkshopSalariesReport(
+  workshopId?: number,
+  startDate?: Date,
+  endDate?: Date
+): Promise<string> {
   // بناء شروط البحث
   const where: any = {};
-  
+
   if (workshopId) {
     where.id = workshopId;
   }
 
-  // جلب الورشات مع بياناتها
+  // جلب الورشات مع بياناتها الكاملة
   const workshops = await this.prisma.workshop.findMany({
     where,
     include: {
       employees: {
         include: {
+          // السحوبات من جدول EmployeeWithdrawal
           withdrawals: {
-            where: {
-              ...(startDate && endDate ? {
-                date: {
-                  gte: startDate,
-                  lte: endDate
+            where: startDate && endDate
+              ? {
+                  date: {
+                    gte: startDate,
+                    lte: endDate
+                  }
                 }
-              } : {})
-            },
+              : {},
             orderBy: {
               date: 'desc'
             }
           },
+          // سجلات الإنتاج من جدول EmployeeProduction
           productionRecords: {
-            ...(startDate && endDate ? {
-              where: {
-                date: {
-                  gte: startDate,
-                  lte: endDate
+            where: startDate && endDate
+              ? {
+                  date: {
+                    gte: startDate,
+                    lte: endDate
+                  }
                 }
-              }
-            } : {}),
+              : {},
             include: {
               item: true
             },
@@ -3155,59 +3416,69 @@ async generateWorkshopSalariesReport(workshopId?: number, startDate?: Date, endD
               date: 'desc'
             }
           },
+          // سجلات الساعات من جدول EmployeeHours
           hourRecords: {
-            ...(startDate && endDate ? {
-              where: {
-                date: {
-                  gte: startDate,
-                  lte: endDate
+            where: startDate && endDate
+              ? {
+                  date: {
+                    gte: startDate,
+                    lte: endDate
+                  }
                 }
-              }
-            } : {}),
+              : {},
             orderBy: {
               date: 'desc'
             }
           },
+          // مدفوعات الراتب من جدول EmployeeSalaryPayment
           salaryPayments: {
-            ...(startDate && endDate ? {
-              where: {
-                date: {
-                  gte: startDate,
-                  lte: endDate
+            where: startDate && endDate
+              ? {
+                  date: {
+                    gte: startDate,
+                    lte: endDate
+                  }
                 }
-              }
-            } : {}),
+              : {},
             include: {
               invoice: true
             },
             orderBy: {
               date: 'desc'
             }
+          },
+          // ديون الموظف من جدول EmployeeDebt
+          debts: {
+            where: {
+              status: 'active'
+            }
           }
         }
       },
+      // سجلات إنتاج الورشة من جدول WorkshopProduction
       productionRecords: {
-        ...(startDate && endDate ? {
-          where: {
-            date: {
-              gte: startDate,
-              lte: endDate
+        where: startDate && endDate
+          ? {
+              date: {
+                gte: startDate,
+                lte: endDate
+              }
             }
-          }
-        } : {}),
+          : {},
         orderBy: {
           date: 'desc'
         }
       },
+      // محاسبة الورشة من جدول WorkshopSettlement
       settlements: {
-        ...(startDate && endDate ? {
-          where: {
-            date: {
-              gte: startDate,
-              lte: endDate
+        where: startDate && endDate
+          ? {
+              date: {
+                gte: startDate,
+                lte: endDate
+              }
             }
-          }
-        } : {}),
+          : {},
         include: {
           fund: true,
           invoice: true
@@ -3223,223 +3494,600 @@ async generateWorkshopSalariesReport(workshopId?: number, startDate?: Date, endD
     throw new BadRequestException('لا توجد ورشات مطابقة للمعايير المحددة');
   }
 
-  // حساب البيانات لكل ورشة
+  // معالجة بيانات كل ورشة
   const workshopsData = workshops.map(workshop => {
-    // حساب إجمالي المبلغ المستحق
+    // الجدول الأول: الإنتاج اليومي
+    const dailyProductionMap = new Map<string, any>();
+
+    // معالجة سجلات إنتاج الموظفين (EmployeeProduction)
+    workshop.employees.forEach(employee => {
+      employee.productionRecords.forEach(record => {
+        const dateKey = this.formatDateKey(record.date);
+        const dateDisplay = this.formatDateDisplay(record.date);
+
+        if (!dailyProductionMap.has(dateKey)) {
+          dailyProductionMap.set(dateKey, {
+            dateKey,
+            dateDisplay,
+            items: [],
+            dayTotal: 0,
+            totalQuantity: 0
+          });
+        }
+
+        const day = dailyProductionMap.get(dateKey);
+        const itemCost = record.quantity * (record.productionRate || 0);
+
+        day.items.push({
+          itemName: record.item?.name || 'مادة غير محددة',
+          quantity: record.quantity,
+          unitCost: record.productionRate || 0,
+          totalCost: itemCost,
+          employeeName: employee.name
+        });
+
+        day.dayTotal += itemCost;
+        day.totalQuantity += record.quantity;
+      });
+    });
+
+    const productionTableData = Array.from(dailyProductionMap.values()).sort(
+      (a, b) => new Date(a.dateKey).getTime() - new Date(b.dateKey).getTime()
+    );
+
+    const totalProductionAmount = productionTableData.reduce((sum, day) => sum + day.dayTotal, 0);
+    const totalProductionQuantity = productionTableData.reduce((sum, day) => sum + day.totalQuantity, 0);
+
+    // حساب إجمالي المستحق (الدخل)
     let totalEarnings = 0;
-    
     if (workshop.workType === 'production') {
-      totalEarnings = workshop.productionRecords.reduce((sum, record) => sum + record.totalProduction, 0);
+      // للورشات الإنتاجية: مجموع EmployeeProduction.totalAmount
+      totalEarnings = workshop.employees.reduce(
+        (sum, employee) =>
+          sum +
+          employee.productionRecords.reduce(
+            (empSum, record) => empSum + record.totalAmount,
+            0
+          ),
+        0
+      );
     } else {
-      totalEarnings = workshop.employees.reduce((sum, employee) => 
-        sum + employee.hourRecords.reduce((empSum, record) => empSum + record.totalAmount, 0), 0
+      // للورشات بالساعات: مجموع EmployeeHours.totalAmount
+      totalEarnings = workshop.employees.reduce(
+        (sum, employee) =>
+          sum +
+          employee.hourRecords.reduce(
+            (empSum, record) => empSum + record.totalAmount,
+            0
+          ),
+        0
       );
     }
 
-    // حساب إجمالي السحوبات
-    const totalWithdrawals = workshop.employees.reduce((sum, employee) => 
-      sum + employee.withdrawals.reduce((empSum, withdrawal) => empSum + withdrawal.amount, 0), 0
+    // حساب إجمالي السحوبات من جدول EmployeeWithdrawal
+    const totalWithdrawals = workshop.employees.reduce(
+      (sum, employee) =>
+        sum +
+        employee.withdrawals.reduce(
+          (empSum, withdrawal) => empSum + withdrawal.amount,
+          0
+        ),
+      0
     );
 
-    // حساب إجمالي المبالغ المدفوعة
-    const totalPaidAmount = workshop.settlements.reduce((sum, settlement) => sum + settlement.paidAmount, 0);
+    // حساب إجمالي المدفوع من جدول WorkshopSettlement
+    const totalPaidAmount = workshop.settlements.reduce(
+      (sum, settlement) => sum + settlement.paidAmount,
+      0
+    );
 
-    // حساب الصافي
-    const netAmount = totalEarnings - totalWithdrawals;
+    // المبلغ المستحق (الفرق)
+    const amountDue = totalEarnings - totalWithdrawals;
 
-    // تفاصيل توزيع السحوبات على العمال
-    const withdrawalsByEmployee = workshop.employees.map(employee => ({
-      employeeId: employee.id,
-      employeeName: employee.name,
-      totalWithdrawals: employee.withdrawals.reduce((sum, w) => sum + w.amount, 0),
-      withdrawalsCount: employee.withdrawals.length,
-      withdrawalsDetails: employee.withdrawals
-    })).filter(emp => emp.totalWithdrawals > 0);
+    // الجدول الثاني: الملخص المالي
+    const financialSummary = {
+      totalIncome: totalEarnings,
+      totalWithdrawals,
+      amountDue,
+      lastPaid: totalPaidAmount
+    };
 
-    // تفاصيل توزيع المدفوعات على العمال
-    const paymentsByEmployee = workshop.employees.map(employee => ({
-      employeeId: employee.id,
-      employeeName: employee.name,
-      totalPayments: employee.salaryPayments.reduce((sum, p) => sum + p.amount, 0),
-      paymentsCount: employee.salaryPayments.length,
-      paymentsDetails: employee.salaryPayments
-    })).filter(emp => emp.totalPayments > 0);
+    // الجدول الثالث: تفاصيل الموظفين
+    const employeesDetails = workshop.employees
+      .map(employee => {
+        // حساب الدخل للموظف
+        let employeeEarnings = 0;
+        if (workshop.workType === 'production') {
+          employeeEarnings = employee.productionRecords.reduce(
+            (sum, record) => sum + record.totalAmount,
+            0
+          );
+        } else {
+          employeeEarnings = employee.hourRecords.reduce(
+            (sum, record) => sum + record.totalAmount,
+            0
+          );
+        }
+
+        // حساب السحوبات للموظف من EmployeeWithdrawal
+        const employeeWithdrawals = employee.withdrawals.reduce(
+          (sum, w) => sum + w.amount,
+          0
+        );
+
+        // حساب المبلغ المتبقي
+        const employeeBalance = employeeEarnings - employeeWithdrawals;
+
+        // الديون النشطة للموظف من EmployeeDebt
+        const activeDebt = employee.debts.find(debt => debt.status === 'active');
+        const debtAmount = activeDebt ? activeDebt.remainingAmount : 0;
+
+        return {
+          employeeId: employee.id,
+          employeeName: employee.name,
+          position: employee.workType === 'production' ? 'إنتاج' : 'ساعات',
+          totalDue: employeeEarnings,
+          totalWithdrawals: employeeWithdrawals,
+          balance: employeeBalance,
+          activeDebt: debtAmount,
+          notes:
+            employeeBalance > 0
+              ? `له حق: ${this.formatCurrency(employeeBalance)}`
+              : employeeBalance < 0
+                ? `عليه دين: ${this.formatCurrency(Math.abs(employeeBalance))}`
+                : 'صفر'
+        };
+      })
+      .filter(emp => emp.totalDue > 0 || emp.totalWithdrawals > 0);
 
     return {
       workshop,
-      totalEarnings,
-      totalWithdrawals,
-      totalPaidAmount,
-      netAmount,
-      withdrawalsByEmployee,
-      paymentsByEmployee
+      productionTableData,
+      totalProductionAmount,
+      totalProductionQuantity,
+      financialSummary,
+      employeesDetails
     };
   });
-
-  // حساب الإجماليات العامة
-  const grandTotalEarnings = workshopsData.reduce((sum, data) => sum + data.totalEarnings, 0);
-  const grandTotalWithdrawals = workshopsData.reduce((sum, data) => sum + data.totalWithdrawals, 0);
-  const grandTotalPaid = workshopsData.reduce((sum, data) => sum + data.totalPaidAmount, 0);
-
+  
   // بناء HTML التقرير
-  let template = this.getHTMLTemplate();
-  
-  const reportTitle = workshopId ? 
-    `تقرير أجور ورشة ${workshopsData[0].workshop.name}` : 
-    'تقرير أجور جميع الورشات';
-    
-  const reportSubtitle = startDate && endDate ? 
-    `من ${this.formatDate(startDate)} إلى ${this.formatDate(endDate)}` : 
-    'جميع الفترات';
-  
-  const replacements = {
-    '{{REPORT_TITLE}}': reportTitle,
-    '{{REPORT_SUBTITLE}}': reportSubtitle,
-    '{{CUSTOMER_NAME}}': '—',
-    '{{CUSTOMER_PHONE}}': '—',
-    '{{CUSTOMER_CATEGORY}}': '—',
-    '{{TOTAL_UNPAID}}': `${workshopsData.length} ورشة`,
-    '{{TOTAL_BREAK}}': this.formatCurrency(grandTotalEarnings),
-    '{{TOTAL_DEBTS}}': this.formatCurrency(grandTotalWithdrawals),
-    '{{GRAND_TOTAL}}': this.formatCurrency(grandTotalPaid),
-    '{{NOTES}}': `صافي المبالغ المستحقة: ${this.formatCurrency(grandTotalEarnings - grandTotalWithdrawals)}`
-  };
-
-  Object.entries(replacements).forEach(([key, value]) => {
-    template = template.replace(new RegExp(key, 'g'), value);
-  });
-
-  // ملخص خاص بأجور الورشات
-  const salariesSummaryHTML = `
-    <section class="section" id="account-summary">
-      <h3>ملخص أجور الورشات</h3>
-      <div class="cards">
-        <div class="card"><div class="label">إجمالي المستحق</div><div class="value">${this.formatCurrency(grandTotalEarnings)}</div></div>
-        <div class="card"><div class="label">إجمالي السحوبات</div><div class="value">${this.formatCurrency(grandTotalWithdrawals)}</div></div>
-        <div class="card"><div class="label">إجمالي المدفوع</div><div class="value">${this.formatCurrency(grandTotalPaid)}</div></div>
-      </div>
-    </section>
-  `;
-
-  // بناء جدول تفاصيل الورشات
-  const workshopsTableHTML = this.buildWorkshopsDetailsTable(workshopsData);
-
-  template = template.replace(/(<section class="section" id="account-summary">[\s\S]*?<\/section>)/g, salariesSummaryHTML);
-  template = template.replace(/(<section class="section" id="unpaid-section">[\s\S]*?<\/section>)/g, workshopsTableHTML);
-  template = template.replace('{{ADDITIONAL_SECTIONS}}', '');
-
-  return template;
+  return this.buildWorkshopSalariesReportHTML(workshopsData, startDate, endDate);
 }
 
-// بناء جدول تفاصيل الورشات
-private buildWorkshopsDetailsTable(workshopsData: any[]): string {
-  let tablesHTML = '';
+/**
+ * بناء HTML التقرير
+ */
+private buildWorkshopSalariesReportHTML(
+  workshopsData: any[],
+  startDate?: Date,
+  endDate?: Date
+): string {
+  const workshopSections = workshopsData
+    .map((data, index) => {
+      return `
+      <!-- ورشة ${data.workshop.name} -->
+      <div class="section">
+        <div class="section-title">${data.workshop.name}</div>
 
-  workshopsData.forEach((data, index) => {
-    const workshop = data.workshop;
-    
-    // جدول ملخص الورشة
-    tablesHTML += `
-      <section class="section">
-        <h3>${workshop.name} - ${workshop.workType === 'production' ? 'ورشة إنتاج' : 'ورشة ساعات'}</h3>
-        
-        <div class="cards" style="margin-bottom: 15px;">
-          <div class="card">
-            <div class="label">المبلغ المستحق</div>
-            <div class="value">${this.formatCurrency(data.totalEarnings)}</div>
-          </div>
-          <div class="card">
-            <div class="label">إجمالي السحوبات</div>
-            <div class="value">${this.formatCurrency(data.totalWithdrawals)}</div>
-          </div>
-          <div class="card">
-            <div class="label">المبلغ المدفوع</div>
-            <div class="value">${this.formatCurrency(data.totalPaidAmount)}</div>
-          </div>
+        <!-- الجدول الأول: الإنتاج اليومي -->
+        <div class="subsection">
+          <div class="subsection-title">جدول الإنتاج اليومي</div>
+          ${this.buildDailyProductionTable(data)}
         </div>
 
-        <h4>توزيع السحوبات على العمال</h4>
-        <table style="margin-bottom: 20px;">
-          <thead>
-            <tr>
-              <th>اسم العامل</th>
-              <th>إجمالي السحوبات</th>
-              <th>عدد السحوبات</th>
-            </tr>
-          </thead>
-          <tbody>
-    `;
+        <!-- الجدول الثاني: الملخص المالي -->
+        <div class="subsection">
+          <div class="subsection-title">الملخص المالي</div>
+          ${this.buildFinancialSummaryTable(data)}
+        </div>
 
-    if (data.withdrawalsByEmployee.length > 0) {
-      data.withdrawalsByEmployee.forEach(emp => {
-        tablesHTML += `
-          <tr>
-            <td style="text-align:right">${emp.employeeName}</td>
-            <td style="text-align:center; color: #dc2626;">${this.formatCurrency(emp.totalWithdrawals)}</td>
-            <td style="text-align:center">${emp.withdrawalsCount}</td>
-          </tr>
-        `;
-      });
-    } else {
-      tablesHTML += `
+        <!-- الجدول الثالث: تفاصيل الموظفين -->
+        <div class="subsection">
+          <div class="subsection-title">تفاصيل الموظفين</div>
+          ${this.buildEmployeesDetailsTable(data)}
+        </div>
+      </div>
+    `;
+    })
+    .join('<div class="page-break"></div>');
+
+  const html = `
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>تقرير أجور الورشات</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+    }
+
+    body {
+      font-family: Arial, sans-serif;
+      background: #ffffff;
+      color: #333333;
+      font-size: 11px;
+      line-height: 1.5;
+    }
+
+    .container {
+      width: 100%;
+      margin: 0;
+      background: white;
+      padding: 20mm 15mm;
+    }
+
+    .header {
+      text-align: center;
+      margin-bottom: 20mm;
+      border-bottom: 3px solid #000000;
+      padding-bottom: 12mm;
+    }
+
+    .bakery-name {
+      font-size: 18px;
+      font-weight: bold;
+      color: #000000;
+      margin-bottom: 6px;
+    }
+
+    .report-title {
+      font-size: 15px;
+      font-weight: bold;
+      color: #000000;
+      margin-bottom: 5px;
+    }
+
+    .date-range {
+      font-size: 10px;
+      color: #555555;
+    }
+
+    .section {
+      margin-bottom: 20mm;
+      page-break-inside: avoid;
+    }
+
+    .section-title {
+      font-size: 13px;
+      font-weight: bold;
+      color: #000000;
+      padding: 8px 10px;
+      margin-bottom: 10px;
+      border-bottom: 2px solid #000000;
+      background: #f8f8f8;
+    }
+
+    .subsection {
+      margin-bottom: 15mm;
+      page-break-inside: avoid;
+    }
+
+    .subsection-title {
+      font-size: 11px;
+      font-weight: bold;
+      color: #000000;
+      padding: 6px 8px;
+      margin-bottom: 8px;
+      border-bottom: 1px solid #cccccc;
+      background: #f5f5f5;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 10mm;
+    }
+
+    th {
+      background: #e8e8e8;
+      color: #000000;
+      padding: 7px;
+      text-align: center;
+      font-weight: bold;
+      border: 1px solid #999999;
+      font-size: 10px;
+    }
+
+    td {
+      padding: 6px 7px;
+      border: 1px solid #999999;
+      font-size: 10px;
+      background: #ffffff;
+    }
+
+    tr:nth-child(even) td {
+      background: #f8f8f8;
+    }
+
+    .text-right {
+      text-align: right;
+    }
+
+    .text-center {
+      text-align: center;
+    }
+
+    .font-bold {
+      font-weight: bold;
+    }
+
+    .total-row {
+      background: #d9d9d9 !important;
+      font-weight: bold;
+      border-top: 2px solid #000000;
+    }
+
+    .total-row td {
+      background: #d9d9d9 !important;
+      border: 1px solid #999999;
+      font-weight: bold;
+    }
+
+    .page-break {
+      page-break-after: always;
+      margin-bottom: 20mm;
+    }
+
+    .no-data {
+      padding: 10px;
+      background: #f5f5f5;
+      text-align: center;
+      color: #666;
+      font-size: 10px;
+    }
+
+    @media print {
+      body {
+        background: white;
+        margin: 0;
+        padding: 0;
+      }
+
+      .container {
+        margin: 0;
+        padding: 20mm 15mm;
+      }
+
+      .section {
+        page-break-inside: avoid;
+      }
+
+      table {
+        page-break-inside: avoid;
+      }
+
+      * {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+    }
+
+    @page {
+      size: A4;
+      margin: 12mm;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- الرأس -->
+    <div class="header">
+      <div class="bakery-name">مخبز الإحسان الدمشقي</div>
+      <div class="report-title">تقرير أجور الورشات</div>
+      <div class="date-range">
+        ${
+          startDate && endDate
+            ? `من ${this.formatDate(startDate)} إلى ${this.formatDate(endDate)}`
+            : 'جميع الفترات'
+        }
+      </div>
+    </div>
+
+    <!-- أقسام الورشات -->
+    ${workshopSections}
+  </div>
+
+  <script>
+    window.addEventListener('load', function() {
+      setTimeout(() => {
+        window.print();
+      }, 500);
+    });
+  </script>
+</body>
+</html>
+  `;
+
+  return html;
+}
+
+/**
+ * بناء جدول الإنتاج اليومي
+ */
+private buildDailyProductionTable(data: any): string {
+  if (data.productionTableData.length === 0) {
+    return '<div class="no-data">لا توجد بيانات إنتاج</div>';
+  }
+
+  let tableRows = '';
+
+  data.productionTableData.forEach(day => {
+    let itemsHTML = '';
+
+    day.items.forEach((item, index) => {
+      itemsHTML += `
         <tr>
-          <td colspan="3" style="text-align:center; color: #666;">لا توجد سحوبات</td>
+          ${index === 0 ? `<td class="text-center" rowspan="${day.items.length + 1}">${day.dateDisplay}</td>` : ''}
+          <td class="text-right">
+            ${item.itemName}<br>
+            <small>(${item.quantity} × ${this.formatCurrency(item.unitCost)} = ${this.formatCurrency(item.totalCost)})</small>
+          </td>
+          <td class="text-center">${this.formatCurrency(item.totalCost)}</td>
         </tr>
       `;
-    }
+    });
 
-    tablesHTML += `
-          </tbody>
-        </table>
-
-        <h4>توزيع المدفوعات على العمال</h4>
-        <table>
-          <thead>
-            <tr>
-              <th>اسم العامل</th>
-              <th>إجمالي المدفوعات</th>
-              <th>عدد المدفوعات</th>
-            </tr>
-          </thead>
-          <tbody>
+    // صف الإجمالي اليومي
+    itemsHTML += `
+      <tr style="background: #eeeeee; font-weight: bold;">
+        <td colspan="2" class="text-right">إجمالي ${day.dateDisplay}</td>
+        <td class="text-center">${this.formatCurrency(day.dayTotal)}</td>
+      </tr>
     `;
 
-    if (data.paymentsByEmployee.length > 0) {
-      data.paymentsByEmployee.forEach(emp => {
-        tablesHTML += `
-          <tr>
-            <td style="text-align:right">${emp.employeeName}</td>
-            <td style="text-align:center; color: #059669;">${this.formatCurrency(emp.totalPayments)}</td>
-            <td style="text-align:center">${emp.paymentsCount}</td>
-          </tr>
-        `;
-      });
-    } else {
-      tablesHTML += `
-        <tr>
-          <td colspan="3" style="text-align:center; color: #666;">لا توجد مدفوعات</td>
-        </tr>
-      `;
-    }
-
-    tablesHTML += `
-          </tbody>
-        </table>
-        
-        <p class="note" style="margin-top: 10px; text-align: center; font-weight: bold;">
-          الصافي للورشة: ${this.formatCurrency(data.netAmount)}
-        </p>
-      </section>
-    `;
-
-    // إضافة فاصل بين الورشات إذا لم تكن الأخيرة
-    if (index < workshopsData.length - 1) {
-      tablesHTML += '<div class="page-break"></div>';
-    }
+    tableRows += itemsHTML;
   });
 
-  return tablesHTML;
+  // صف الإجمالي الكلي
+  tableRows += `
+    <tr class="total-row">
+      <td colspan="2" class="text-right">الإجمالي الكلي - المواد: ${data.totalProductionQuantity}</td>
+      <td class="text-center">${this.formatCurrency(data.totalProductionAmount)}</td>
+    </tr>
+  `;
+
+  return `
+    <table>
+      <thead>
+        <tr>
+          <th class="text-center">اليوم والتاريخ</th>
+          <th class="text-right">المادة والكمية</th>
+          <th class="text-center">الإجمالي</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${tableRows}
+      </tbody>
+    </table>
+  `;
 }
+
+/**
+ * بناء جدول الملخص المالي
+ */
+private buildFinancialSummaryTable(data: any): string {
+  const summary = data.financialSummary;
+
+  return `
+    <table>
+      <thead>
+        <tr>
+          <th>إجمالي الدخل</th>
+          <th>إجمالي السحوبات</th>
+          <th>المبلغ المستحق</th>
+          <th>المبلغ المأخوذ الأخير</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="total-row">
+          <td class="text-center">${this.formatCurrency(summary.totalIncome)}</td>
+          <td class="text-center">${this.formatCurrency(summary.totalWithdrawals)}</td>
+          <td class="text-center">${this.formatCurrency(summary.amountDue)}</td>
+          <td class="text-center">${this.formatCurrency(summary.lastPaid)}</td>
+        </tr>
+      </tbody>
+    </table>
+  `;
+}
+
+/**
+ * بناء جدول تفاصيل الموظفين
+ */
+private buildEmployeesDetailsTable(data: any): string {
+  if (data.employeesDetails.length === 0) {
+    return '<div class="no-data">لا يوجد موظفون</div>';
+  }
+
+  let tableRows = '';
+  let totalDue = 0;
+  let totalWithdrawals = 0;
+  let totalBalance = 0;
+
+  data.employeesDetails.forEach(emp => {
+    totalDue += emp.totalDue;
+    totalWithdrawals += emp.totalWithdrawals;
+    totalBalance += emp.balance;
+
+    tableRows += `
+      <tr>
+        <td class="text-right">${emp.employeeName}</td>
+        <td class="text-center">${this.formatCurrency(emp.totalDue)}</td>
+        <td class="text-center">${this.formatCurrency(emp.totalWithdrawals)}</td>
+        <td class="text-center">${this.formatCurrency(emp.balance)}</td>
+        <td class="text-center"><small>${emp.notes}</small></td>
+      </tr>
+    `;
+  });
+
+  // صف الإجمالي
+  tableRows += `
+    <tr class="total-row">
+      <td class="text-right">الإجمالي</td>
+      <td class="text-center">${this.formatCurrency(totalDue)}</td>
+      <td class="text-center">${this.formatCurrency(totalWithdrawals)}</td>
+      <td class="text-center">${this.formatCurrency(totalBalance)}</td>
+      <td class="text-center">—</td>
+    </tr>
+  `;
+
+  return `
+    <table>
+      <thead>
+        <tr>
+          <th class="text-right">اسم الموظف</th>
+          <th class="text-center">المبلغ المستحق</th>
+          <th class="text-center">السحب</th>
+          <th class="text-center">المبلغ المتبقي</th>
+          <th class="text-center">ملاحظات</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${tableRows}
+      </tbody>
+    </table>
+  `;
+}
+
+/**
+ * دوال مساعدة
+ */
+private formatDateDisplay(date: Date): string {
+  const days = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+  const months = [
+    'يناير',
+    'فبراير',
+    'مارس',
+    'أبريل',
+    'مايو',
+    'يونيو',
+    'يوليو',
+    'أغسطس',
+    'سبتمبر',
+    'أكتوبر',
+    'نوفمبر',
+    'ديسمبر'
+  ];
+
+  const d = new Date(date);
+  const dayName = days[d.getDay()];
+  const dayNum = d.getDate();
+  const monthName = months[d.getMonth()];
+  const year = d.getFullYear();
+
+  return `${dayName} ${dayNum}/${String(d.getMonth() + 1).padStart(2, '0')}/${year}`;
+}
+
+
+
 
 // 2. تقرير سحوبات الموظفين
 async generateEmployeeWithdrawalsReport(employeeId?: number, startDate?: Date, endDate?: Date): Promise<string> {
@@ -4131,5 +4779,748 @@ private formatReceiptDate(date: Date | string): string {
   const formattedDate = `${day}/${month}/${year} - ${displayHours}:${minutes} ${period}`;
   return this.convertToEnglishNumbers(formattedDate);
 }
+
+
+
+/**
+   * التقرير الشامل - تقرير واحد يحتوي على جميع المعلومات الهامة
+   */
+  async generateComprehensiveReportHTML(startDate: Date, endDate: Date): Promise<string> {
+    const [fundsData, workshopsData, deliveriesData, invoicesData] = await Promise.all([
+      this.getFundsData(startDate, endDate),
+      this.getWorkshopsData(startDate, endDate),
+      this.getDeliveriesData(startDate, endDate),
+      this.getInvoicesData(startDate, endDate)
+    ]);
+
+    return this.buildComprehensiveReportHTML(
+      fundsData,
+      workshopsData,
+      deliveriesData,
+      invoicesData,
+      startDate,
+      endDate
+    );
+  }
+
+  private async getFundsData(startDate: Date, endDate: Date) {
+    const shifts = await this.prisma.shift.findMany({
+      where: {
+        openTime: {
+          gte: startDate,
+          lte: endDate
+        }
+      },
+      include: {
+        invoices: {
+          include: {
+            fund: true
+          }
+        },
+        employee: true
+      },
+      orderBy: {
+        openTime: 'asc'
+      }
+    });
+
+    const fundTypes = ['general', 'booth', 'university'];
+    const shiftsData = new Map();
+
+    shifts.forEach(shift => {
+      const shiftKey = `${shift.id}-${shift.shiftType}`;
+      shiftsData.set(shiftKey, {
+        shiftId: shift.id,
+        shiftType: shift.shiftType,
+        employeeName: shift.employee.username,
+        openTime: shift.openTime,
+        funds: {}
+      });
+    });
+
+    fundTypes.forEach(fundType => {
+      shifts.forEach(shift => {
+        const shiftKey = `${shift.id}-${shift.shiftType}`;
+        const shiftData = shiftsData.get(shiftKey);
+
+        const fundInvoices = shift.invoices.filter(inv => inv.fund.fundType === fundType);
+        
+        const income = fundInvoices
+          .filter(inv => inv.invoiceType === 'income')
+          .reduce((sum, inv) => sum + (inv.totalAmount - (inv.discount || 0)), 0);
+
+        const expense = fundInvoices
+          .filter(inv => inv.invoiceType === 'expense')
+          .reduce((sum, inv) => sum + (inv.totalAmount - (inv.discount || 0)), 0);
+
+        shiftData.funds[fundType] = {
+          income,
+          expense,
+          net: income - expense
+        };
+      });
+    });
+
+    return {
+      shifts: Array.from(shiftsData.values()),
+      fundTypes
+    };
+  }
+
+  private async getWorkshopsData(startDate: Date, endDate: Date) {
+    const workshops = await this.prisma.workshop.findMany({
+      include: {
+        employees: {
+          include: {
+            productionRecords: {
+              where: {
+                date: {
+                  gte: startDate,
+                  lte: endDate
+                }
+              },
+              include: {
+                item: true
+              }
+            }
+          }
+        }
+      }
+    });
+
+    const itemsMap = new Map();
+    const workshopsMap = new Map();
+
+    workshops.forEach(workshop => {
+      workshopsMap.set(workshop.id, {
+        workshopId: workshop.id,
+        workshopName: workshop.name,
+        workType: workshop.workType,
+        items: {}
+      });
+
+      workshop.employees.forEach(employee => {
+        employee.productionRecords.forEach(record => {
+          if (!itemsMap.has(record.itemId)) {
+            itemsMap.set(record.itemId, {
+              itemId: record.itemId,
+              itemName: record.item.name
+            });
+          }
+
+          const workshopData = workshopsMap.get(workshop.id);
+          if (!workshopData.items[record.itemId]) {
+            workshopData.items[record.itemId] = 0;
+          }
+          workshopData.items[record.itemId] += record.quantity;
+        });
+      });
+    });
+
+    return {
+      workshops: Array.from(workshopsMap.values()),
+      items: Array.from(itemsMap.values())
+    };
+  }
+
+  private async getDeliveriesData(startDate: Date, endDate: Date) {
+    const deliveredOrders = await this.prisma.order.findMany({
+      where: {
+        status: 'delivered',
+        createdAt: {
+          gte: startDate,
+          lte: endDate
+        }
+      },
+      include: {
+        items: {
+          include: {
+            item: {
+              include: {
+                group: true
+              }
+            }
+          }
+        },
+        category: true
+      }
+    });
+
+    console.log(deliveredOrders)
+    
+    const itemGroupsMap = new Map();
+    const orderCategoriesMap = new Map();
+
+    deliveredOrders.forEach(order => {
+      if (!orderCategoriesMap.has(order.categoryId)) {
+        orderCategoriesMap.set(order.categoryId, {
+          categoryId: order.categoryId,
+          categoryName: order.category.name,
+          itemGroups: {}
+        });
+      }
+
+      const categoryData = orderCategoriesMap.get(order.categoryId);
+
+      order.items.forEach(orderItem => {
+        const groupName = orderItem.item.group.name;
+        
+        if (!itemGroupsMap.has(groupName)) {
+          itemGroupsMap.set(groupName, groupName);
+        }
+
+        if (!categoryData.itemGroups[groupName]) {
+          categoryData.itemGroups[groupName] = 0;
+        }
+
+        categoryData.itemGroups[groupName] += orderItem.quantity;
+      });
+    });
+
+    return {
+      categories: Array.from(orderCategoriesMap.values()),
+      itemGroups: Array.from(itemGroupsMap.values()),
+      totalDelivered: deliveredOrders.length
+    };
+  }
+
+  private async getInvoicesData(startDate: Date, endDate: Date) {
+    const invoices = await this.prisma.invoice.findMany({
+      where: {
+        createdAt: {
+          gte: startDate,
+          lte: endDate
+        },
+        paidStatus: true
+      },
+      include: {
+        customer: true,
+        fund: true
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    });
+
+    const fundTypesMap = new Map();
+
+    invoices.forEach(invoice => {
+      const fundType = invoice.fund.fundType;
+      
+      if (!fundTypesMap.has(fundType)) {
+        fundTypesMap.set(fundType, {
+          fundType,
+          invoices: []
+        });
+      }
+
+      fundTypesMap.get(fundType).invoices.push({
+        customerName: invoice.customer?.name || 'مباشر',
+        amount: invoice.totalAmount - (invoice.discount || 0),
+        type: invoice.invoiceType === 'income' ? 'دخل' : 'صرف',
+        notes: invoice.notes || '—'
+      });
+    });
+
+    return {
+      fundTypes: Array.from(fundTypesMap.values())
+    };
+  }
+
+  /**
+   * بناء HTML التقرير الشامل - تصميم احترافي بسيط
+   */
+  private buildComprehensiveReportHTML(
+    fundsData: any,
+    workshopsData: any,
+    deliveriesData: any,
+    invoicesData: any,
+    startDate: Date,
+    endDate: Date
+  ): string {
+    return `
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>التقرير الشامل</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    html, body {
+      width: 100%;
+      height: 100%;
+    }
+    
+    body {
+      font-family: Arial, sans-serif;
+      padding: 0;
+      background: #ffffff;
+      color: #333333;
+      font-size: 11px;
+      line-height: 1.5;
+    }
+    
+    .container {
+      width: 100%;
+      margin: 0;
+      background: white;
+      padding: 20mm 15mm;
+    }
+    
+    .header {
+      text-align: center;
+      margin-bottom: 20mm;
+      border-bottom: 3px solid #000000;
+      padding-bottom: 12mm;
+    }
+    
+    .bakery-name {
+      font-size: 18px;
+      font-weight: bold;
+      color: #000000;
+      margin-bottom: 6px;
+      letter-spacing: 0.3px;
+    }
+    
+    .report-title {
+      font-size: 15px;
+      font-weight: bold;
+      color: #000000;
+      margin-bottom: 5px;
+    }
+    
+    .date-range {
+      font-size: 10px;
+      color: #555555;
+      font-weight: normal;
+    }
+    
+    .section {
+      margin-bottom: 20mm;
+      page-break-inside: avoid;
+    }
+    
+    .section-title {
+      font-size: 13px;
+      font-weight: bold;
+      color: #000000;
+      padding: 8px 10px;
+      margin-bottom: 10px;
+      border-bottom: 2px solid #000000;
+      background: #f8f8f8;
+    }
+    
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 10mm;
+    }
+    
+    th {
+      background: #e8e8e8;
+      color: #000000;
+      padding: 7px;
+      text-align: center;
+      font-weight: bold;
+      border: 1px solid #999999;
+      font-size: 10px;
+    }
+    
+    td {
+      padding: 6px 7px;
+      border: 1px solid #999999;
+      text-align: center;
+      font-size: 10px;
+      background: #ffffff;
+    }
+    
+    tr:nth-child(even) td {
+      background: #f8f8f8;
+    }
+    
+    .total-row {
+      background: #d9d9d9 !important;
+      font-weight: bold;
+      border-top: 2px solid #000000;
+    }
+    
+    .total-row td {
+      background: #d9d9d9 !important;
+      font-weight: bold;
+      border: 1px solid #999999;
+    }
+    
+    .text-right {
+      text-align: right;
+    }
+    
+    .text-left {
+      text-align: left;
+    }
+    
+    .font-bold {
+      font-weight: bold;
+    }
+    
+    .no-data {
+      text-align: center;
+      padding: 15px;
+      color: #666666;
+      background: #f5f5f5;
+      border: 1px solid #cccccc;
+      font-size: 10px;
+    }
+    
+    .subsection {
+      margin-bottom: 15mm;
+      page-break-inside: avoid;
+    }
+    
+    .subsection-title {
+      font-size: 11px;
+      font-weight: bold;
+      color: #000000;
+      margin-bottom: 8px;
+      padding-bottom: 5px;
+      border-bottom: 1px solid #cccccc;
+    }
+    
+    .summary-box {
+      margin-bottom: 10px;
+      padding: 8px 10px;
+      background: #f8f8f8;
+      border-left: 3px solid #000000;
+      font-size: 10px;
+    }
+    
+    .summary-box .label {
+      font-weight: bold;
+      margin-bottom: 3px;
+    }
+    
+    .summary-box .value {
+      margin-left: 15px;
+    }
+    
+    @media print {
+      body {
+        background: white;
+        margin: 0;
+        padding: 0;
+      }
+      
+      .container {
+        margin: 0;
+        padding: 20mm 15mm;
+        box-shadow: none;
+      }
+      
+      .section {
+        page-break-inside: avoid;
+      }
+      
+      table {
+        page-break-inside: avoid;
+      }
+      
+      * {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+    }
+    
+    @page {
+      size: A4;
+      margin: 12mm;
+      orphans: 3;
+      widows: 3;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="bakery-name">مخبز الإحسان الدمشقي</div>
+      <div class="report-title">التقرير الشامل</div>
+      <div class="date-range">من ${this.formatDate(startDate)} إلى ${this.formatDate(endDate)}</div>
+    </div>
+
+    <!-- قسم ملخص الصناديق -->
+    <div class="section">
+      <div class="section-title">ملخص الصناديق</div>
+      ${this.buildFundsSection(fundsData)}
+    </div>
+
+    <!-- قسم ملخص عمل الورشات -->
+    <div class="section">
+      <div class="section-title">ملخص عمل الورشات</div>
+      ${this.buildWorkshopsSection(workshopsData)}
+    </div>
+
+    <!-- قسم ملخص التسليم بالطلبيات -->
+    <div class="section">
+      <div class="section-title">ملخص التسليم بالطلبيات</div>
+      ${this.buildDeliveriesSection(deliveriesData)}
+    </div>
+
+    <!-- قسم ملخص الفواتير -->
+    <div class="section">
+      <div class="section-title">ملخص الفواتير</div>
+      ${this.buildInvoicesSection(invoicesData)}
+    </div>
+  </div>
+
+  <script>
+    window.addEventListener('load', function() {
+      setTimeout(() => {
+        window.print();
+      }, 500);
+    });
+  </script>
+</body>
+</html>
+    `;
+  }
+
+  /**
+   * بناء قسم الصناديق
+   */
+  private buildFundsSection(fundsData: any): string {
+    let html = '';
+    const fundLabels = {
+      'general': 'الصندوق العام',
+      'booth': 'البسطة',
+      'university': 'الجامعات'
+    };
+
+    fundsData.fundTypes.forEach(fundType => {
+      html += `
+        <div class="subsection">
+          <div class="subsection-title">${fundLabels[fundType]}</div>
+          <table>
+            <thead>
+              <tr>
+                <th>الواردية</th>
+                <th>المسؤول</th>
+                <th>الدخل (ل.س)</th>
+                <th>الخرج (ل.س)</th>
+                <th>الصافي (ل.س)</th>
+              </tr>
+            </thead>
+            <tbody>
+      `;
+
+      let totalIncome = 0;
+      let totalExpense = 0;
+
+      fundsData.shifts.forEach(shift => {
+        const fundData = shift.funds[fundType];
+        if (fundData) {
+          totalIncome += fundData.income;
+          totalExpense += fundData.expense;
+
+          const shiftTypeAr = shift.shiftType === 'morning' ? 'صباحية' : 'مسائية';
+          const net = fundData.income - fundData.expense;
+
+          html += `
+            <tr>
+              <td>${shiftTypeAr}</td>
+              <td>${shift.employeeName}</td>
+              <td>${this.formatNumber(fundData.income)}</td>
+              <td>${this.formatNumber(fundData.expense)}</td>
+              <td class="font-bold">${this.formatNumber(net)}</td>
+            </tr>
+          `;
+        }
+      });
+
+      const totalNet = totalIncome - totalExpense;
+
+      html += `
+              <tr class="total-row">
+                <td colspan="2">الإجمالي</td>
+                <td>${this.formatNumber(totalIncome)}</td>
+                <td>${this.formatNumber(totalExpense)}</td>
+                <td>${this.formatNumber(totalNet)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      `;
+    });
+
+    return html || '<div class="no-data">لا توجد بيانات متاحة</div>';
+  }
+
+  /**
+   * بناء قسم الورشات
+   */
+  private buildWorkshopsSection(workshopsData: any): string {
+    if (workshopsData.workshops.length === 0) {
+      return '<div class="no-data">لا توجد بيانات للورشات في هذه الفترة</div>';
+    }
+
+    let html = `<table><thead><tr><th>الورشة</th>`;
+
+    workshopsData.items.forEach(item => {
+      html += `<th>${item.itemName}</th>`;
+    });
+
+    html += `<th>الإجمالي</th></tr></thead><tbody>`;
+
+    let totalEstimated = 0;
+
+    workshopsData.workshops.forEach(workshop => {
+      html += `<tr><td class="text-right font-bold">${workshop.workshopName}</td>`;
+
+      let workshopTotal = 0;
+
+      workshopsData.items.forEach(item => {
+        const quantity = workshop.items[item.itemId] || 0;
+        html += `<td>${quantity > 0 ? quantity : '—'}</td>`;
+        workshopTotal += quantity;
+      });
+
+      totalEstimated += workshopTotal;
+      html += `<td class="font-bold">${workshopTotal}</td></tr>`;
+    });
+
+    html += `
+        <tr class="total-row">
+          <td colspan="${workshopsData.items.length + 1}">المجموع الكلي</td>
+          <td>${totalEstimated}</td>
+        </tr>
+        </tbody>
+      </table>
+    `;
+
+    return html;
+  }
+
+  /**
+   * بناء قسم التسليم
+   */
+  private buildDeliveriesSection(deliveriesData: any): string {
+    if (deliveriesData.categories.length === 0) {
+      return '<div class="no-data">لا توجد طلبيات مسلمة في هذه الفترة</div>';
+    }
+
+    let html = `
+      <div class="summary-box">
+        <div class="label">إجمالي الطلبيات المسلمة: ${deliveriesData.totalDelivered}</div>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>تصنيف الطلبية</th>
+    `;
+
+    deliveriesData.itemGroups.forEach(group => {
+      html += `<th>${group}</th>`;
+    });
+
+    html += `<th>المجموع</th></tr></thead><tbody>`;
+
+    let grandTotal = 0;
+
+    deliveriesData.categories.forEach(category => {
+      html += `<tr><td class="text-right font-bold">${category.categoryName}</td>`;
+
+      let categoryTotal = 0;
+
+      deliveriesData.itemGroups.forEach(group => {
+        const quantity = category.itemGroups[group] || 0;
+        html += `<td>${quantity > 0 ? quantity : '—'}</td>`;
+        categoryTotal += quantity;
+      });
+
+      grandTotal += categoryTotal;
+      html += `<td class="font-bold">${categoryTotal}</td></tr>`;
+    });
+
+    html += `
+        <tr class="total-row">
+          <td colspan="${deliveriesData.itemGroups.length + 1}">المجموع الكلي</td>
+          <td>${grandTotal}</td>
+        </tr>
+        </tbody>
+      </table>
+    `;
+
+    return html;
+  }
+
+  /**
+   * بناء قسم الفواتير
+   */
+  private buildInvoicesSection(invoicesData: any): string {
+    if (invoicesData.fundTypes.length === 0) {
+      return '<div class="no-data">لا توجد فواتير مسددة في هذه الفترة</div>';
+    }
+
+    let html = '';
+    const fundLabels = {
+      'general': 'الصندوق العام',
+      'booth': 'البسطة',
+      'university': 'الجامعات',
+      'main': 'الخزينة الرئيسية'
+    };
+
+    invoicesData.fundTypes.forEach(fundTypeData => {
+      const fundLabel = fundLabels[fundTypeData.fundType] || fundTypeData.fundType;
+      let total = 0;
+
+      html += `
+        <div class="subsection">
+          <div class="subsection-title">${fundLabel}</div>
+          <table>
+            <thead>
+              <tr>
+                <th>الزبون</th>
+                <th>المبلغ (ل.س)</th>
+                <th>النوع</th>
+                <th>ملاحظة</th>
+              </tr>
+            </thead>
+            <tbody>
+      `;
+
+      fundTypeData.invoices.forEach(invoice => {
+        total += invoice.amount;
+        html += `
+          <tr>
+            <td class="text-right">${invoice.customerName}</td>
+            <td>${this.formatNumber(invoice.amount)}</td>
+            <td>${invoice.type}</td>
+            <td class="text-left">${invoice.notes.substring(0, 20)}</td>
+          </tr>
+        `;
+      });
+
+      html += `
+            <tr class="total-row">
+              <td colspan="2">الإجمالي</td>
+              <td colspan="2">${this.formatNumber(total)}</td>
+            </tr>
+          </tbody>
+        </table>
+        </div>
+      `;
+    });
+
+    return html;
+  }
+
+    private formatNumber(num: number): string {
+    return num.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  }
+
 
 }

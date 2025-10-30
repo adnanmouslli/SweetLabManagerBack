@@ -659,9 +659,9 @@ async getCurrentShiftSummary(): Promise<ShiftSummary> {
           // استخدام supplierPaymentAmount إذا وجد، وإلا استخدام totalAmount
           let actualAmount;
           if (invoice.supplierPaymentAmount > 0) {
-            actualAmount = invoice.supplierPaymentAmount - (invoice.discount || 0);
+            actualAmount = invoice.supplierPaymentAmount;
           } else {
-            actualAmount = invoice.totalAmount - (invoice.discount || 0);
+            actualAmount = invoice.totalAmount;
           }
           return sum + actualAmount;
         }, 0);
@@ -677,9 +677,9 @@ async getCurrentShiftSummary(): Promise<ShiftSummary> {
             // Subtract discount from total amount
             let actualAmount;
             if (invoice.supplierPaymentAmount > 0) {
-              actualAmount = invoice.supplierPaymentAmount - (invoice.discount || 0);
+              actualAmount = invoice.supplierPaymentAmount;
             } else {
-              actualAmount = invoice.totalAmount - (invoice.discount || 0);
+              actualAmount = invoice.totalAmount;
             }
             return sum + actualAmount;
           }, 0);

@@ -923,6 +923,61 @@ async generateInvoiceReceipt(
 
 
 /**
+ * التقرير الشامل - يجمع جميع البيانات الهامة
+ * GET /reports/comprehensive
+ */
+@Get('comprehensive')
+async getComprehensiveReport(
+  @Query('startDate') startDate: string,
+  @Query('endDate') endDate: string,
+  @Query('download') download?: string,
+  @Res() res?: Response
+) {
+  try {
+    if (!startDate || !endDate) {
+      throw new BadRequestException('يجب تحديد تاريخ البداية والنهاية');
+    }
+
+    const start = new Date(startDate + 'T00:00:00');
+    const end = new Date(endDate + 'T23:59:59');
+    
+    if (start > end) {
+      throw new BadRequestException('تاريخ البداية يجب أن يكون قبل تاريخ النهاية');
+    }
+
+    // استدعاء خدمة التقرير الشامل
+    const htmlContent = await this.pdfReportsService.generateComprehensiveReportHTML(start, end);
+    
+    if (download === 'true' && res) {
+      const filename = `comprehensive-report-${startDate}-to-${endDate}.html`;
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      return res.send(htmlContent);
+    } else if (res) {
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      return res.send(htmlContent);
+    }
+    
+    return {
+      success: true,
+      data: htmlContent,
+      period: {
+        startDate,
+        endDate
+      },
+      message: 'تم توليد التقرير الشامل بنجاح'
+    };
+  } catch (error) {
+    throw new HttpException(
+      `خطأ في توليد التقرير الشامل: ${error.message}`, 
+      HttpStatus.INTERNAL_SERVER_ERROR
+    );
+  }
+}
+
+
+
+/**
  * إرسال صفحة خطأ محسنة
  */
 private sendErrorPage(error: any, invoiceId: number, res: Response) {
