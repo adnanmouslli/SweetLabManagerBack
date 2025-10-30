@@ -8,6 +8,7 @@ import { TransferHistoryQueryDto } from './dto/transfer-request.dto';
 import { ConvertToBreakDto } from './dto/convert-to-break.dto';
 import { CustomerType } from '../customers/dto/create-customer.dto';
 import { tr } from '@faker-js/faker/.';
+import axios from 'axios';
 
 
 enum TransferToMainStatus {
@@ -20,6 +21,109 @@ enum TransferToMainStatus {
 export class InvoicesService {
   constructor(private prisma: PrismaService) {}
   
+  
+  // ================================================
+// التابع الرئيسي: إرسال الفاتورة للزبون
+// ================================================
+
+async sendInvoiceToCustomer(invoice: any): Promise<void> {
+  try {
+
+    console.log(invoice.customer)
+    // التحقق من وجود الزبون ورقم الهاتف
+    if (!invoice.customer || !invoice.customer.phone) {
+      console.warn(`⚠️ لا يمكن إرسال الفاتورة: الزبون بدون رقم هاتف (Invoice ID: ${invoice.id})`);
+      return;
+    }
+
+    // تنسيق رسالة الفاتورة
+    const message = this.formatInvoiceMessage(invoice);
+
+    // إرسال الرسالة عبر API
+    await this.sendMessageViaAPI(
+      invoice.customer.phone,
+      message
+    );
+
+    console.log(`✅ تم إرسال الفاتورة رقم ${invoice.invoiceNumber} للعميل ${invoice.customer.name}`);
+  } catch (error) {
+    // لا نرمي الخطأ، فقط نسجله لأن عدم إرسال الرسالة لا يجب أن يوقف عملية إنشاء الفاتورة
+    console.error(`❌ خطأ في إرسال الفاتورة رقم ${invoice.invoiceNumber}:`, error.message);
+  }
+}
+
+// ================================================
+// تابع تنسيق الرسالة
+// ================================================
+
+ formatInvoiceMessage(invoice: any): string {
+  const items = invoice.items?.map(item => 
+    `• ${item.item.name}: ${item.quantity} ${item.unit} بسعر ${item.unitPrice}`
+  ).join('\n') || 'لا توجد عناصر';
+
+  const totalWithDiscount = invoice.totalAmount - (invoice.discount || 0);
+  const invoiceType = invoice.invoiceType === 'income' ? 'إيرادات' : 'مصروفات';
+  const paidStatus = invoice.paidStatus ? '✅ مدفوعة' : '⏳ غير مدفوعة';
+
+  const message = `
+🧾 *فاتورة جديدة*
+━━━━━━━━━━━━━━━━━━━━━━━
+📌 رقم الفاتورة: ${invoice.invoiceNumber}
+📅 التاريخ: ${new Date(invoice.createdAt).toLocaleDateString('ar-EG')}
+👤 العميل: ${invoice.customer?.name || 'غير محدد'}
+
+📋 *التفاصيل:*
+نوع الفاتورة: ${invoiceType}
+الفئة: ${invoice.invoiceCategory}
+الحالة: ${paidStatus}
+
+🛒 *العناصر:*
+${items}
+
+💰 *الإجمالي:*
+${invoice.discount > 0 ? `الإجمالي الأساسي: ${invoice.totalAmount}\nالخصم: ${invoice.discount}` : ''}
+${invoice.discount > 0 ? `الإجمالي بعد الخصم: ${totalWithDiscount}` : `الإجمالي: ${invoice.totalAmount}`}
+
+${invoice.notes ? `📝 ملاحظات: ${invoice.notes}` : ''}
+━━━━━━━━━━━━━━━━━━━━━━━
+شكراً لتعاملكم معنا ✨
+  `.trim();
+
+  return message;
+}
+
+// ================================================
+// تابع إرسال الرسالة عبر API
+// ================================================
+
+ async sendMessageViaAPI(phoneNumber: string, message: string): Promise<void> {
+  try {
+    const response = await axios.post(
+      'http://localhost:3698/send-message',
+      {
+        phoneNumber: phoneNumber,
+        message: message
+      },
+      {
+        timeout: 5000, // مهلة زمنية 5 ثوان
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    if (response.status !== 200) {
+      throw new Error(`API returned status ${response.status}`);
+    }
+
+    console.log(`📱 تم إرسال الرسالة إلى ${phoneNumber}`);
+  } catch (error) {
+    console.error(`❌ خطأ في إرسال الرسالة عبر API:`, error.message);
+    throw new Error(`فشل إرسال الرسالة: ${error.message}`);
+  }
+}
+
+
   async create(createInvoiceDto: CreateInvoiceDto, employeeId: number) {
     const activeShift = await this.prisma.shift.findFirst({
       where: {
@@ -297,7 +401,7 @@ export class InvoicesService {
           isBreakInvoice: true
         };
       } 
-      
+  
       // حالة الفاتورة العادية (عندما isBreak = false أو غير محدد)
       else {
         // إنشاء الفاتورة العادية
@@ -748,6 +852,9 @@ export class InvoicesService {
           }
         }
         
+        // إرسال الفاتورة للزبون
+       await this.sendInvoiceToCustomer(invoice);
+
         // إرجاع الفاتورة المنشأة
         return {
           ...invoice,

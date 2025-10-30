@@ -438,6 +438,19 @@ async create(createOrderDto: CreateOrderDto, employeeId: number) {
       }
     }
     
+
+    // 📱 إرسال الفاتورة للزبون
+    if (invoice) {
+      if (invoice.isBreakInvoice) {
+        // إرسال كلا الفاتورتين
+        await this.invoicesService.sendInvoiceToCustomer(invoice.paidInvoice);
+        await this.invoicesService.sendInvoiceToCustomer(invoice.breakInvoice);
+      } else {
+        // إرسال الفاتورة العادية
+        await this.invoicesService.sendInvoiceToCustomer(invoice);
+      }
+    }
+
     // Get updated order with all relations
     const updatedOrder = await prisma.order.findUnique({
       where: { id: order.id },
@@ -457,6 +470,7 @@ async create(createOrderDto: CreateOrderDto, employeeId: number) {
         invoice: true
       }
     });
+    
     
     return {
       order: updatedOrder,
@@ -980,6 +994,9 @@ async create(createOrderDto: CreateOrderDto, employeeId: number) {
         }
       });
       
+      // 📱 إرسال الفاتورات للزبون
+     await this.invoicesService.sendInvoiceToCustomer(paidInvoiceWithItems);
+
       return {
         order: await prisma.order.findUnique({
           where: { id: order.id },
@@ -1098,7 +1115,8 @@ async create(createOrderDto: CreateOrderDto, employeeId: number) {
           customer: true
         }
       });
-      
+      await this.invoicesService.sendInvoiceToCustomer(invoiceWithItems);
+
       return {
         order: updatedOrder,
         invoice: invoiceWithItems,
