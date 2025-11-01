@@ -921,15 +921,20 @@ async generateInvoiceReceipt(
   }
 }
 
-
 /**
  * التقرير الشامل - يجمع جميع البيانات الهامة
  * GET /reports/comprehensive
+ * 
+ * الاستخدام:
+ * - بدون فلتر: /reports/comprehensive?startDate=2024-01-01&endDate=2024-01-31
+ * - مع فلتر واحد: /reports/comprehensive?startDate=2024-01-01&endDate=2024-01-31&shiftIds=shift-id-1
+ * - مع عدة فلاتر: /reports/comprehensive?startDate=2024-01-01&endDate=2024-01-31&shiftIds=shift-id-1&shiftIds=shift-id-2&shiftIds=shift-id-3
  */
 @Get('comprehensive')
 async getComprehensiveReport(
   @Query('startDate') startDate: string,
   @Query('endDate') endDate: string,
+  @Query('shiftIds') shiftIds?: string | string[],
   @Query('download') download?: string,
   @Res() res?: Response
 ) {
@@ -938,38 +943,52 @@ async getComprehensiveReport(
       throw new BadRequestException('يجب تحديد تاريخ البداية والنهاية');
     }
 
-    const start = new Date(startDate + 'T00:00:00');
-    const end = new Date(endDate + 'T23:59:59');
-    
+    const start = new Date(`${startDate}T00:00:00`);
+    const end = new Date(`${endDate}T23:59:59`);
+
     if (start > end) {
       throw new BadRequestException('تاريخ البداية يجب أن يكون قبل تاريخ النهاية');
     }
 
-    // استدعاء خدمة التقرير الشامل
-    const htmlContent = await this.pdfReportsService.generateComprehensiveReportHTML(start, end);
-    
-    if (download === 'true' && res) {
-      const filename = `comprehensive-report-${startDate}-to-${endDate}.html`;
+    // ✅ تحويل IDs إلى أرقام صحيحة
+    const shiftsFilter = Array.isArray(shiftIds)
+      ? shiftIds.map(id => Number(id))
+      : shiftIds
+      ? [Number(shiftIds)]
+      : undefined;
+
+    // تمرير فلتر الوارديات
+    const htmlContent = await this.pdfReportsService.generateComprehensiveReportHTML(
+      start,
+      end,
+      shiftsFilter
+    );
+
+    if (res) {
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-      return res.send(htmlContent);
-    } else if (res) {
-      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      if (download === 'true') {
+        const filename = `comprehensive-report-${startDate}-to-${endDate}.html`;
+        res.setHeader(
+          'Content-Disposition',
+          `attachment; filename="${filename}"`
+        );
+      }
       return res.send(htmlContent);
     }
-    
+
     return {
       success: true,
       data: htmlContent,
       period: {
         startDate,
-        endDate
+        endDate,
+        shiftFilters: shiftsFilter || 'جميع الوارديات',
       },
-      message: 'تم توليد التقرير الشامل بنجاح'
+      message: 'تم توليد التقرير الشامل بنجاح',
     };
   } catch (error) {
     throw new HttpException(
-      `خطأ في توليد التقرير الشامل: ${error.message}`, 
+      `خطأ في توليد التقرير الشامل: ${error.message}`,
       HttpStatus.INTERNAL_SERVER_ERROR
     );
   }

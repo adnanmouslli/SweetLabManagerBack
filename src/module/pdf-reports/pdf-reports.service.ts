@@ -4785,12 +4785,16 @@ private formatReceiptDate(date: Date | string): string {
 /**
    * التقرير الشامل - تقرير واحد يحتوي على جميع المعلومات الهامة
    */
-  async generateComprehensiveReportHTML(startDate: Date, endDate: Date): Promise<string> {
+  async generateComprehensiveReportHTML(
+    startDate: Date, 
+    endDate: Date,
+    shiftIds?: number[] // فلتر الوارديات المتعدد - اختياري
+  ): Promise<string> {
     const [fundsData, workshopsData, deliveriesData, invoicesData] = await Promise.all([
-      this.getFundsData(startDate, endDate),
-      this.getWorkshopsData(startDate, endDate),
-      this.getDeliveriesData(startDate, endDate),
-      this.getInvoicesData(startDate, endDate)
+      this.getFundsData(startDate, endDate, shiftIds),
+      this.getWorkshopsData(startDate, endDate),  // لا يتأثر بفلتر الوارديات
+      this.getDeliveriesData(startDate, endDate),  // لا يتأثر بفلتر الوارديات
+      this.getInvoicesData(startDate, endDate, shiftIds)  // يتأثر بفلتر الوارديات
     ]);
 
     return this.buildComprehensiveReportHTML(
@@ -4799,492 +4803,532 @@ private formatReceiptDate(date: Date | string): string {
       deliveriesData,
       invoicesData,
       startDate,
-      endDate
+      endDate,
+      shiftIds  
     );
   }
 
-  private async getFundsData(startDate: Date, endDate: Date) {
-    const shifts = await this.prisma.shift.findMany({
-      where: {
-        openTime: {
-          gte: startDate,
-          lte: endDate
+private async getFundsData(startDate: Date, endDate: Date, shiftIds?: number[]) {
+  // إنشاء شروط البحث
+  const whereConditions: any = {
+    openTime: {
+      gte: startDate,
+      lte: endDate
+    }
+  };
+
+  // إذا تم تمرير IDs الوارديات، أضفها للفلتر
+  if (shiftIds && shiftIds.length > 0) {
+    whereConditions.id = {
+      in: shiftIds 
+    };
+  }
+
+  const shifts = await this.prisma.shift.findMany({
+    where: whereConditions,
+    include: {
+      invoices: {
+        include: {
+          fund: true
         }
       },
-      include: {
-        invoices: {
-          include: {
-            fund: true
-          }
-        },
-        employee: true
-      },
-      orderBy: {
-        openTime: 'asc'
-      }
+      employee: true
+    },
+    orderBy: {
+      openTime: 'asc'
+    }
+  });
+
+  const fundTypes = ['general', 'booth', 'university'];
+  const shiftsData = new Map();
+
+  shifts.forEach(shift => {
+    const shiftKey = `${shift.id}-${shift.shiftType}`;
+    shiftsData.set(shiftKey, {
+      shiftId: shift.id,
+      shiftType: shift.shiftType,
+      employeeName: shift.employee.username,
+      openTime: shift.openTime,
+      funds: {}
     });
+  });
 
-    const fundTypes = ['general', 'booth', 'university'];
-    const shiftsData = new Map();
-
+  fundTypes.forEach(fundType => {
     shifts.forEach(shift => {
       const shiftKey = `${shift.id}-${shift.shiftType}`;
-      shiftsData.set(shiftKey, {
-        shiftId: shift.id,
-        shiftType: shift.shiftType,
-        employeeName: shift.employee.username,
-        openTime: shift.openTime,
-        funds: {}
-      });
-    });
+      const shiftData = shiftsData.get(shiftKey);
 
-    fundTypes.forEach(fundType => {
-      shifts.forEach(shift => {
-        const shiftKey = `${shift.id}-${shift.shiftType}`;
-        const shiftData = shiftsData.get(shiftKey);
-
-        const fundInvoices = shift.invoices.filter(inv => inv.fund.fundType === fundType);
-        
-        const income = fundInvoices
-          .filter(inv => inv.invoiceType === 'income')
-          .reduce((sum, inv) => sum + (inv.totalAmount - (inv.discount || 0)), 0);
-
-        const expense = fundInvoices
-          .filter(inv => inv.invoiceType === 'expense')
-          .reduce((sum, inv) => sum + (inv.totalAmount - (inv.discount || 0)), 0);
-
-        shiftData.funds[fundType] = {
-          income,
-          expense,
-          net: income - expense
-        };
-      });
-    });
-
-    return {
-      shifts: Array.from(shiftsData.values()),
-      fundTypes
-    };
-  }
-
-  private async getWorkshopsData(startDate: Date, endDate: Date) {
-    const workshops = await this.prisma.workshop.findMany({
-      include: {
-        employees: {
-          include: {
-            productionRecords: {
-              where: {
-                date: {
-                  gte: startDate,
-                  lte: endDate
-                }
-              },
-              include: {
-                item: true
-              }
-            }
-          }
-        }
-      }
-    });
-
-    const itemsMap = new Map();
-    const workshopsMap = new Map();
-
-    workshops.forEach(workshop => {
-      workshopsMap.set(workshop.id, {
-        workshopId: workshop.id,
-        workshopName: workshop.name,
-        workType: workshop.workType,
-        items: {}
-      });
-
-      workshop.employees.forEach(employee => {
-        employee.productionRecords.forEach(record => {
-          if (!itemsMap.has(record.itemId)) {
-            itemsMap.set(record.itemId, {
-              itemId: record.itemId,
-              itemName: record.item.name
-            });
-          }
-
-          const workshopData = workshopsMap.get(workshop.id);
-          if (!workshopData.items[record.itemId]) {
-            workshopData.items[record.itemId] = 0;
-          }
-          workshopData.items[record.itemId] += record.quantity;
-        });
-      });
-    });
-
-    return {
-      workshops: Array.from(workshopsMap.values()),
-      items: Array.from(itemsMap.values())
-    };
-  }
-
-  private async getDeliveriesData(startDate: Date, endDate: Date) {
-    const deliveredOrders = await this.prisma.order.findMany({
-      where: {
-        status: 'delivered',
-        createdAt: {
-          gte: startDate,
-          lte: endDate
-        }
-      },
-      include: {
-        items: {
-          include: {
-            item: {
-              include: {
-                group: true
-              }
-            }
-          }
-        },
-        category: true
-      }
-    });
-
-    console.log(deliveredOrders)
-    
-    const itemGroupsMap = new Map();
-    const orderCategoriesMap = new Map();
-
-    deliveredOrders.forEach(order => {
-      if (!orderCategoriesMap.has(order.categoryId)) {
-        orderCategoriesMap.set(order.categoryId, {
-          categoryId: order.categoryId,
-          categoryName: order.category.name,
-          itemGroups: {}
-        });
-      }
-
-      const categoryData = orderCategoriesMap.get(order.categoryId);
-
-      order.items.forEach(orderItem => {
-        const groupName = orderItem.item.group.name;
-        
-        if (!itemGroupsMap.has(groupName)) {
-          itemGroupsMap.set(groupName, groupName);
-        }
-
-        if (!categoryData.itemGroups[groupName]) {
-          categoryData.itemGroups[groupName] = 0;
-        }
-
-        categoryData.itemGroups[groupName] += orderItem.quantity;
-      });
-    });
-
-    return {
-      categories: Array.from(orderCategoriesMap.values()),
-      itemGroups: Array.from(itemGroupsMap.values()),
-      totalDelivered: deliveredOrders.length
-    };
-  }
-
-  private async getInvoicesData(startDate: Date, endDate: Date) {
-    const invoices = await this.prisma.invoice.findMany({
-      where: {
-        createdAt: {
-          gte: startDate,
-          lte: endDate
-        },
-        paidStatus: true
-      },
-      include: {
-        customer: true,
-        fund: true
-      },
-      orderBy: {
-        createdAt: 'desc'
-      }
-    });
-
-    const fundTypesMap = new Map();
-
-    invoices.forEach(invoice => {
-      const fundType = invoice.fund.fundType;
+      const fundInvoices = shift.invoices.filter(inv => inv.fund.fundType === fundType);
       
-      if (!fundTypesMap.has(fundType)) {
-        fundTypesMap.set(fundType, {
-          fundType,
-          invoices: []
-        });
-      }
+      const income = fundInvoices
+        .filter(inv => inv.invoiceType === 'income')
+        .reduce((sum, inv) => sum + (inv.totalAmount - (inv.discount || 0)), 0);
 
-      fundTypesMap.get(fundType).invoices.push({
-        customerName: invoice.customer?.name || 'مباشر',
-        amount: invoice.totalAmount - (invoice.discount || 0),
-        type: invoice.invoiceType === 'income' ? 'دخل' : 'صرف',
-        notes: invoice.notes || '—'
-      });
+      const expense = fundInvoices
+        .filter(inv => inv.invoiceType === 'expense')
+        .reduce((sum, inv) => sum + (inv.totalAmount - (inv.discount || 0)), 0);
+
+      shiftData.funds[fundType] = {
+        income,
+        expense,
+        net: income - expense
+      };
+    });
+  });
+
+  return {
+    shifts: Array.from(shiftsData.values()),
+    fundTypes
+  };
+}
+
+private async getWorkshopsData(startDate: Date, endDate: Date) {
+  // لا يتم تطبيق فلتر الوارديات على الورشات
+  const workshops = await this.prisma.workshop.findMany({
+    include: {
+      employees: {
+        include: {
+          productionRecords: {
+            where: {
+              date: {
+                gte: startDate,
+                lte: endDate
+              }
+            },
+            include: {
+              item: true
+            }
+          }
+        }
+      }
+    }
+  });
+
+  const itemsMap = new Map();
+  const workshopsMap = new Map();
+
+  workshops.forEach(workshop => {
+    workshopsMap.set(workshop.id, {
+      workshopId: workshop.id,
+      workshopName: workshop.name,
+      workType: workshop.workType,
+      items: {}
     });
 
-    return {
-      fundTypes: Array.from(fundTypesMap.values())
+    workshop.employees.forEach(employee => {
+      employee.productionRecords.forEach(record => {
+        if (!itemsMap.has(record.itemId)) {
+          itemsMap.set(record.itemId, {
+            itemId: record.itemId,
+            itemName: record.item.name
+          });
+        }
+
+        const workshopData = workshopsMap.get(workshop.id);
+        if (!workshopData.items[record.itemId]) {
+          workshopData.items[record.itemId] = 0;
+        }
+        workshopData.items[record.itemId] += record.quantity;
+      });
+    });
+  });
+
+  return {
+    workshops: Array.from(workshopsMap.values()),
+    items: Array.from(itemsMap.values())
+  };
+}
+
+private async getDeliveriesData(startDate: Date, endDate: Date) {
+  // لا يتم تطبيق فلتر الوارديات على الطلبيات
+  const deliveredOrders = await this.prisma.order.findMany({
+    where: {
+      status: 'delivered',
+      createdAt: {
+        gte: startDate,
+        lte: endDate
+      }
+    },
+    include: {
+      items: {
+        include: {
+          item: {
+            include: {
+              group: true
+            }
+          }
+        }
+      },
+      category: true
+    }
+  });
+
+  console.log(deliveredOrders)
+  
+  const itemGroupsMap = new Map();
+  const orderCategoriesMap = new Map();
+
+  deliveredOrders.forEach(order => {
+    if (!orderCategoriesMap.has(order.categoryId)) {
+      orderCategoriesMap.set(order.categoryId, {
+        categoryId: order.categoryId,
+        categoryName: order.category.name,
+        itemGroups: {}
+      });
+    }
+
+    const categoryData = orderCategoriesMap.get(order.categoryId);
+
+    order.items.forEach(orderItem => {
+      const groupName = orderItem.item.group.name;
+      
+      if (!itemGroupsMap.has(groupName)) {
+        itemGroupsMap.set(groupName, groupName);
+      }
+
+      if (!categoryData.itemGroups[groupName]) {
+        categoryData.itemGroups[groupName] = 0;
+      }
+
+      categoryData.itemGroups[groupName] += orderItem.quantity;
+    });
+  });
+
+  return {
+    categories: Array.from(orderCategoriesMap.values()),
+    itemGroups: Array.from(itemGroupsMap.values()),
+    totalDelivered: deliveredOrders.length
+  };
+}
+
+private async getInvoicesData(startDate: Date, endDate: Date, shiftIds?: number[]) {
+  // إنشاء شروط البحث للفواتير
+  const whereConditions: any = {
+    createdAt: {
+      gte: startDate,
+      lte: endDate
+    },
+    paidStatus: true
+  };
+
+  // إذا تم تمرير IDs الوارديات، أضفها للفلتر
+  if (shiftIds && shiftIds.length > 0) {
+    whereConditions.shiftId = {
+      in: shiftIds
     };
   }
+
+  const invoices = await this.prisma.invoice.findMany({
+    where: whereConditions,
+    include: {
+      customer: true,
+      fund: true
+    },
+    orderBy: {
+      createdAt: 'desc'
+    }
+  });
+
+  const fundTypesMap = new Map();
+
+  invoices.forEach(invoice => {
+    const fundType = invoice.fund.fundType;
+    
+    if (!fundTypesMap.has(fundType)) {
+      fundTypesMap.set(fundType, {
+        fundType,
+        invoices: []
+      });
+    }
+
+    fundTypesMap.get(fundType).invoices.push({
+      customerName: invoice.customer?.name || 'مباشر',
+      amount: invoice.totalAmount - (invoice.discount || 0),
+      type: invoice.invoiceType === 'income' ? 'دخل' : 'صرف',
+      notes: invoice.notes || '—'
+    });
+  });
+
+  return {
+    fundTypes: Array.from(fundTypesMap.values())
+  };
+}
+
 
   /**
    * بناء HTML التقرير الشامل - تصميم احترافي بسيط
    */
-  private buildComprehensiveReportHTML(
+    private buildComprehensiveReportHTML(
     fundsData: any,
     workshopsData: any,
     deliveriesData: any,
     invoicesData: any,
     startDate: Date,
-    endDate: Date
+    endDate: Date,
+    shiftIds?: number[]
   ): string {
+    // إعداد نص معلومات الفلتر
+    const filterInfo = shiftIds && shiftIds.length > 0 
+      ? `<span class="filter-info">(مُفلتر حسب الوارديات المحددة)</span>` 
+      : '';
+
     return `
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>التقرير الشامل</title>
-  <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-    
-    html, body {
-      width: 100%;
-      height: 100%;
-    }
-    
-    body {
-      font-family: Arial, sans-serif;
-      padding: 0;
-      background: #ffffff;
-      color: #333333;
-      font-size: 11px;
-      line-height: 1.5;
-    }
-    
-    .container {
-      width: 100%;
-      margin: 0;
-      background: white;
-      padding: 20mm 15mm;
-    }
-    
-    .header {
-      text-align: center;
-      margin-bottom: 20mm;
-      border-bottom: 3px solid #000000;
-      padding-bottom: 12mm;
-    }
-    
-    .bakery-name {
-      font-size: 18px;
-      font-weight: bold;
-      color: #000000;
-      margin-bottom: 6px;
-      letter-spacing: 0.3px;
-    }
-    
-    .report-title {
-      font-size: 15px;
-      font-weight: bold;
-      color: #000000;
-      margin-bottom: 5px;
-    }
-    
-    .date-range {
-      font-size: 10px;
-      color: #555555;
-      font-weight: normal;
-    }
-    
-    .section {
-      margin-bottom: 20mm;
-      page-break-inside: avoid;
-    }
-    
-    .section-title {
-      font-size: 13px;
-      font-weight: bold;
-      color: #000000;
-      padding: 8px 10px;
-      margin-bottom: 10px;
-      border-bottom: 2px solid #000000;
-      background: #f8f8f8;
-    }
-    
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-bottom: 10mm;
-    }
-    
-    th {
-      background: #e8e8e8;
-      color: #000000;
-      padding: 7px;
-      text-align: center;
-      font-weight: bold;
-      border: 1px solid #999999;
-      font-size: 10px;
-    }
-    
-    td {
-      padding: 6px 7px;
-      border: 1px solid #999999;
-      text-align: center;
-      font-size: 10px;
-      background: #ffffff;
-    }
-    
-    tr:nth-child(even) td {
-      background: #f8f8f8;
-    }
-    
-    .total-row {
-      background: #d9d9d9 !important;
-      font-weight: bold;
-      border-top: 2px solid #000000;
-    }
-    
-    .total-row td {
-      background: #d9d9d9 !important;
-      font-weight: bold;
-      border: 1px solid #999999;
-    }
-    
-    .text-right {
-      text-align: right;
-    }
-    
-    .text-left {
-      text-align: left;
-    }
-    
-    .font-bold {
-      font-weight: bold;
-    }
-    
-    .no-data {
-      text-align: center;
-      padding: 15px;
-      color: #666666;
-      background: #f5f5f5;
-      border: 1px solid #cccccc;
-      font-size: 10px;
-    }
-    
-    .subsection {
-      margin-bottom: 15mm;
-      page-break-inside: avoid;
-    }
-    
-    .subsection-title {
-      font-size: 11px;
-      font-weight: bold;
-      color: #000000;
-      margin-bottom: 8px;
-      padding-bottom: 5px;
-      border-bottom: 1px solid #cccccc;
-    }
-    
-    .summary-box {
-      margin-bottom: 10px;
-      padding: 8px 10px;
-      background: #f8f8f8;
-      border-left: 3px solid #000000;
-      font-size: 10px;
-    }
-    
-    .summary-box .label {
-      font-weight: bold;
-      margin-bottom: 3px;
-    }
-    
-    .summary-box .value {
-      margin-left: 15px;
-    }
-    
-    @media print {
-      body {
-        background: white;
+  <!DOCTYPE html>
+  <html lang="ar" dir="rtl">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>التقرير الشامل</title>
+    <style>
+      * {
         margin: 0;
         padding: 0;
+        box-sizing: border-box;
+      }
+      
+      html, body {
+        width: 100%;
+        height: 100%;
+      }
+      
+      body {
+        font-family: Arial, sans-serif;
+        padding: 0;
+        background: #ffffff;
+        color: #333333;
+        font-size: 11px;
+        line-height: 1.5;
       }
       
       .container {
+        width: 100%;
         margin: 0;
+        background: white;
         padding: 20mm 15mm;
-        box-shadow: none;
+      }
+      
+      .header {
+        text-align: center;
+        margin-bottom: 20mm;
+        border-bottom: 3px solid #000000;
+        padding-bottom: 12mm;
+      }
+      
+      .bakery-name {
+        font-size: 18px;
+        font-weight: bold;
+        color: #000000;
+        margin-bottom: 6px;
+        letter-spacing: 0.3px;
+      }
+      
+      .report-title {
+        font-size: 15px;
+        font-weight: bold;
+        color: #000000;
+        margin-bottom: 5px;
+      }
+      
+      .date-range {
+        font-size: 10px;
+        color: #555555;
+        font-weight: normal;
+        margin-bottom: 5px;
+      }
+
+      .filter-info {
+        font-size: 9px;
+        color: #d9534f;
+        font-weight: bold;
+        display: block;
+        margin-top: 3px;
       }
       
       .section {
+        margin-bottom: 20mm;
         page-break-inside: avoid;
+      }
+      
+      .section-title {
+        font-size: 13px;
+        font-weight: bold;
+        color: #000000;
+        padding: 8px 10px;
+        margin-bottom: 10px;
+        border-bottom: 2px solid #000000;
+        background: #f8f8f8;
       }
       
       table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 10mm;
+      }
+      
+      th {
+        background: #e8e8e8;
+        color: #000000;
+        padding: 7px;
+        text-align: center;
+        font-weight: bold;
+        border: 1px solid #999999;
+        font-size: 10px;
+      }
+      
+      td {
+        padding: 6px 7px;
+        border: 1px solid #999999;
+        text-align: center;
+        font-size: 10px;
+        background: #ffffff;
+      }
+      
+      tr:nth-child(even) td {
+        background: #f8f8f8;
+      }
+      
+      .total-row {
+        background: #d9d9d9 !important;
+        font-weight: bold;
+        border-top: 2px solid #000000;
+      }
+      
+      .total-row td {
+        background: #d9d9d9 !important;
+        font-weight: bold;
+        border: 1px solid #999999;
+      }
+      
+      .text-right {
+        text-align: right;
+      }
+      
+      .text-left {
+        text-align: left;
+      }
+      
+      .font-bold {
+        font-weight: bold;
+      }
+      
+      .no-data {
+        text-align: center;
+        padding: 15px;
+        color: #666666;
+        background: #f5f5f5;
+        border: 1px solid #cccccc;
+        font-size: 10px;
+      }
+      
+      .subsection {
+        margin-bottom: 15mm;
         page-break-inside: avoid;
       }
       
-      * {
-        -webkit-print-color-adjust: exact !important;
-        print-color-adjust: exact !important;
+      .subsection-title {
+        font-size: 11px;
+        font-weight: bold;
+        color: #000000;
+        margin-bottom: 8px;
+        padding-bottom: 5px;
+        border-bottom: 1px solid #cccccc;
       }
-    }
-    
-    @page {
-      size: A4;
-      margin: 12mm;
-      orphans: 3;
-      widows: 3;
-    }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="header">
-      <div class="bakery-name">مخبز الإحسان الدمشقي</div>
-      <div class="report-title">التقرير الشامل</div>
-      <div class="date-range">من ${this.formatDate(startDate)} إلى ${this.formatDate(endDate)}</div>
+      
+      .summary-box {
+        margin-bottom: 10px;
+        padding: 8px 10px;
+        background: #f8f8f8;
+        border-left: 3px solid #000000;
+        font-size: 10px;
+      }
+      
+      .summary-box .label {
+        font-weight: bold;
+        margin-bottom: 3px;
+      }
+      
+      .summary-box .value {
+        margin-left: 15px;
+      }
+      
+      @media print {
+        body {
+          background: white;
+          margin: 0;
+          padding: 0;
+        }
+        
+        .container {
+          margin: 0;
+          padding: 20mm 15mm;
+          box-shadow: none;
+        }
+        
+        .section {
+          page-break-inside: avoid;
+        }
+        
+        table {
+          page-break-inside: avoid;
+        }
+        
+        * {
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+        }
+      }
+      
+      @page {
+        size: A4;
+        margin: 12mm;
+        orphans: 3;
+        widows: 3;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <div class="bakery-name">مخبز الإحسان الدمشقي</div>
+        <div class="report-title">التقرير الشامل</div>
+        <div class="date-range">من ${this.formatDate(startDate)} إلى ${this.formatDate(endDate)}</div>
+        ${filterInfo}
+      </div>
+
+      <!-- قسم ملخص الصناديق -->
+      <div class="section">
+        <div class="section-title">ملخص الصناديق</div>
+        ${this.buildFundsSection(fundsData)}
+      </div>
+
+      <!-- قسم ملخص عمل الورشات -->
+      <div class="section">
+        <div class="section-title">ملخص عمل الورشات</div>
+        ${this.buildWorkshopsSection(workshopsData)}
+      </div>
+
+      <!-- قسم ملخص التسليم بالطلبيات -->
+      <div class="section">
+        <div class="section-title">ملخص التسليم بالطلبيات</div>
+        ${this.buildDeliveriesSection(deliveriesData)}
+      </div>
+
+      <!-- قسم ملخص الفواتير -->
+      <div class="section">
+        <div class="section-title">ملخص الفواتير</div>
+        ${this.buildInvoicesSection(invoicesData)}
+      </div>
     </div>
 
-    <!-- قسم ملخص الصناديق -->
-    <div class="section">
-      <div class="section-title">ملخص الصناديق</div>
-      ${this.buildFundsSection(fundsData)}
-    </div>
-
-    <!-- قسم ملخص عمل الورشات -->
-    <div class="section">
-      <div class="section-title">ملخص عمل الورشات</div>
-      ${this.buildWorkshopsSection(workshopsData)}
-    </div>
-
-    <!-- قسم ملخص التسليم بالطلبيات -->
-    <div class="section">
-      <div class="section-title">ملخص التسليم بالطلبيات</div>
-      ${this.buildDeliveriesSection(deliveriesData)}
-    </div>
-
-    <!-- قسم ملخص الفواتير -->
-    <div class="section">
-      <div class="section-title">ملخص الفواتير</div>
-      ${this.buildInvoicesSection(invoicesData)}
-    </div>
-  </div>
-
-  <script>
-    window.addEventListener('load', function() {
-      setTimeout(() => {
-        window.print();
-      }, 500);
-    });
-  </script>
-</body>
-</html>
+    <script>
+      window.addEventListener('load', function() {
+        setTimeout(() => {
+          window.print();
+        }, 500);
+      });
+    </script>
+  </body>
+  </html>
     `;
   }
 
@@ -5357,6 +5401,8 @@ private formatReceiptDate(date: Date | string): string {
 
     return html || '<div class="no-data">لا توجد بيانات متاحة</div>';
   }
+
+
 
   /**
    * بناء قسم الورشات
