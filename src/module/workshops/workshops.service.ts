@@ -403,9 +403,7 @@ async findAll() {
     }
     
     const activeShift = await this.prisma.shift.findFirst({
-      where: {
-        status: 'open',
-      },
+      where: { status: 'open' },
     });
 
     if (!activeShift) {
@@ -420,16 +418,14 @@ async findAll() {
       throw new BadRequestException('الصندوق غير موجود');
     }
     
-    // حساب الملخص المالي الحالي للورشة (بدون فلترة تاريخ)
     const summary = await this.getWorkshopSummary(id);
-    
     const amountToPay = settlementDto.amount;
     
     if (amountToPay <= 0) {
       throw new BadRequestException('المبلغ المدفوع يجب أن يكون أكبر من صفر');
     }
     
-    // التحقق من التوزيع اليدوي إذا كان مطلوباً
+    // التحقق من التوزيع اليدوي
     if (settlementDto.distributionType === 'manual') {
       if (!settlementDto.manualDistributions || settlementDto.manualDistributions.length === 0) {
         throw new BadRequestException('يجب تحديد توزيع المبالغ على الموظفين');
@@ -455,6 +451,8 @@ async findAll() {
     
     return this.prisma.$transaction(async (prisma) => {
       try {
+        const settlementDate = new Date();
+        
         // إنشاء فاتورة صرف للمحاسبة
         const invoiceNumber = `WSP-STL-${Date.now()}`;
         const mainInvoice = await prisma.invoice.create({
@@ -468,7 +466,7 @@ async findAll() {
             fundId: settlementDto.fundId,
             shiftId: activeShift.id,
             employeeId: currentUserId,
-            paymentDate: new Date(),
+            paymentDate: settlementDate,
             isBreak: false,
           }
         });
@@ -479,14 +477,12 @@ async findAll() {
             workshopId: id,
             amount: summary.netAmount,
             paidAmount: amountToPay,
-            date: new Date(),
+            date: settlementDate,
             fundId: settlementDto.fundId,
             invoiceId: mainInvoice.id,
             notes: settlementDto.notes,
-            
-            totalEarnings: summary.totalEarnings,     
+            totalEarnings: summary.totalEarnings,
             totalWithdrawals: summary.totalWithdrawals,
-
           },
           include: {
             fund: true,
@@ -494,33 +490,13 @@ async findAll() {
           }
         });
         
-        // حذف جميع السحوبات الخاصة بموظفي الورشة (نوع salary_advance فقط)
-        await prisma.employeeWithdrawal.deleteMany({
-          where: {
-            employee: {
-              workshopId: id
-            },
+        // ===== بدلاً من الحذف، نحدث تاريخ آخر محاسبة =====
+        await prisma.workshop.update({
+          where: { id },
+          data: {
+            lastSettlementDate: settlementDate
           }
         });
-        
-        // حذف سجلات الإنتاج أو الساعات حسب نوع الورشة
-        if (workshop.workType === 'production') {
-          // حذف سجلات إنتاج الورشة
-          await prisma.workshopProduction.deleteMany({
-            where: {
-              workshopId: id
-            }
-          });
-        } else if (workshop.workType === 'hourly') {
-          // حذف سجلات ساعات موظفي الورشة
-          await prisma.employeeHours.deleteMany({
-            where: {
-              employee: {
-                workshopId: id
-              }
-            }
-          });
-        }
         
         // تحديث رصيد الصندوق
         await prisma.fund.update({
@@ -536,16 +512,15 @@ async findAll() {
         
         // التوزيع المباشر إذا كان مطلوباً
         if (settlementDto.distributeImmediately) {
-
           if (settlementDto.distributionType === 'manual' && settlementDto.manualDistributions) {
             // التوزيع اليدوي
-           for (const dist of settlementDto.manualDistributions) {
+            for (const dist of settlementDto.manualDistributions) {
               const employee = workshop.employees.find(emp => emp.id === dist.employeeId);
               
               const salaryPayment = await prisma.employeeSalaryPayment.create({
                 data: {
                   amount: dist.amount,
-                  date: new Date(),
+                  date: settlementDate,
                   paymentType: settlementDto.salaryPaymentType || 'workshop',
                   invoiceId: mainInvoice.id,
                   notes: dist.notes || `توزيع من محاسبة ورشة ${workshop.name}`,
@@ -573,7 +548,7 @@ async findAll() {
                 data: {
                   employeeId: employee.id,
                   amount: sharePerEmployee,
-                  date: new Date(),
+                  date: settlementDate,
                   paymentType: settlementDto.salaryPaymentType || 'workshop',
                   invoiceId: mainInvoice.id,
                   notes: `توزيع بالتساوي من محاسبة ورشة ${workshop.name}`
@@ -594,7 +569,7 @@ async findAll() {
           invoice: mainInvoice,
           summary,
           salaryPayments,
-          resetMessage: 'تم تصفير جميع السحوبات وسجلات الإنتاج/الساعات للورشة'
+          message: 'تمت المحاسبة بنجاح. السجلات السابقة محفوظة ولن تظهر في الحسابات الجديدة'
         };
       } catch (error) {
         console.error('Error in workshop settlement:', error);
@@ -604,141 +579,155 @@ async findAll() {
       }
     });
   }
-    
+
   // الحصول على ملخص مالي للورشة (بدون فلترة تاريخ)
   async getWorkshopSummary(workshopId: number) {
-    const workshop = await this.prisma.workshop.findUnique({
-      where: { id: workshopId },
-      include: {
-        employees: {
-          include: {
-            withdrawals: true,
-            productionRecords: true,
-            hourRecords: true,
-            debts: {
-              where: {
-                status: 'active'
-              }
+  const workshop = await this.prisma.workshop.findUnique({
+    where: { id: workshopId },
+    include: {
+      employees: {
+        include: {
+          withdrawals: true,
+          productionRecords: true,
+          hourRecords: true,
+          debts: {
+            where: {
+              status: 'active'
             }
           }
-        },
-        productionRecords: true
-      }
-    });
-    
-    if (!workshop) {
-      throw new NotFoundException(`الورشة رقم ${workshopId} غير موجودة`);
+        }
+      },
+      productionRecords: true
     }
-    
-    // حساب إجمالي السحوبات لجميع الموظفين في الورشة
-    const totalWithdrawals = workshop.employees.reduce(
-      (sum, employee) => 
-        sum + employee.withdrawals.reduce(
-          (empSum, withdrawal) => empSum + withdrawal.amount, 0
-        ), 
-      0
-    );
-    
-    // حساب إجمالي المبالغ المستحقة حسب نوع الورشة
-    let totalEarnings = 0;
-    
-    if (workshop.workType === 'production') {
-      totalEarnings = workshop.productionRecords.reduce(
-        (sum, record) => sum + record.totalProduction, 0
-      );
-    } else {
-      totalEarnings = workshop.employees.reduce(
-        (sum, employee) => 
-          sum + employee.hourRecords.reduce(
-            (empSum, record) => empSum + record.totalAmount, 0
-          ), 
-        0
-      );
-    }
-    
-    // حساب إجمالي الديون النشطة للموظفين
-    const totalDebt = workshop.employees.reduce(
-      (sum, employee) => {
-        const activeDebt = employee.debts.find(debt => debt.status === 'active');
-        return sum + (activeDebt ? activeDebt.remainingAmount : 0);
-      }, 
-      0
-    );
-    
-    // حساب الصافي
-    const netAmount = totalEarnings - totalWithdrawals;
-    
-    // تجميع إنتاج الورشة حسب الأيام
-    const dailySummary = this.getDailyProductionSummary(workshop);
-    
-    return {
-      workshopId,
-      workshopName: workshop.name,
-      workType: workshop.workType,
-      totalWithdrawals,
-      totalEarnings,
-      totalDebt,
-      netAmount,
-      dailySummary
-    };
+  });
+  
+  if (!workshop) {
+    throw new NotFoundException(`الورشة رقم ${workshopId} غير موجودة`);
   }
   
+  // ===== تحديد تاريخ الفلترة =====
+  const lastSettlement = workshop.lastSettlementDate;
+  
+  // حساب إجمالي السحوبات (منذ آخر محاسبة فقط)
+  const totalWithdrawals = workshop.employees.reduce(
+    (sum, employee) => 
+      sum + employee.withdrawals
+        .filter(w => !lastSettlement || w.date > lastSettlement)
+        .reduce((empSum, withdrawal) => empSum + withdrawal.amount, 0), 
+    0
+  );
+  
+  // حساب إجمالي المبالغ المستحقة (منذ آخر محاسبة فقط)
+  let totalEarnings = 0;
+  
+  if (workshop.workType === 'production') {
+    totalEarnings = workshop.productionRecords
+      .filter(record => !lastSettlement || record.date > lastSettlement)
+      .reduce((sum, record) => sum + record.totalProduction, 0);
+  } else {
+    totalEarnings = workshop.employees.reduce(
+      (sum, employee) => 
+        sum + employee.hourRecords
+          .filter(record => !lastSettlement || record.date > lastSettlement)
+          .reduce((empSum, record) => empSum + record.totalAmount, 0), 
+      0
+    );
+  }
+  
+  // حساب إجمالي الديون النشطة
+  const totalDebt = workshop.employees.reduce(
+    (sum, employee) => {
+      const activeDebt = employee.debts.find(debt => debt.status === 'active');
+      return sum + (activeDebt ? activeDebt.remainingAmount : 0);
+    }, 
+    0
+  );
+  
+  const netAmount = totalEarnings - totalWithdrawals;
+  
+  // تجميع الإنتاج اليومي (منذ آخر محاسبة فقط)
+  const dailySummary = this.getDailyProductionSummary(workshop, lastSettlement);
+  
+  return {
+    workshopId,
+    workshopName: workshop.name,
+    workType: workshop.workType,
+    totalWithdrawals,
+    totalEarnings,
+    totalDebt,
+    netAmount,
+    dailySummary,
+    lastSettlementDate: lastSettlement
+  };
+}
+
   // تجميع الإنتاج اليومي للورشة
-  private getDailyProductionSummary(workshop) {
-    const dailyProduction = {};
+  private getDailyProductionSummary(workshop: any, lastSettlement?: Date) {
+  const dailyProduction = {};
+  
+  if (workshop.workType === 'production') {
+    // فلترة السجلات بعد آخر محاسبة
+    const filteredRecords = workshop.productionRecords.filter(
+      record => !lastSettlement || record.date > lastSettlement
+    );
     
-    if (workshop.workType === 'production') {
-      for (const record of workshop.productionRecords) {
+    for (const record of filteredRecords) {
+      const dateStr = new Date(record.date).toISOString().split('T')[0];
+      
+      if (!dailyProduction[dateStr]) {
+        dailyProduction[dateStr] = {
+          date: dateStr,
+          totalProduction: 0,
+          items: []
+        };
+      }
+      
+      dailyProduction[dateStr].totalProduction += record.totalProduction;
+      
+      const recordItems = Array.isArray(record.items) ? record.items : JSON.parse(record.items || '[]');
+      for (const item of recordItems) {
+        dailyProduction[dateStr].items.push(item);
+      }
+    }
+  } else {
+    for (const employee of workshop.employees) {
+      // فلترة السجلات بعد آخر محاسبة
+      const filteredHours = employee.hourRecords.filter(
+        record => !lastSettlement || record.date > lastSettlement
+      );
+      
+      for (const record of filteredHours) {
         const dateStr = new Date(record.date).toISOString().split('T')[0];
         
         if (!dailyProduction[dateStr]) {
           dailyProduction[dateStr] = {
             date: dateStr,
-            totalProduction: 0,
-            items: []
+            totalHours: 0,
+            totalAmount: 0,
+            employees: []
           };
         }
         
-        dailyProduction[dateStr].totalProduction += record.totalProduction;
+        dailyProduction[dateStr].totalHours += record.hours;
+        dailyProduction[dateStr].totalAmount += record.totalAmount;
         
-        const recordItems = Array.isArray(record.items) ? record.items : JSON.parse(record.items || '[]');
-        for (const item of recordItems) {
-          dailyProduction[dateStr].items.push(item);
-        }
-      }
-    } else {
-      for (const employee of workshop.employees) {
-        for (const record of employee.hourRecords) {
-          const dateStr = new Date(record.date).toISOString().split('T')[0];
-          
-          if (!dailyProduction[dateStr]) {
-            dailyProduction[dateStr] = {
-              date: dateStr,
-              totalHours: 0,
-              totalAmount: 0,
-              employees: []
-            };
-          }
-          
-          dailyProduction[dateStr].totalHours += record.hours;
-          dailyProduction[dateStr].totalAmount += record.totalAmount;
-          
-          dailyProduction[dateStr].employees.push({
-            employeeId: employee.id,
-            employeeName: employee.name,
-            hours: record.hours,
-            hourlyRate: record.hourlyRate,
-            amount: record.totalAmount
-          });
-        }
+        dailyProduction[dateStr].employees.push({
+          employeeId: employee.id,
+          employeeName: employee.name,
+          hours: record.hours,
+          hourlyRate: record.hourlyRate,
+          amount: record.totalAmount
+        });
       }
     }
-    
-    return Object.values(dailyProduction).sort((a, b) =>
-      // @ts-ignore 
-      new Date(b.date).getTime() - new Date(a.date).getTime()
-    );
   }
+  
+  return Object.values(dailyProduction).sort((a, b) =>
+    // @ts-ignore 
+    new Date(b.date).getTime() - new Date(a.date).getTime()
+  );
+}
+
   
   // إضافة موظف للورشة
   async addEmployeeToWorkshop(workshopId: number, employeeId: number) {

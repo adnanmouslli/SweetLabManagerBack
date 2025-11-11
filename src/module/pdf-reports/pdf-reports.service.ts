@@ -1748,7 +1748,7 @@ async generateBoothInventoryReport(startDate: Date, endDate: Date): Promise<stri
   const boothInvoices = await this.prisma.invoice.findMany({
     where: {
       fund: {
-        fundType: FundType.general
+        fundType: FundType.booth
       },
       invoiceType: 'income',
       paidStatus: true,
@@ -1850,9 +1850,10 @@ async generateBoothInventoryReport(startDate: Date, endDate: Date): Promise<stri
 
     body {
       font-family: Arial, sans-serif;
+      padding: 0;
       background: #ffffff;
       color: #333333;
-      font-size: 12px;
+      font-size: 13px; /* تم التكبير من 11px */
       line-height: 1.5;
     }
 
@@ -1910,22 +1911,23 @@ async generateBoothInventoryReport(startDate: Date, endDate: Date): Promise<stri
       margin-bottom: 10mm;
     }
 
-    th {
-      background: #e8e8e8;
-      color: #000000;
-      padding: 8px;
-      text-align: center;
-      font-weight: bold;
-      border: 1px solid #999999;
-      font-size: 11px;
-    }
-
-    td {
-      padding: 8px;
-      border: 1px solid #999999;
-      font-size: 11px;
-      background: #ffffff;
-    }
+th {
+    background: #e8e8e8;
+    color: #000000;
+    padding: 8px;
+    text-align: center;
+    font-weight: bold;
+    border: 1px solid #999999;
+    font-size: 12px; /* تم التكبير من 10px */
+  }
+  
+  td {
+    padding: 7px 8px;
+    border: 1px solid #999999;
+    text-align: center;
+    font-size: 12px; /* تم التكبير من 10px */
+    background: #ffffff;
+  }
 
     tr:nth-child(even) td {
       background: #f8f8f8;
@@ -3385,107 +3387,47 @@ async generateWorkshopSalariesReport(
     include: {
       employees: {
         include: {
-          // السحوبات من جدول EmployeeWithdrawal
           withdrawals: {
             where: startDate && endDate
-              ? {
-                  date: {
-                    gte: startDate,
-                    lte: endDate
-                  }
-                }
+              ? { date: { gte: startDate, lte: endDate } }
               : {},
-            orderBy: {
-              date: 'desc'
-            }
+            orderBy: { date: 'desc' }
           },
-          // سجلات الإنتاج من جدول EmployeeProduction
           productionRecords: {
             where: startDate && endDate
-              ? {
-                  date: {
-                    gte: startDate,
-                    lte: endDate
-                  }
-                }
+              ? { date: { gte: startDate, lte: endDate } }
               : {},
-            include: {
-              item: true
-            },
-            orderBy: {
-              date: 'desc'
-            }
+            include: { item: true },
+            orderBy: { date: 'desc' }
           },
-          // سجلات الساعات من جدول EmployeeHours
           hourRecords: {
             where: startDate && endDate
-              ? {
-                  date: {
-                    gte: startDate,
-                    lte: endDate
-                  }
-                }
+              ? { date: { gte: startDate, lte: endDate } }
               : {},
-            orderBy: {
-              date: 'desc'
-            }
+            orderBy: { date: 'desc' }
           },
-          // مدفوعات الراتب من جدول EmployeeSalaryPayment
           salaryPayments: {
             where: startDate && endDate
-              ? {
-                  date: {
-                    gte: startDate,
-                    lte: endDate
-                  }
-                }
+              ? { date: { gte: startDate, lte: endDate } }
               : {},
-            include: {
-              invoice: true
-            },
-            orderBy: {
-              date: 'desc'
-            }
+            include: { invoice: true },
+            orderBy: { date: 'desc' }
           },
-          // ديون الموظف من جدول EmployeeDebt
-          debts: {
-            where: {
-              status: 'active'
-            }
-          }
+          debts: { where: { status: 'active' } }
         }
       },
-      // سجلات إنتاج الورشة من جدول WorkshopProduction
       productionRecords: {
         where: startDate && endDate
-          ? {
-              date: {
-                gte: startDate,
-                lte: endDate
-              }
-            }
+          ? { date: { gte: startDate, lte: endDate } }
           : {},
-        orderBy: {
-          date: 'desc'
-        }
+        orderBy: { date: 'desc' }
       },
-      // محاسبة الورشة من جدول WorkshopSettlement
       settlements: {
         where: startDate && endDate
-          ? {
-              date: {
-                gte: startDate,
-                lte: endDate
-              }
-            }
+          ? { date: { gte: startDate, lte: endDate } }
           : {},
-        include: {
-          fund: true,
-          invoice: true
-        },
-        orderBy: {
-          date: 'desc'
-        }
+        include: { fund: true, invoice: true },
+        orderBy: { date: 'desc' }
       }
     }
   });
@@ -3496,12 +3438,17 @@ async generateWorkshopSalariesReport(
 
   // معالجة بيانات كل ورشة
   const workshopsData = workshops.map(workshop => {
-    // الجدول الأول: الإنتاج اليومي
+    // ===== تحديد نطاق التاريخ =====
+    const filterStartDate = startDate || workshop.lastSettlementDate || new Date(0);
+    const filterEndDate = endDate || new Date();
+
+    // ===== الجدول الأول: الإنتاج اليومي =====
     const dailyProductionMap = new Map<string, any>();
 
-    // معالجة سجلات إنتاج الموظفين (EmployeeProduction)
-    workshop.employees.forEach(employee => {
-      employee.productionRecords.forEach(record => {
+    // ✅ معالجة سجلات إنتاج الورشة فقط
+    workshop.productionRecords
+      .filter(record => record.date >= filterStartDate && record.date <= filterEndDate)
+      .forEach(record => {
         const dateKey = this.formatDateKey(record.date);
         const dateDisplay = this.formatDateDisplay(record.date);
 
@@ -3515,21 +3462,26 @@ async generateWorkshopSalariesReport(
           });
         }
 
+    
         const day = dailyProductionMap.get(dateKey);
-        const itemCost = record.quantity * (record.productionRate || 0);
 
-        day.items.push({
-          itemName: record.item?.name || 'مادة غير محددة',
-          quantity: record.quantity,
-          unitCost: record.productionRate || 0,
-          totalCost: itemCost,
-          employeeName: employee.name
+        const items = Array.isArray(record.items) ? record.items : [];
+
+        items.forEach((item: any) => {
+          const itemCost = (item.quantity || 0) * (item.rate || 0);
+
+          day.items.push({
+            itemName: item.itemName || 'مادة غير محددة',
+            quantity: item.quantity || 0,
+            unitCost: item.rate || 0,
+            totalCost: itemCost
+          });
+
+          day.dayTotal += itemCost;
+          day.totalQuantity += item.quantity || 0;
         });
-
-        day.dayTotal += itemCost;
-        day.totalQuantity += record.quantity;
       });
-    });
+
 
     const productionTableData = Array.from(dailyProductionMap.values()).sort(
       (a, b) => new Date(a.dateKey).getTime() - new Date(b.dateKey).getTime()
@@ -3538,53 +3490,39 @@ async generateWorkshopSalariesReport(
     const totalProductionAmount = productionTableData.reduce((sum, day) => sum + day.dayTotal, 0);
     const totalProductionQuantity = productionTableData.reduce((sum, day) => sum + day.totalQuantity, 0);
 
-    // حساب إجمالي المستحق (الدخل)
+    // ===== حساب إجمالي المستحقات =====
     let totalEarnings = 0;
     if (workshop.workType === 'production') {
-      // للورشات الإنتاجية: مجموع EmployeeProduction.totalAmount
-      totalEarnings = workshop.employees.reduce(
-        (sum, employee) =>
-          sum +
-          employee.productionRecords.reduce(
-            (empSum, record) => empSum + record.totalAmount,
-            0
-          ),
-        0
-      );
+      totalEarnings = totalProductionAmount; // الإنتاج من سجلات الورشة
     } else {
-      // للورشات بالساعات: مجموع EmployeeHours.totalAmount
       totalEarnings = workshop.employees.reduce(
         (sum, employee) =>
           sum +
-          employee.hourRecords.reduce(
-            (empSum, record) => empSum + record.totalAmount,
-            0
-          ),
+          employee.hourRecords
+            .filter(record => record.date >= filterStartDate && record.date <= filterEndDate)
+            .reduce((empSum, record) => empSum + record.totalAmount, 0),
         0
       );
     }
 
-    // حساب إجمالي السحوبات من جدول EmployeeWithdrawal
+    // ===== إجمالي السحوبات =====
     const totalWithdrawals = workshop.employees.reduce(
       (sum, employee) =>
         sum +
-        employee.withdrawals.reduce(
-          (empSum, withdrawal) => empSum + withdrawal.amount,
-          0
-        ),
+        employee.withdrawals
+          .filter(w => w.date >= filterStartDate && w.date <= filterEndDate)
+          .reduce((empSum, w) => empSum + w.amount, 0),
       0
     );
 
-    // حساب إجمالي المدفوع من جدول WorkshopSettlement
-    const totalPaidAmount = workshop.settlements.reduce(
-      (sum, settlement) => sum + settlement.paidAmount,
-      0
-    );
+    // ===== إجمالي المدفوعات =====
+    const totalPaidAmount = workshop.settlements
+      .filter(s => s.date >= filterStartDate && s.date <= filterEndDate)
+      .reduce((sum, s) => sum + s.paidAmount, 0);
 
-    // المبلغ المستحق (الفرق)
     const amountDue = totalEarnings - totalWithdrawals;
 
-    // الجدول الثاني: الملخص المالي
+    // ===== الجدول الثاني: الملخص المالي =====
     const financialSummary = {
       totalIncome: totalEarnings,
       totalWithdrawals,
@@ -3592,53 +3530,45 @@ async generateWorkshopSalariesReport(
       lastPaid: totalPaidAmount
     };
 
-    // الجدول الثالث: تفاصيل الموظفين
-    const employeesDetails = workshop.employees
-      .map(employee => {
-        // حساب الدخل للموظف
-        let employeeEarnings = 0;
-        if (workshop.workType === 'production') {
-          employeeEarnings = employee.productionRecords.reduce(
-            (sum, record) => sum + record.totalAmount,
-            0
-          );
-        } else {
-          employeeEarnings = employee.hourRecords.reduce(
-            (sum, record) => sum + record.totalAmount,
-            0
-          );
-        }
+    // ===== الجدول الثالث: تفاصيل الموظفين =====
+    const employeesDetails = workshop.employees.map(employee => {
+      let employeeEarnings = 0;
 
-        // حساب السحوبات للموظف من EmployeeWithdrawal
-        const employeeWithdrawals = employee.withdrawals.reduce(
-          (sum, w) => sum + w.amount,
-          0
-        );
+      if (workshop.workType === 'production') {
+        // ✅ توزيع الإنتاج الكلي بالتساوي بين الموظفين
+        const totalEmployees = workshop.employees.length || 1;
+        employeeEarnings = totalProductionAmount / totalEmployees;
+      } else {
+        // في حالة الورش غير الإنتاجية (بالساعات)
+        employeeEarnings = employee.hourRecords
+          .filter(record => record.date >= filterStartDate && record.date <= filterEndDate)
+          .reduce((sum, record) => sum + record.totalAmount, 0);
+      }
 
-        // حساب المبلغ المتبقي
-        const employeeBalance = employeeEarnings - employeeWithdrawals;
+      const employeeWithdrawals = employee.withdrawals
+        .filter(w => w.date >= filterStartDate && w.date <= filterEndDate)
+        .reduce((sum, w) => sum + w.amount, 0);
 
-        // الديون النشطة للموظف من EmployeeDebt
-        const activeDebt = employee.debts.find(debt => debt.status === 'active');
-        const debtAmount = activeDebt ? activeDebt.remainingAmount : 0;
+      const employeeBalance = employeeEarnings - employeeWithdrawals;
+      const activeDebt = employee.debts.find(debt => debt.status === 'active');
+      const debtAmount = activeDebt ? activeDebt.remainingAmount : 0;
 
-        return {
-          employeeId: employee.id,
-          employeeName: employee.name,
-          position: employee.workType === 'production' ? 'إنتاج' : 'ساعات',
-          totalDue: employeeEarnings,
-          totalWithdrawals: employeeWithdrawals,
-          balance: employeeBalance,
-          activeDebt: debtAmount,
-          notes:
-            employeeBalance > 0
-              ? `له حق: ${this.formatCurrency(employeeBalance)}`
-              : employeeBalance < 0
-                ? `عليه دين: ${this.formatCurrency(Math.abs(employeeBalance))}`
-                : 'صفر'
-        };
-      })
-      .filter(emp => emp.totalDue > 0 || emp.totalWithdrawals > 0);
+      return {
+        employeeId: employee.id,
+        employeeName: employee.name,
+        position: workshop.workType === 'production' ? 'إنتاج' : 'ساعات',
+        totalDue: employeeEarnings,
+        totalWithdrawals: employeeWithdrawals,
+        balance: employeeBalance,
+        activeDebt: debtAmount,
+        notes:
+          employeeBalance > 0
+            ? `له حق: ${this.formatCurrency(employeeBalance)}`
+            : employeeBalance < 0
+              ? `عليه دين: ${this.formatCurrency(Math.abs(employeeBalance))}`
+              : 'صفر'
+      };
+    }).filter(emp => emp.totalDue > 0 || emp.totalWithdrawals > 0);
 
     return {
       workshop,
@@ -3649,10 +3579,12 @@ async generateWorkshopSalariesReport(
       employeesDetails
     };
   });
-  
-  // بناء HTML التقرير
+
+
+  // ===== بناء HTML التقرير =====
   return this.buildWorkshopSalariesReportHTML(workshopsData, startDate, endDate);
 }
+
 
 /**
  * بناء HTML التقرير
@@ -3772,13 +3704,12 @@ private buildWorkshopSalariesReportHTML(
     }
 
     .subsection-title {
-      font-size: 11px;
+      font-size: 12px; /* تم التكبير من 11px */
       font-weight: bold;
       color: #000000;
-      padding: 6px 8px;
       margin-bottom: 8px;
+      padding-bottom: 5px;
       border-bottom: 1px solid #cccccc;
-      background: #f5f5f5;
     }
 
     table {
@@ -4886,18 +4817,11 @@ private async getWorkshopsData(startDate: Date, endDate: Date) {
   // لا يتم تطبيق فلتر الوارديات على الورشات
   const workshops = await this.prisma.workshop.findMany({
     include: {
-      employees: {
-        include: {
-          productionRecords: {
-            where: {
-              date: {
-                gte: startDate,
-                lte: endDate
-              }
-            },
-            include: {
-              item: true
-            }
+      productionRecords: {
+        where: {
+          date: {
+            gte: startDate,
+            lte: endDate
           }
         }
       }
@@ -4907,6 +4831,39 @@ private async getWorkshopsData(startDate: Date, endDate: Date) {
   const itemsMap = new Map();
   const workshopsMap = new Map();
 
+  // جلب بيانات المواد مع وحداتها لمرة واحدة
+  const allItemIds = new Set<number>();
+  workshops.forEach(workshop => {
+    workshop.productionRecords.forEach(record => {
+      const items = Array.isArray(record.items) ? record.items : [];
+      items.forEach((item: any) => {
+        if (item.itemId) {
+          allItemIds.add(item.itemId);
+        }
+      });
+    });
+  });
+
+  // جلب بيانات المواد مع الوحدات
+  const itemsData = await this.prisma.item.findMany({
+    where: {
+      id: {
+        in: Array.from(allItemIds)
+      }
+    },
+    select: {
+      id: true,
+      name: true,
+      defaultUnit: true,
+      units: true
+    }
+  });
+
+  const itemsDataMap = new Map();
+  itemsData.forEach(item => {
+    itemsDataMap.set(item.id, item);
+  });
+
   workshops.forEach(workshop => {
     workshopsMap.set(workshop.id, {
       workshopId: workshop.id,
@@ -4915,20 +4872,45 @@ private async getWorkshopsData(startDate: Date, endDate: Date) {
       items: {}
     });
 
-    workshop.employees.forEach(employee => {
-      employee.productionRecords.forEach(record => {
-        if (!itemsMap.has(record.itemId)) {
-          itemsMap.set(record.itemId, {
-            itemId: record.itemId,
-            itemName: record.item.name
+    // ✅ معالجة سجلات إنتاج الورشة مباشرة
+    workshop.productionRecords.forEach(record => {
+      const items = Array.isArray(record.items) ? record.items : [];
+      
+      items.forEach((item: any) => {
+        const itemId = item.itemId;
+        const itemName = item.itemName || 'مادة غير محددة';
+        let quantity = item.quantity || 0;
+        const unit = item.unit;
+
+        const itemData = itemsDataMap.get(itemId);
+
+        // تحويل الكمية إلى قطع إذا كانت الوحدة ليست الوحدة الافتراضية
+        if (itemData && unit && unit !== itemData.defaultUnit) {
+          const units = itemData.units as any[];
+          if (units && Array.isArray(units)) {
+            // البحث عن معامل التحويل للوحدة المستخدمة
+            const unitData = units.find(u => u.unit === unit);
+            if (unitData && unitData.factor) {
+              // ضرب الكمية بمعامل التحويل للحصول على القطع
+              quantity = quantity * unitData.factor;
+            }
+          }
+        }
+
+        // إضافة المادة إلى itemsMap إذا لم تكن موجودة
+        if (!itemsMap.has(itemId)) {
+          itemsMap.set(itemId, {
+            itemId: itemId,
+            itemName: itemName
           });
         }
 
+        // إضافة الكمية إلى الورشة
         const workshopData = workshopsMap.get(workshop.id);
-        if (!workshopData.items[record.itemId]) {
-          workshopData.items[record.itemId] = 0;
+        if (!workshopData.items[itemId]) {
+          workshopData.items[itemId] = 0;
         }
-        workshopData.items[record.itemId] += record.quantity;
+        workshopData.items[itemId] += quantity;
       });
     });
   });
@@ -4939,8 +4921,9 @@ private async getWorkshopsData(startDate: Date, endDate: Date) {
   };
 }
 
+
+
 private async getDeliveriesData(startDate: Date, endDate: Date) {
-  // لا يتم تطبيق فلتر الوارديات على الطلبيات
   const deliveredOrders = await this.prisma.order.findMany({
     where: {
       status: 'delivered',
@@ -4963,7 +4946,7 @@ private async getDeliveriesData(startDate: Date, endDate: Date) {
     }
   });
 
-  console.log(deliveredOrders)
+  console.log(deliveredOrders);
   
   const itemGroupsMap = new Map();
   const orderCategoriesMap = new Map();
@@ -4990,7 +4973,23 @@ private async getDeliveriesData(startDate: Date, endDate: Date) {
         categoryData.itemGroups[groupName] = 0;
       }
 
-      categoryData.itemGroups[groupName] += orderItem.quantity;
+      // حساب الكمية بالقطع
+      let quantityInPieces = orderItem.quantity;
+      
+      // إذا كانت الوحدة ليست الوحدة الافتراضية، نحتاج للتحويل
+      if (orderItem.unit !== orderItem.item.defaultUnit) {
+        const units = orderItem.item.units as any[];
+        if (units && Array.isArray(units)) {
+          // البحث عن معامل التحويل للوحدة المستخدمة
+          const unitData = units.find(u => u.unit === orderItem.unit);
+          if (unitData && unitData.factor) {
+            // ضرب الكمية بمعامل التحويل للحصول على القطع
+            quantityInPieces = orderItem.quantity * unitData.factor;
+          }
+        }
+      }
+
+      categoryData.itemGroups[groupName] += quantityInPieces;
     });
   });
 
@@ -5001,58 +5000,186 @@ private async getDeliveriesData(startDate: Date, endDate: Date) {
   };
 }
 
+
+
+/**
+ * جلب بيانات الفواتير مُنظمة حسب الوارديات
+ */
 private async getInvoicesData(startDate: Date, endDate: Date, shiftIds?: number[]) {
-  // إنشاء شروط البحث للفواتير
-  const whereConditions: any = {
-    createdAt: {
+  // إنشاء شروط البحث للوارديات
+  const shiftWhereConditions: any = {
+    openTime: {
       gte: startDate,
       lte: endDate
-    },
-    paidStatus: true
+    }
   };
 
   // إذا تم تمرير IDs الوارديات، أضفها للفلتر
   if (shiftIds && shiftIds.length > 0) {
-    whereConditions.shiftId = {
+    shiftWhereConditions.id = {
       in: shiftIds
     };
   }
 
-  const invoices = await this.prisma.invoice.findMany({
-    where: whereConditions,
+  // جلب الوارديات مع الفواتير
+  const shifts = await this.prisma.shift.findMany({
+    where: shiftWhereConditions,
     include: {
-      customer: true,
-      fund: true
+      employee: true,
+      invoices: {
+        where: {
+          paidStatus: true
+        },
+        include: {
+          customer: true,
+          fund: true,
+          relatedEmployee: true, // إضافة الموظف المرتبط
+          items: {
+            include: {
+              item: true
+            }
+          }
+        },
+        orderBy: {
+          createdAt: 'asc'
+        }
+      }
     },
     orderBy: {
-      createdAt: 'desc'
+      openTime: 'asc'
     }
   });
 
-  const fundTypesMap = new Map();
+  const shiftsData = [];
 
-  invoices.forEach(invoice => {
-    const fundType = invoice.fund.fundType;
-    
-    if (!fundTypesMap.has(fundType)) {
-      fundTypesMap.set(fundType, {
-        fundType,
-        invoices: []
+  shifts.forEach(shift => {
+    const fundTypesMap = new Map();
+
+    shift.invoices.forEach(invoice => {
+      const fundType = invoice.fund.fundType;
+      
+      if (!fundTypesMap.has(fundType)) {
+        fundTypesMap.set(fundType, {
+          fundType,
+          incomeInvoices: [],
+          expenseInvoices: []
+        });
+      }
+
+      // تحديد اسم الزبون/الموظف
+      let customerName = 'مباشر';
+      if (invoice.invoiceCategory === 'employee' && invoice.relatedEmployee) {
+        customerName = invoice.relatedEmployee.name;
+      } else if (invoice.customer) {
+        customerName = invoice.customer.name;
+      }
+
+      const invoiceData = {
+        customerName: customerName,
+        amount: invoice.totalAmount - (invoice.discount || 0),
+        invoiceType: invoice.invoiceType === 'income' ? 'دخل' : 'صرف',
+        category: this.getInvoiceCategory(invoice),
+        notes: invoice.notes || '—',
+        items: invoice.items.map(item => item.item.name).join(', ') || '—'
+      };
+
+      if (invoice.invoiceType === 'income') {
+        fundTypesMap.get(fundType).incomeInvoices.push(invoiceData);
+      } else {
+        fundTypesMap.get(fundType).expenseInvoices.push(invoiceData);
+      }
+    });
+
+    if (shift.invoices.length > 0) {
+      shiftsData.push({
+        shiftId: shift.id,
+        shiftType: shift.shiftType === 'morning' ? 'صباحية' : 'مسائية',
+        employeeName: shift.employee.username,
+        openTime: shift.openTime,
+        fundTypes: Array.from(fundTypesMap.values())
       });
     }
-
-    fundTypesMap.get(fundType).invoices.push({
-      customerName: invoice.customer?.name || 'مباشر',
-      amount: invoice.totalAmount - (invoice.discount || 0),
-      type: invoice.invoiceType === 'income' ? 'دخل' : 'صرف',
-      notes: invoice.notes || '—'
-    });
   });
 
   return {
-    fundTypes: Array.from(fundTypesMap.values())
+    shifts: shiftsData
   };
 }
+
+/**
+ * دالة مساعدة لتحديد نوع الفاتورة بناءً على invoiceCategory
+ */
+private getInvoiceCategory(invoice: any): string {
+  // استخدام invoiceCategory من قاعدة البيانات
+  switch (invoice.invoiceCategory) {
+    case 'products':
+      return 'منتجات';
+    
+    case 'debt':
+      return 'دين زبون';
+    
+    case 'direct':
+      return 'مباشر';
+    
+    case 'employee':
+      // التفريق بين أنواع فواتير الموظفين بناءً على الملاحظات
+      if (invoice.notes) {
+        const notesLower = invoice.notes.toLowerCase();
+        
+        // فواتير الدخل من الموظفين
+        if (invoice.invoiceType === 'income') {
+          if (notesLower.includes('إرجاع') || notesLower.includes('ارجاع')) {
+            return 'إرجاع سحب';
+          } else if (notesLower.includes('تسديد دين') || notesLower.includes('دفع دين')) {
+            return 'تسديد دين موظف';
+          }
+          return 'دخل من موظف';
+        }
+        
+        // فواتير الصرف للموظفين
+        if (invoice.invoiceType === 'expense') {
+          if (notesLower.includes('سلفة')) {
+            return 'سلفة موظف';
+          } else if (notesLower.includes('راتب') || notesLower.includes('أجر')) {
+            return 'راتب/أجر';
+          } else if (notesLower.includes('دين')) {
+            return 'دين موظف';
+          } else if (notesLower.includes('سحب')) {
+            return 'سحب راتب';
+          }
+          return 'صرف لموظف';
+        }
+      }
+      return 'موظف';
+    
+    case 'advance':
+      if (invoice.invoiceType === 'income') {
+        return 'استلام سلفة';
+      } else {
+        return 'إرجاع سلفة';
+      }
+    
+    case 'workshop':
+      return 'تسوية ورشة';
+    
+    default:
+      // في حالة عدم وجود invoiceCategory، نحاول التخمين
+      if (invoice.items && invoice.items.length > 0) {
+        return 'منتجات';
+      } else if (invoice.relatedEmployee) {
+        return 'موظف';
+      } else if (invoice.notes) {
+        // محاولة التعرف من الملاحظات
+        const notesLower = invoice.notes.toLowerCase();
+        if (notesLower.includes('دين')) return 'دين';
+        if (notesLower.includes('سلفة')) return 'سلفة';
+        if (notesLower.includes('ورشة')) return 'ورشة';
+      }
+      return 'أخرى';
+  }
+}
+
+
 
 
   /**
@@ -5079,7 +5206,7 @@ private async getInvoicesData(startDate: Date, endDate: Date, shiftIds?: number[
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>التقرير الشامل</title>
-    <style>
+   <style>
       * {
         margin: 0;
         padding: 0;
@@ -5096,8 +5223,8 @@ private async getInvoicesData(startDate: Date, endDate: Date, shiftIds?: number[
         padding: 0;
         background: #ffffff;
         color: #333333;
-        font-size: 11px;
-        line-height: 1.5;
+        font-size: 13px; /* تم التكبير من 11px */
+        line-height: 1.6;
       }
       
       .container {
@@ -5115,29 +5242,29 @@ private async getInvoicesData(startDate: Date, endDate: Date, shiftIds?: number[
       }
       
       .bakery-name {
-        font-size: 18px;
+        font-size: 22px; /* تم التكبير من 18px */
         font-weight: bold;
         color: #000000;
-        margin-bottom: 6px;
+        margin-bottom: 8px;
         letter-spacing: 0.3px;
       }
       
       .report-title {
-        font-size: 15px;
+        font-size: 18px; /* تم التكبير من 15px */
         font-weight: bold;
         color: #000000;
-        margin-bottom: 5px;
+        margin-bottom: 6px;
       }
       
       .date-range {
-        font-size: 10px;
+        font-size: 14px; /* تم التكبير من 11px */
         color: #555555;
         font-weight: normal;
         margin-bottom: 5px;
       }
 
       .filter-info {
-        font-size: 9px;
+        font-size: 12px; /* تم التكبير من 9px */
         color: #d9534f;
         font-weight: bold;
         display: block;
@@ -5150,11 +5277,11 @@ private async getInvoicesData(startDate: Date, endDate: Date, shiftIds?: number[
       }
       
       .section-title {
-        font-size: 13px;
+        font-size: 16px; /* تم التكبير من 13px */
         font-weight: bold;
         color: #000000;
-        padding: 8px 10px;
-        margin-bottom: 10px;
+        padding: 10px 12px;
+        margin-bottom: 12px;
         border-bottom: 2px solid #000000;
         background: #f8f8f8;
       }
@@ -5168,18 +5295,18 @@ private async getInvoicesData(startDate: Date, endDate: Date, shiftIds?: number[
       th {
         background: #e8e8e8;
         color: #000000;
-        padding: 7px;
+        padding: 9px;
         text-align: center;
         font-weight: bold;
         border: 1px solid #999999;
-        font-size: 10px;
+        font-size: 13px; /* تم التكبير من 10px */
       }
       
       td {
-        padding: 6px 7px;
+        padding: 8px 9px;
         border: 1px solid #999999;
         text-align: center;
-        font-size: 10px;
+        font-size: 13px; /* تم التكبير من 10px */
         background: #ffffff;
       }
       
@@ -5197,6 +5324,7 @@ private async getInvoicesData(startDate: Date, endDate: Date, shiftIds?: number[
         background: #d9d9d9 !important;
         font-weight: bold;
         border: 1px solid #999999;
+        font-size: 14px; /* تم التكبير */
       }
       
       .text-right {
@@ -5213,11 +5341,11 @@ private async getInvoicesData(startDate: Date, endDate: Date, shiftIds?: number[
       
       .no-data {
         text-align: center;
-        padding: 15px;
+        padding: 18px;
         color: #666666;
         background: #f5f5f5;
         border: 1px solid #cccccc;
-        font-size: 10px;
+        font-size: 14px; /* تم التكبير من 12px */
       }
       
       .subsection {
@@ -5226,25 +5354,27 @@ private async getInvoicesData(startDate: Date, endDate: Date, shiftIds?: number[
       }
       
       .subsection-title {
-        font-size: 11px;
+        font-size: 14px; /* تم التكبير من 11px */
         font-weight: bold;
         color: #000000;
-        margin-bottom: 8px;
-        padding-bottom: 5px;
+        margin-bottom: 10px;
+        padding-bottom: 6px;
         border-bottom: 1px solid #cccccc;
       }
       
       .summary-box {
-        margin-bottom: 10px;
-        padding: 8px 10px;
+        margin-bottom: 12px;
+        padding: 10px 12px;
         background: #f8f8f8;
         border-left: 3px solid #000000;
-        font-size: 10px;
+        font-size: 14px; /* تم التكبير من 12px */
       }
+
       
       .summary-box .label {
         font-weight: bold;
-        margin-bottom: 3px;
+        margin-bottom: 4px;
+        font-size: 14px;
       }
       
       .summary-box .value {
@@ -5403,7 +5533,6 @@ private async getInvoicesData(startDate: Date, endDate: Date, shiftIds?: number[
   }
 
 
-
   /**
    * بناء قسم الورشات
    */
@@ -5420,8 +5549,15 @@ private async getInvoicesData(startDate: Date, endDate: Date, shiftIds?: number[
 
     html += `<th>الإجمالي</th></tr></thead><tbody>`;
 
+    // مصفوفة لتخزين إجمالي كل منتج
+    const itemTotals = new Map();
+    workshopsData.items.forEach(item => {
+      itemTotals.set(item.itemId, 0);
+    });
+
     let totalEstimated = 0;
 
+    // صفوف الورشات
     workshopsData.workshops.forEach(workshop => {
       html += `<tr><td class="text-right font-bold">${workshop.workshopName}</td>`;
 
@@ -5431,20 +5567,26 @@ private async getInvoicesData(startDate: Date, endDate: Date, shiftIds?: number[
         const quantity = workshop.items[item.itemId] || 0;
         html += `<td>${quantity > 0 ? quantity : '—'}</td>`;
         workshopTotal += quantity;
+        
+        // إضافة الكمية إلى إجمالي المنتج
+        itemTotals.set(item.itemId, itemTotals.get(item.itemId) + quantity);
       });
 
       totalEstimated += workshopTotal;
       html += `<td class="font-bold">${workshopTotal}</td></tr>`;
     });
 
-    html += `
-        <tr class="total-row">
-          <td colspan="${workshopsData.items.length + 1}">المجموع الكلي</td>
-          <td>${totalEstimated}</td>
-        </tr>
-        </tbody>
-      </table>
-    `;
+    // صف الإجماليات لكل منتج
+    html += `<tr class="total-row"><td class="text-right font-bold">إجمالي المنتجات</td>`;
+    
+    workshopsData.items.forEach(item => {
+      const itemTotal = itemTotals.get(item.itemId);
+      html += `<td class="font-bold">${itemTotal > 0 ? itemTotal : '—'}</td>`;
+    });
+
+    html += `<td class="font-bold">${totalEstimated}</td></tr>`;
+
+    html += `</tbody></table>`;
 
     return html;
   }
@@ -5452,120 +5594,224 @@ private async getInvoicesData(startDate: Date, endDate: Date, shiftIds?: number[
   /**
    * بناء قسم التسليم
    */
-  private buildDeliveriesSection(deliveriesData: any): string {
-    if (deliveriesData.categories.length === 0) {
-      return '<div class="no-data">لا توجد طلبيات مسلمة في هذه الفترة</div>';
-    }
+ private buildDeliveriesSection(deliveriesData: any): string {
+  if (deliveriesData.categories.length === 0) {
+    return '<div class="no-data">لا توجد طلبيات مسلمة في هذه الفترة</div>';
+  }
 
-    let html = `
-      <div class="summary-box">
-        <div class="label">إجمالي الطلبيات المسلمة: ${deliveriesData.totalDelivered}</div>
+  let html = `
+    <div class="summary-box">
+      <div class="label">إجمالي الطلبيات المسلمة: ${deliveriesData.totalDelivered}</div>
+      <div class="label" style="margin-top: 5px; font-size: 11px; color: #666;">
+        * جميع الكميات محسوبة بالقطع (تم تحويل الصاجات تلقائياً)
       </div>
+    </div>
 
-      <table>
-        <thead>
-          <tr>
-            <th>تصنيف الطلبية</th>
-    `;
+    <table>
+      <thead>
+        <tr>
+          <th>تصنيف الطلبية</th>
+  `;
+
+  deliveriesData.itemGroups.forEach(group => {
+    html += `<th>${group}</th>`;
+  });
+
+  html += `<th>المجموع (قطع)</th></tr></thead><tbody>`;
+
+  let grandTotal = 0;
+  // إنشاء كائن لتجميع إجمالي كل منتج
+  const groupTotals = {};
+  deliveriesData.itemGroups.forEach(group => {
+    groupTotals[group] = 0;
+  });
+
+  deliveriesData.categories.forEach(category => {
+    html += `<tr><td class="text-right font-bold">${category.categoryName}</td>`;
+
+    let categoryTotal = 0;
 
     deliveriesData.itemGroups.forEach(group => {
-      html += `<th>${group}</th>`;
+      const quantity = category.itemGroups[group] || 0;
+      // تجميع إجمالي المنتج
+      groupTotals[group] += quantity;
+      // عرض الكميات بدون كسور عشرية
+      html += `<td>${quantity > 0 ? Math.round(quantity) : '—'}</td>`;
+      categoryTotal += quantity;
     });
 
-    html += `<th>المجموع</th></tr></thead><tbody>`;
+    grandTotal += categoryTotal;
+    html += `<td class="font-bold">${Math.round(categoryTotal)}</td></tr>`;
+  });
 
-    let grandTotal = 0;
+  // إضافة صف إجمالي كل منتج
+  html += `
+      <tr class="total-row">
+        <td class="font-bold">إجمالي كل منتج</td>
+  `;
+  
+  deliveriesData.itemGroups.forEach(group => {
+    html += `<td class="font-bold">${Math.round(groupTotals[group])}</td>`;
+  });
+  
+  html += `
+        <td class="font-bold">${Math.round(grandTotal)}</td>
+      </tr>
+      </tbody>
+    </table>
+  `;
 
-    deliveriesData.categories.forEach(category => {
-      html += `<tr><td class="text-right font-bold">${category.categoryName}</td>`;
+  return html;
+}
 
-      let categoryTotal = 0;
-
-      deliveriesData.itemGroups.forEach(group => {
-        const quantity = category.itemGroups[group] || 0;
-        html += `<td>${quantity > 0 ? quantity : '—'}</td>`;
-        categoryTotal += quantity;
-      });
-
-      grandTotal += categoryTotal;
-      html += `<td class="font-bold">${categoryTotal}</td></tr>`;
-    });
-
-    html += `
-        <tr class="total-row">
-          <td colspan="${deliveriesData.itemGroups.length + 1}">المجموع الكلي</td>
-          <td>${grandTotal}</td>
-        </tr>
-        </tbody>
-      </table>
-    `;
-
-    return html;
-  }
 
   /**
    * بناء قسم الفواتير
    */
-  private buildInvoicesSection(invoicesData: any): string {
-    if (invoicesData.fundTypes.length === 0) {
-      return '<div class="no-data">لا توجد فواتير مسددة في هذه الفترة</div>';
-    }
-
-    let html = '';
-    const fundLabels = {
-      'general': 'الصندوق العام',
-      'booth': 'البسطة',
-      'university': 'الجامعات',
-      'main': 'الخزينة الرئيسية'
-    };
-
-    invoicesData.fundTypes.forEach(fundTypeData => {
-      const fundLabel = fundLabels[fundTypeData.fundType] || fundTypeData.fundType;
-      let total = 0;
-
-      html += `
-        <div class="subsection">
-          <div class="subsection-title">${fundLabel}</div>
-          <table>
-            <thead>
-              <tr>
-                <th>الزبون</th>
-                <th>المبلغ (ل.س)</th>
-                <th>النوع</th>
-                <th>ملاحظة</th>
-              </tr>
-            </thead>
-            <tbody>
-      `;
-
-      fundTypeData.invoices.forEach(invoice => {
-        total += invoice.amount;
-        html += `
-          <tr>
-            <td class="text-right">${invoice.customerName}</td>
-            <td>${this.formatNumber(invoice.amount)}</td>
-            <td>${invoice.type}</td>
-            <td class="text-left">${invoice.notes.substring(0, 20)}</td>
-          </tr>
-        `;
-      });
-
-      html += `
-            <tr class="total-row">
-              <td colspan="2">الإجمالي</td>
-              <td colspan="2">${this.formatNumber(total)}</td>
-            </tr>
-          </tbody>
-        </table>
-        </div>
-      `;
-    });
-
-    return html;
+ private buildInvoicesSection(invoicesData: any): string {
+  if (!invoicesData.shifts || invoicesData.shifts.length === 0) {
+    return '<div class="no-data">لا توجد فواتير مسددة في هذه الفترة</div>';
   }
 
-    private formatNumber(num: number): string {
-    return num.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  const fundLabels = {
+    'general': 'الصندوق العام',
+    'booth': 'البسطة',
+    'university': 'الجامعات',
+    'main': 'الخزينة الرئيسية'
+  };
+
+  let html = '';
+
+  invoicesData.shifts.forEach(shift => {
+    html += `
+      <div class="subsection" style="page-break-inside: avoid; margin-bottom: 25px;">
+        <div class="subsection-title" style="font-size: 14px; background: #e0e0e0; padding: 10px;">
+          الواردية ${shift.shiftType} - المسؤول: ${shift.employeeName} - التاريخ: ${this.formatDate(shift.openTime)}
+        </div>
+    `;
+
+    shift.fundTypes.forEach(fundTypeData => {
+      const fundLabel = fundLabels[fundTypeData.fundType] || fundTypeData.fundType;
+
+      // جدول فواتير الدخل
+      if (fundTypeData.incomeInvoices.length > 0) {
+        html += `
+          <div style="margin: 15px 0;">
+            <div style="font-size: 13px; font-weight: bold; margin-bottom: 8px; color: #2e7d32; background: #e8f5e9; padding: 8px; border-right: 4px solid #2e7d32;">
+              ${fundLabel} - فواتير الدخل
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th style="width: 30%;">الزبون</th>
+                  <th style="width: 15%;">المبلغ (ل.س)</th>
+                  <th style="width: 15%;">نوع الفاتورة</th>
+                  <th style="width: 40%;">التفاصيل</th>
+                </tr>
+              </thead>
+              <tbody>
+        `;
+
+        let incomeTotal = 0;
+        fundTypeData.incomeInvoices.forEach(invoice => {
+          incomeTotal += invoice.amount;
+          
+          // تحديد التفاصيل المناسبة للعرض
+          let details = '';
+          if (invoice.category === 'منتجات' && invoice.items !== '—') {
+            details = invoice.items;
+          } else if (invoice.notes !== '—') {
+            details = invoice.notes;
+          } else {
+            details = '—';
+          }
+          
+          html += `
+            <tr>
+              <td class="text-right" style="font-size: 13px; font-weight: 500;">${invoice.customerName}</td>
+              <td style="font-size: 13px; font-weight: bold; color: #2e7d32;">${this.formatNumber(invoice.amount)}</td>
+              <td style="font-size: 13px;">${invoice.category}</td>
+              <td class="text-right" style="font-size: 12px;">${details.substring(0, 50)}${details.length > 50 ? '...' : ''}</td>
+            </tr>
+          `;
+        });
+
+        html += `
+              <tr class="total-row">
+                <td colspan="1" style="font-size: 13px;">إجمالي الدخل</td>
+                <td colspan="3" style="font-size: 14px; font-weight: bold; color: #2e7d32;">${this.formatNumber(incomeTotal)}</td>
+              </tr>
+            </tbody>
+          </table>
+          </div>
+        `;
+      }
+
+      // جدول فواتير الخرج
+      if (fundTypeData.expenseInvoices.length > 0) {
+        html += `
+          <div style="margin: 15px 0;">
+            <div style="font-size: 13px; font-weight: bold; margin-bottom: 8px; color: #c62828; background: #ffebee; padding: 8px; border-right: 4px solid #c62828;">
+              ${fundLabel} - فواتير الخرج
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th style="width: 30%;">الزبون</th>
+                  <th style="width: 15%;">المبلغ (ل.س)</th>
+                  <th style="width: 15%;">نوع الفاتورة</th>
+                  <th style="width: 40%;">التفاصيل</th>
+                </tr>
+              </thead>
+              <tbody>
+        `;
+
+        let expenseTotal = 0;
+        fundTypeData.expenseInvoices.forEach(invoice => {
+          expenseTotal += invoice.amount;
+          
+          // تحديد التفاصيل المناسبة للعرض
+          let details = '';
+          if (invoice.category === 'منتجات' && invoice.items !== '—') {
+            details = invoice.items;
+          } else if (invoice.notes !== '—') {
+            details = invoice.notes;
+          } else {
+            details = '—';
+          }
+          
+          html += `
+            <tr>
+              <td class="text-right" style="font-size: 13px; font-weight: 500;">${invoice.customerName}</td>
+              <td style="font-size: 13px; font-weight: bold; color: #c62828;">${this.formatNumber(invoice.amount)}</td>
+              <td style="font-size: 13px;">${invoice.category}</td>
+              <td class="text-right" style="font-size: 12px;">${details.substring(0, 50)}${details.length > 50 ? '...' : ''}</td>
+            </tr>
+          `;
+        });
+
+        html += `
+              <tr class="total-row">
+                <td colspan="1" style="font-size: 13px;">إجمالي الخرج</td>
+                <td colspan="3" style="font-size: 14px; font-weight: bold; color: #c62828;">${this.formatNumber(expenseTotal)}</td>
+              </tr>
+            </tbody>
+          </table>
+          </div>
+        `;
+      }
+    });
+
+    html += `</div>`;
+  });
+
+  return html;
+}
+
+
+
+  private formatNumber(num: number): string {
+    return num.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   }
 
 

@@ -17,7 +17,7 @@ import { JwtAuthGuard } from 'src/common';
       useFactory: async (configService: ConfigService) => ({
         secret: configService.get('JWT_SECRET'),
         signOptions: {
-          expiresIn: configService.get('JWT_EXPIRATION_TIME'),
+          expiresIn: configService.get('JWT_EXPIRATION_TIME') || '30d',
         },
       }),
       inject: [ConfigService],

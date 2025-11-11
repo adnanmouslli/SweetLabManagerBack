@@ -12,7 +12,7 @@ export const appConfig = registerAs('app', () => ({
   host: process.env.HOST || '0.0.0.0',
   jwt: {
     secret: process.env.JWT_SECRET,
-    expirationTime: parseInt(process.env.JWT_EXPIRATION_TIME, 10) || 3600,
+    expirationTime: process.env.JWT_EXPIRATION_TIME || '300d', // 300 يوم
   },
   cors: {
     origin: process.env.CORS_ORIGIN || '*',
