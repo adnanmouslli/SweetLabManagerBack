@@ -4740,19 +4740,35 @@ private formatReceiptDate(date: Date | string): string {
   }
 
 private async getFundsData(startDate: Date, endDate: Date, shiftIds?: number[]) {
-  // إنشاء شروط البحث
-  const whereConditions: any = {
+    // إنشاء شروط البحث
+  const whereConditions: any = {};
+
+  // إنشاء مصفوفة الشروط لـ OR
+  const orConditions = [];
+
+  // إضافة شرط التاريخ
+  orConditions.push({
     openTime: {
       gte: startDate,
       lte: endDate
     }
-  };
+  });
 
-  // إذا تم تمرير IDs الوارديات، أضفها للفلتر
+  // إذا تم تمرير IDs الوارديات، أضف شرط الـ ID
   if (shiftIds && shiftIds.length > 0) {
-    whereConditions.id = {
-      in: shiftIds 
-    };
+    orConditions.push({
+      id: {
+        in: shiftIds 
+      }
+    });
+  }
+
+  // إذا كان هناك أكثر من شرط، استخدم OR
+  if (orConditions.length > 1) {
+    whereConditions.OR = orConditions;
+  } else if (orConditions.length === 1) {
+    // إذا كان هناك شرط واحد فقط، استخدمه مباشرة
+    Object.assign(whereConditions, orConditions[0]);
   }
 
   const shifts = await this.prisma.shift.findMany({
@@ -4865,11 +4881,17 @@ private async getWorkshopsData(startDate: Date, endDate: Date) {
   });
 
   workshops.forEach(workshop => {
+    // ✅ تخطي الورشات التي ليس لها سجلات إنتاج في الفترة المحددة
+    if (!workshop.productionRecords || workshop.productionRecords.length === 0) {
+      return;
+    }
+
     workshopsMap.set(workshop.id, {
       workshopId: workshop.id,
       workshopName: workshop.name,
       workType: workshop.workType,
-      items: {}
+      items: {},
+      totalQuantity: 0 // ✅ إضافة متتبع للإجمالي
     });
 
     // ✅ معالجة سجلات إنتاج الورشة مباشرة
@@ -4911,12 +4933,23 @@ private async getWorkshopsData(startDate: Date, endDate: Date) {
           workshopData.items[itemId] = 0;
         }
         workshopData.items[itemId] += quantity;
+        workshopData.totalQuantity += quantity; // ✅ إضافة للإجمالي
       });
     });
   });
 
+  // ✅ تصفية الورشات لإزالة الورشات التي إجماليها 0
+  const filteredWorkshops = Array.from(workshopsMap.values()).filter(workshop => {
+    return workshop.totalQuantity > 0;
+  });
+
+  // ✅ إزالة خاصية totalQuantity قبل الإرجاع (اختياري)
+  filteredWorkshops.forEach(workshop => {
+    delete workshop.totalQuantity;
+  });
+
   return {
-    workshops: Array.from(workshopsMap.values()),
+    workshops: filteredWorkshops,
     items: Array.from(itemsMap.values())
   };
 }
@@ -5007,18 +5040,34 @@ private async getDeliveriesData(startDate: Date, endDate: Date) {
  */
 private async getInvoicesData(startDate: Date, endDate: Date, shiftIds?: number[]) {
   // إنشاء شروط البحث للوارديات
-  const shiftWhereConditions: any = {
+  const shiftWhereConditions: any = {};
+
+  // إنشاء مصفوفة الشروط لـ OR
+  const orConditions = [];
+
+  // إضافة شرط التاريخ
+  orConditions.push({
     openTime: {
       gte: startDate,
       lte: endDate
     }
-  };
+  });
 
-  // إذا تم تمرير IDs الوارديات، أضفها للفلتر
+  // إذا تم تمرير IDs الوارديات، أضف شرط الـ ID
   if (shiftIds && shiftIds.length > 0) {
-    shiftWhereConditions.id = {
-      in: shiftIds
-    };
+    orConditions.push({
+      id: {
+        in: shiftIds
+      }
+    });
+  }
+
+  // إذا كان هناك أكثر من شرط، استخدم OR
+  if (orConditions.length > 1) {
+    shiftWhereConditions.OR = orConditions;
+  } else if (orConditions.length === 1) {
+    // إذا كان هناك شرط واحد فقط، استخدمه مباشرة
+    Object.assign(shiftWhereConditions, orConditions[0]);
   }
 
   // جلب الوارديات مع الفواتير
@@ -5028,12 +5077,17 @@ private async getInvoicesData(startDate: Date, endDate: Date, shiftIds?: number[
       employee: true,
       invoices: {
         where: {
-          paidStatus: true
+          paidStatus: true,
+          fund: {
+            fundType: {
+              not: 'main' // استبعاد فواتير الخزينة الرئيسية
+            }
+          }
         },
         include: {
           customer: true,
           fund: true,
-          relatedEmployee: true, // إضافة الموظف المرتبط
+          relatedEmployee: true,
           items: {
             include: {
               item: true
@@ -5047,6 +5101,33 @@ private async getInvoicesData(startDate: Date, endDate: Date, shiftIds?: number[
     },
     orderBy: {
       openTime: 'asc'
+    }
+  });
+
+  // جلب فواتير الخزينة الرئيسية بشكل منفصل
+  const mainFundInvoices = await this.prisma.invoice.findMany({
+    where: {
+      paidStatus: true,
+      createdAt: {
+        gte: startDate,
+        lte: endDate
+      },
+      fund: {
+        fundType: 'main'
+      }
+    },
+    include: {
+      customer: true,
+      fund: true,
+      relatedEmployee: true,
+      items: {
+        include: {
+          item: true
+        }
+      }
+    },
+    orderBy: {
+      createdAt: 'asc'
     }
   });
 
@@ -5079,8 +5160,7 @@ private async getInvoicesData(startDate: Date, endDate: Date, shiftIds?: number[
         amount: invoice.totalAmount - (invoice.discount || 0),
         invoiceType: invoice.invoiceType === 'income' ? 'دخل' : 'صرف',
         category: this.getInvoiceCategory(invoice),
-        notes: invoice.notes || '—',
-        items: invoice.items.map(item => item.item.name).join(', ') || '—'
+        notes: invoice.notes || '—'
       };
 
       if (invoice.invoiceType === 'income') {
@@ -5101,8 +5181,39 @@ private async getInvoicesData(startDate: Date, endDate: Date, shiftIds?: number[
     }
   });
 
+  // معالجة فواتير الخزينة الرئيسية
+  const mainFundData = {
+    incomeInvoices: [],
+    expenseInvoices: []
+  };
+
+  mainFundInvoices.forEach(invoice => {
+    // تحديد اسم الزبون/الموظف
+    let customerName = 'مباشر';
+    if (invoice.invoiceCategory === 'employee' && invoice.relatedEmployee) {
+      customerName = invoice.relatedEmployee.name;
+    } else if (invoice.customer) {
+      customerName = invoice.customer.name;
+    }
+
+    const invoiceData = {
+      customerName: customerName,
+      amount: invoice.totalAmount - (invoice.discount || 0),
+      invoiceType: invoice.invoiceType === 'income' ? 'دخل' : 'صرف',
+      category: this.getInvoiceCategory(invoice),
+      notes: invoice.notes || '—'
+    };
+
+    if (invoice.invoiceType === 'income') {
+      mainFundData.incomeInvoices.push(invoiceData);
+    } else {
+      mainFundData.expenseInvoices.push(invoiceData);
+    }
+  });
+
   return {
-    shifts: shiftsData
+    shifts: shiftsData,
+    mainFund: mainFundData
   };
 }
 
@@ -5178,7 +5289,6 @@ private getInvoiceCategory(invoice: any): string {
       return 'أخرى';
   }
 }
-
 
 
 
@@ -5665,14 +5775,10 @@ private getInvoiceCategory(invoice: any): string {
 }
 
 
-  /**
-   * بناء قسم الفواتير
-   */
- private buildInvoicesSection(invoicesData: any): string {
-  if (!invoicesData.shifts || invoicesData.shifts.length === 0) {
-    return '<div class="no-data">لا توجد فواتير مسددة في هذه الفترة</div>';
-  }
-
+ /**
+ * بناء قسم الفواتير
+ */
+private buildInvoicesSection(invoicesData: any): string {
   const fundLabels = {
     'general': 'الصندوق العام',
     'booth': 'البسطة',
@@ -5682,128 +5788,110 @@ private getInvoiceCategory(invoice: any): string {
 
   let html = '';
 
-  invoicesData.shifts.forEach(shift => {
-    html += `
-      <div class="subsection" style="page-break-inside: avoid; margin-bottom: 25px;">
-        <div class="subsection-title" style="font-size: 14px; background: #e0e0e0; padding: 10px;">
-          الواردية ${shift.shiftType} - المسؤول: ${shift.employeeName} - التاريخ: ${this.formatDate(shift.openTime)}
-        </div>
-    `;
+  // قسم فواتير الوارديات
+  if (invoicesData.shifts && invoicesData.shifts.length > 0) {
+    html += '<div class="section-title" style="font-size: 16px; font-weight: bold; margin: 20px 0 15px; padding: 10px; background: #1976d2; color: white;">فواتير الوارديات</div>';
 
-    shift.fundTypes.forEach(fundTypeData => {
-      const fundLabel = fundLabels[fundTypeData.fundType] || fundTypeData.fundType;
-
-      // جدول فواتير الدخل
-      if (fundTypeData.incomeInvoices.length > 0) {
-        html += `
-          <div style="margin: 15px 0;">
-            <div style="font-size: 13px; font-weight: bold; margin-bottom: 8px; color: #2e7d32; background: #e8f5e9; padding: 8px; border-right: 4px solid #2e7d32;">
-              ${fundLabel} - فواتير الدخل
-            </div>
-            <table>
-              <thead>
-                <tr>
-                  <th style="width: 30%;">الزبون</th>
-                  <th style="width: 15%;">المبلغ (ل.س)</th>
-                  <th style="width: 15%;">نوع الفاتورة</th>
-                  <th style="width: 40%;">التفاصيل</th>
-                </tr>
-              </thead>
-              <tbody>
-        `;
-
-        let incomeTotal = 0;
-        fundTypeData.incomeInvoices.forEach(invoice => {
-          incomeTotal += invoice.amount;
-          
-          // تحديد التفاصيل المناسبة للعرض
-          let details = '';
-          if (invoice.category === 'منتجات' && invoice.items !== '—') {
-            details = invoice.items;
-          } else if (invoice.notes !== '—') {
-            details = invoice.notes;
-          } else {
-            details = '—';
-          }
-          
-          html += `
-            <tr>
-              <td class="text-right" style="font-size: 13px; font-weight: 500;">${invoice.customerName}</td>
-              <td style="font-size: 13px; font-weight: bold; color: #2e7d32;">${this.formatNumber(invoice.amount)}</td>
-              <td style="font-size: 13px;">${invoice.category}</td>
-              <td class="text-right" style="font-size: 12px;">${details.substring(0, 50)}${details.length > 50 ? '...' : ''}</td>
-            </tr>
-          `;
-        });
-
-        html += `
-              <tr class="total-row">
-                <td colspan="1" style="font-size: 13px;">إجمالي الدخل</td>
-                <td colspan="3" style="font-size: 14px; font-weight: bold; color: #2e7d32;">${this.formatNumber(incomeTotal)}</td>
-              </tr>
-            </tbody>
-          </table>
+    invoicesData.shifts.forEach(shift => {
+      html += `
+        <div class="subsection" style="page-break-inside: avoid; margin-bottom: 25px;">
+          <div class="subsection-title" style="font-size: 14px; background: #e0e0e0; padding: 10px;">
+            الواردية ${shift.shiftType} - المسؤول: ${shift.employeeName} - التاريخ: ${this.formatDate(shift.openTime)}
           </div>
-        `;
-      }
+      `;
 
-      // جدول فواتير الخرج
-      if (fundTypeData.expenseInvoices.length > 0) {
-        html += `
-          <div style="margin: 15px 0;">
-            <div style="font-size: 13px; font-weight: bold; margin-bottom: 8px; color: #c62828; background: #ffebee; padding: 8px; border-right: 4px solid #c62828;">
-              ${fundLabel} - فواتير الخرج
-            </div>
-            <table>
-              <thead>
-                <tr>
-                  <th style="width: 30%;">الزبون</th>
-                  <th style="width: 15%;">المبلغ (ل.س)</th>
-                  <th style="width: 15%;">نوع الفاتورة</th>
-                  <th style="width: 40%;">التفاصيل</th>
-                </tr>
-              </thead>
-              <tbody>
-        `;
+      shift.fundTypes.forEach(fundTypeData => {
+        const fundLabel = fundLabels[fundTypeData.fundType] || fundTypeData.fundType;
 
-        let expenseTotal = 0;
-        fundTypeData.expenseInvoices.forEach(invoice => {
-          expenseTotal += invoice.amount;
-          
-          // تحديد التفاصيل المناسبة للعرض
-          let details = '';
-          if (invoice.category === 'منتجات' && invoice.items !== '—') {
-            details = invoice.items;
-          } else if (invoice.notes !== '—') {
-            details = invoice.notes;
-          } else {
-            details = '—';
-          }
-          
-          html += `
-            <tr>
-              <td class="text-right" style="font-size: 13px; font-weight: 500;">${invoice.customerName}</td>
-              <td style="font-size: 13px; font-weight: bold; color: #c62828;">${this.formatNumber(invoice.amount)}</td>
-              <td style="font-size: 13px;">${invoice.category}</td>
-              <td class="text-right" style="font-size: 12px;">${details.substring(0, 50)}${details.length > 50 ? '...' : ''}</td>
-            </tr>
-          `;
-        });
+        // جدول فواتير الدخل
+        if (fundTypeData.incomeInvoices.length > 0) {
+          html += this.buildInvoiceTable(fundLabel, 'دخل', fundTypeData.incomeInvoices, '#2e7d32', '#e8f5e9');
+        }
 
-        html += `
-              <tr class="total-row">
-                <td colspan="1" style="font-size: 13px;">إجمالي الخرج</td>
-                <td colspan="3" style="font-size: 14px; font-weight: bold; color: #c62828;">${this.formatNumber(expenseTotal)}</td>
-              </tr>
-            </tbody>
-          </table>
-          </div>
-        `;
-      }
+        // جدول فواتير الخرج
+        if (fundTypeData.expenseInvoices.length > 0) {
+          html += this.buildInvoiceTable(fundLabel, 'خرج', fundTypeData.expenseInvoices, '#c62828', '#ffebee');
+        }
+      });
+
+      html += `</div>`;
     });
+  }
 
-    html += `</div>`;
+  // قسم فواتير الخزينة الرئيسية (منفصل تماماً)
+  if (invoicesData.mainFund && (invoicesData.mainFund.incomeInvoices.length > 0 || invoicesData.mainFund.expenseInvoices.length > 0)) {
+    html += '<div class="section-title" style="font-size: 16px; font-weight: bold; margin: 30px 0 15px; padding: 10px; background: #f57c00; color: white;">فواتير الخزينة الرئيسية</div>';
+    
+    html += '<div class="subsection" style="page-break-inside: avoid; margin-bottom: 25px;">';
+
+    // جدول فواتير الدخل للخزينة
+    if (invoicesData.mainFund.incomeInvoices.length > 0) {
+      html += this.buildInvoiceTable('الخزينة الرئيسية', 'دخل', invoicesData.mainFund.incomeInvoices, '#2e7d32', '#e8f5e9');
+    }
+
+    // جدول فواتير الخرج للخزينة
+    if (invoicesData.mainFund.expenseInvoices.length > 0) {
+      html += this.buildInvoiceTable('الخزينة الرئيسية', 'خرج', invoicesData.mainFund.expenseInvoices, '#c62828', '#ffebee');
+    }
+
+    html += '</div>';
+  }
+
+  // رسالة في حالة عدم وجود بيانات
+  if ((!invoicesData.shifts || invoicesData.shifts.length === 0) && 
+      (!invoicesData.mainFund || (invoicesData.mainFund.incomeInvoices.length === 0 && invoicesData.mainFund.expenseInvoices.length === 0))) {
+    return '<div class="no-data">لا توجد فواتير مسددة في هذه الفترة</div>';
+  }
+
+  return html;
+}
+
+/**
+ * دالة مساعدة لبناء جدول الفواتير
+ */
+private buildInvoiceTable(fundLabel: string, type: string, invoices: any[], color: string, bgColor: string): string {
+  const typeLabel = type === 'دخل' ? 'فواتير الدخل' : 'فواتير الخرج';
+  
+  let html = `
+    <div style="margin: 15px 0;">
+      <div style="font-size: 13px; font-weight: bold; margin-bottom: 8px; color: ${color}; background: ${bgColor}; padding: 8px; border-right: 4px solid ${color};">
+        ${fundLabel} - ${typeLabel}
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th style="width: 30%;">الزبون</th>
+            <th style="width: 15%;">المبلغ (ل.س)</th>
+            <th style="width: 15%;">نوع الفاتورة</th>
+            <th style="width: 40%;">الملاحظات</th>
+          </tr>
+        </thead>
+        <tbody>
+  `;
+
+  let total = 0;
+  invoices.forEach(invoice => {
+    total += invoice.amount;
+    
+    html += `
+      <tr>
+        <td style="text-align: center; font-size: 15px; font-weight: 600; vertical-align: middle;">${invoice.customerName}</td>
+        <td style="font-size: 13px; font-weight: bold; color: ${color};">${this.formatNumber(invoice.amount)}</td>
+        <td style="font-size: 13px;">${invoice.category}</td>
+        <td class="text-right" style="font-size: 12px;">${invoice.notes}</td>
+      </tr>
+    `;
   });
+
+  html += `
+        <tr class="total-row">
+          <td colspan="1" style="font-size: 13px;">إجمالي ${typeLabel}</td>
+          <td colspan="3" style="font-size: 14px; font-weight: bold; color: ${color};">${this.formatNumber(total)}</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+  `;
 
   return html;
 }
