@@ -4746,13 +4746,13 @@ private async getFundsData(startDate: Date, endDate: Date, shiftIds?: number[]) 
   // إنشاء مصفوفة الشروط لـ OR
   const orConditions = [];
 
-  // إضافة شرط التاريخ
-  orConditions.push({
-    openTime: {
-      gte: startDate,
-      lte: endDate
-    }
-  });
+  // // إضافة شرط التاريخ
+  // orConditions.push({
+  //   openTime: {
+  //     gte: startDate,
+  //     lte: endDate
+  //   }
+  // });
 
   // إذا تم تمرير IDs الوارديات، أضف شرط الـ ID
   if (shiftIds && shiftIds.length > 0) {
@@ -5046,12 +5046,12 @@ private async getInvoicesData(startDate: Date, endDate: Date, shiftIds?: number[
   const orConditions = [];
 
   // إضافة شرط التاريخ
-  orConditions.push({
-    openTime: {
-      gte: startDate,
-      lte: endDate
-    }
-  });
+  // orConditions.push({
+  //   openTime: {
+  //     gte: startDate,
+  //     lte: endDate
+  //   }
+  // });
 
   // إذا تم تمرير IDs الوارديات، أضف شرط الـ ID
   if (shiftIds && shiftIds.length > 0) {
