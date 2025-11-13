@@ -4775,6 +4775,9 @@ private async getFundsData(startDate: Date, endDate: Date, shiftIds?: number[]) 
     where: whereConditions,
     include: {
       invoices: {
+        where: {
+          paidStatus: true
+        },
         include: {
           fund: true
         }
@@ -5775,7 +5778,7 @@ private getInvoiceCategory(invoice: any): string {
 }
 
 
- /**
+/**
  * بناء قسم الفواتير
  */
 private buildInvoicesSection(invoicesData: any): string {
@@ -5802,15 +5805,24 @@ private buildInvoicesSection(invoicesData: any): string {
 
       shift.fundTypes.forEach(fundTypeData => {
         const fundLabel = fundLabels[fundTypeData.fundType] || fundTypeData.fundType;
-
+        
+        // حساب إجماليات الدخل والصرف لهذه الخزينة
+        const incomeTotal = fundTypeData.incomeInvoices.reduce((sum, inv) => sum + inv.amount, 0);
+        const expenseTotal = fundTypeData.expenseInvoices.reduce((sum, inv) => sum + inv.amount, 0);
+        
+        const fundTotals = {
+          income: incomeTotal,
+          expense: expenseTotal
+        };
+        
         // جدول فواتير الدخل
         if (fundTypeData.incomeInvoices.length > 0) {
-          html += this.buildInvoiceTable(fundLabel, 'دخل', fundTypeData.incomeInvoices, '#2e7d32', '#e8f5e9');
+          html += this.buildInvoiceTable(fundLabel, 'دخل', fundTypeData.incomeInvoices, '#2e7d32', '#e8f5e9', fundTotals);
         }
 
-        // جدول فواتير الخرج
+        // جدول فواتير الصرف
         if (fundTypeData.expenseInvoices.length > 0) {
-          html += this.buildInvoiceTable(fundLabel, 'خرج', fundTypeData.expenseInvoices, '#c62828', '#ffebee');
+          html += this.buildInvoiceTable(fundLabel, 'صرف', fundTypeData.expenseInvoices, '#c62828', '#ffebee', fundTotals);
         }
       });
 
@@ -5824,14 +5836,23 @@ private buildInvoicesSection(invoicesData: any): string {
     
     html += '<div class="subsection" style="page-break-inside: avoid; margin-bottom: 25px;">';
 
+    // حساب إجماليات الدخل والصرف للخزينة الرئيسية
+    const mainFundIncomeTotal = invoicesData.mainFund.incomeInvoices.reduce((sum, inv) => sum + inv.amount, 0);
+    const mainFundExpenseTotal = invoicesData.mainFund.expenseInvoices.reduce((sum, inv) => sum + inv.amount, 0);
+    
+    const mainFundTotals = {
+      income: mainFundIncomeTotal,
+      expense: mainFundExpenseTotal
+    };
+
     // جدول فواتير الدخل للخزينة
     if (invoicesData.mainFund.incomeInvoices.length > 0) {
-      html += this.buildInvoiceTable('الخزينة الرئيسية', 'دخل', invoicesData.mainFund.incomeInvoices, '#2e7d32', '#e8f5e9');
+      html += this.buildInvoiceTable('الخزينة الرئيسية', 'دخل', invoicesData.mainFund.incomeInvoices, '#2e7d32', '#e8f5e9', mainFundTotals);
     }
 
-    // جدول فواتير الخرج للخزينة
+    // جدول فواتير الصرف للخزينة
     if (invoicesData.mainFund.expenseInvoices.length > 0) {
-      html += this.buildInvoiceTable('الخزينة الرئيسية', 'خرج', invoicesData.mainFund.expenseInvoices, '#c62828', '#ffebee');
+      html += this.buildInvoiceTable('الخزينة الرئيسية', 'صرف', invoicesData.mainFund.expenseInvoices, '#c62828', '#ffebee', mainFundTotals);
     }
 
     html += '</div>';
@@ -5849,8 +5870,15 @@ private buildInvoicesSection(invoicesData: any): string {
 /**
  * دالة مساعدة لبناء جدول الفواتير
  */
-private buildInvoiceTable(fundLabel: string, type: string, invoices: any[], color: string, bgColor: string): string {
-  const typeLabel = type === 'دخل' ? 'فواتير الدخل' : 'فواتير الخرج';
+private buildInvoiceTable(
+  fundLabel: string, 
+  type: string, 
+  invoices: any[], 
+  color: string, 
+  bgColor: string,
+  fundTotals?: { income: number, expense: number }
+): string {
+  const typeLabel = type === 'دخل' ? 'فواتير الدخل' : 'فواتير الصرف';
   
   let html = `
     <div style="margin: 15px 0;">
@@ -5888,6 +5916,23 @@ private buildInvoiceTable(fundLabel: string, type: string, invoices: any[], colo
           <td colspan="1" style="font-size: 13px;">إجمالي ${typeLabel}</td>
           <td colspan="3" style="font-size: 14px; font-weight: bold; color: ${color};">${this.formatNumber(total)}</td>
         </tr>
+  `;
+
+  // إضافة صف الإجمالي (الدخل - الصرف)
+  if (fundTotals && type === 'صرف') {
+    const fundBalance = fundTotals.income - fundTotals.expense;
+    const balanceColor = fundBalance >= 0 ? '#16a34a' : '#dc2626';
+    const balanceBg = fundBalance >= 0 ? '#f0fdf4' : '#fef2f2';
+    
+    html += `
+        <tr style="background: ${balanceBg}; border-top: 2px solid ${balanceColor};">
+          <td colspan="1" style="font-size: 14px; font-weight: bold; color: ${balanceColor};">الإجمالي (الدخل - الصرف)</td>
+          <td colspan="3" style="font-size: 15px; font-weight: bold; color: ${balanceColor};">${this.formatNumber(Math.abs(fundBalance))} ${fundBalance < 0 ? '(عجز)' : ''}</td>
+        </tr>
+    `;
+  }
+
+  html += `
       </tbody>
     </table>
     </div>
