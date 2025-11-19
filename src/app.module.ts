@@ -22,6 +22,7 @@ import { OrderItemModule } from './module/order-item/order-item.module';
 import { EmployeesModule } from './module/employees/employees.module';
 import { WorkshopsModule } from './module/workshops/workshops.module';
 import { PdfReportsModule } from './module/pdf-reports/pdf-reports.module';
+import { BackupModule } from './module/backup/backup.module';
 
 @Module({
   imports: [
@@ -59,7 +60,8 @@ import { PdfReportsModule } from './module/pdf-reports/pdf-reports.module';
     OrderItemModule,
     EmployeesModule,
     WorkshopsModule,
-    PdfReportsModule
+    PdfReportsModule,
+    BackupModule
   ],
   providers: [PrismaConfig],
   exports: [PrismaConfig],

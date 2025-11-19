@@ -583,6 +583,7 @@ async create(createOrderDto: CreateOrderDto, employeeId: number) {
     // Realizar la consulta
     const orders = await this.prisma.order.findMany({
       where,
+      take: 100,
       include: {
         customer: true,
         category: true,
