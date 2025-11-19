@@ -98,6 +98,18 @@ ${invoice.notes ? `📝 ملاحظات: ${invoice.notes}` : ''}
 
  async sendMessageViaAPI(phoneNumber: string, message: string): Promise<void> {
   try {
+
+          // إزالة أي أحرف غير أرقام
+    phoneNumber = phoneNumber.replace(/\D/g, '');
+
+    // إذا بدأ بصفر → إزالته
+    if (phoneNumber.startsWith('0')) {
+      phoneNumber = phoneNumber.substring(1);
+    }
+
+    // إضافة مفتاح الدولة 963
+    phoneNumber = `963${phoneNumber}`;
+
     const response = await axios.post(
       'http://localhost:3698/send-message',
       {
