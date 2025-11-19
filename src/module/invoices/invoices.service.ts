@@ -111,7 +111,7 @@ ${invoice.notes ? `📝 ملاحظات: ${invoice.notes}` : ''}
     phoneNumber = `963${phoneNumber}`;
 
     const response = await axios.post(
-      'http://localhost:3698/send-message',
+      'http://37.60.239.128:3698/send-message',
       {
         phoneNumber: phoneNumber,
         message: message
