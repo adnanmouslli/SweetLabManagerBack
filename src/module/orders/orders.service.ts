@@ -580,6 +580,16 @@ async create(createOrderDto: CreateOrderDto, employeeId: number) {
       
     }
     
+    // If no date filter is applied (no forToday, forTomorrow, startDate, endDate), default to last 2 weeks
+    if (!filterDto.forToday && !filterDto.forTomorrow && !filterDto.startDate && !filterDto.endDate) {
+      const today = this.createSyriaDate();
+      const twoWeeksAgo = new Date(today);
+      twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
+      where.createdAt = {
+        gte: this.getStartOfDay(twoWeeksAgo),
+      };
+    }
+
     // Realizar la consulta
     const orders = await this.prisma.order.findMany({
       where,

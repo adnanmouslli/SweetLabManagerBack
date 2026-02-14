@@ -1043,14 +1043,22 @@ ${invoice.notes ? `📝 ملاحظات: ${invoice.notes}` : ''}
   
     if (query.startDate || query.endDate) {
       where.createdAt = {};
-      
+
       if (query.startDate) {
         where.createdAt.gte = new Date(query.startDate);
       }
-      
+
       if (query.endDate) {
         where.createdAt.lte = new Date(query.endDate);
       }
+    } else {
+      // Default: return only last 2 weeks
+      const twoWeeksAgo = new Date();
+      twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
+      twoWeeksAgo.setHours(0, 0, 0, 0);
+      where.createdAt = {
+        gte: twoWeeksAgo,
+      };
     }
   
     // Handle new InvoiceStatus filter
