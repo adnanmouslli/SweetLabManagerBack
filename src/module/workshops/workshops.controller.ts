@@ -1,10 +1,12 @@
-import { Controller, Get, Post, Body, Param, Delete, Put, UseGuards, Req, ParseIntPipe, Query } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Delete, Put, Patch, UseGuards, Req, ParseIntPipe, Query } from '@nestjs/common';
 import { WorkshopsService } from './workshops.service';
 import { CreateWorkshopDto } from './dto/create-workshop.dto';
 import { UpdateWorkshopDto } from './dto/update-workshop.dto';
 import { CreateWorkshopProductionDto } from './dto/create-workshop-production.dto';
+import { UpdateWorkshopProductionDto } from './dto/update-workshop-production.dto';
 import { CreateWorkshopSettlementDto } from './dto/create-workshop-settlement.dto';
 import { CreateWorkshopHoursDto } from './dto/create-workshop-hours.dto';
+import { UpdateWorkshopHoursDto } from './dto/update-workshop-hours.dto';
 import { JwtAuthGuard, RolesGuard } from '@/common';
 
 
@@ -87,6 +89,40 @@ async settleWorkshop(
   ) {
 
     return this.workshopsService.getWorkshopSummary(id);
+  }
+
+  @Patch(':id/production/:recordId')
+  updateProductionRecord(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('recordId', ParseIntPipe) recordId: number,
+    @Body() updateDto: UpdateWorkshopProductionDto
+  ) {
+    return this.workshopsService.updateProductionRecord(id, recordId, updateDto);
+  }
+
+  @Delete(':id/production/:recordId')
+  deleteProductionRecord(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('recordId', ParseIntPipe) recordId: number
+  ) {
+    return this.workshopsService.deleteProductionRecord(id, recordId);
+  }
+
+  @Patch(':id/hours/:recordId')
+  updateHoursRecord(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('recordId', ParseIntPipe) recordId: number,
+    @Body() updateDto: UpdateWorkshopHoursDto
+  ) {
+    return this.workshopsService.updateHoursRecord(id, recordId, updateDto);
+  }
+
+  @Delete(':id/hours/:recordId')
+  deleteHoursRecord(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('recordId', ParseIntPipe) recordId: number
+  ) {
+    return this.workshopsService.deleteHoursRecord(id, recordId);
   }
 
   @Post(':id/employees/:employeeId')

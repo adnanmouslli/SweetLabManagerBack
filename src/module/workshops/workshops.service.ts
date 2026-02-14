@@ -3,8 +3,10 @@ import { CreateWorkshopDto } from './dto/create-workshop.dto';
 import { UpdateWorkshopDto } from './dto/update-workshop.dto';
 import { PrismaService } from '@/prisma/prisma.service';
 import { CreateWorkshopProductionDto } from './dto/create-workshop-production.dto';
+import { UpdateWorkshopProductionDto } from './dto/update-workshop-production.dto';
 import { CreateWorkshopSettlementDto } from './dto/create-workshop-settlement.dto';
 import { CreateWorkshopHoursDto } from './dto/create-workshop-hours.dto';
+import { UpdateWorkshopHoursDto } from './dto/update-workshop-hours.dto';
 
 @Injectable()
 export class WorkshopsService {
@@ -779,6 +781,171 @@ export class WorkshopsService {
     );
   }
   
+  // تعديل سجل إنتاج
+  async updateProductionRecord(workshopId: number, recordId: number, updateDto: UpdateWorkshopProductionDto) {
+    const record = await this.prisma.workshopProduction.findFirst({
+      where: { id: recordId, workshopId }
+    });
+
+    if (!record) {
+      throw new NotFoundException(`سجل الإنتاج رقم ${recordId} غير موجود في هذه الورشة`);
+    }
+
+    const workshop = await this.prisma.workshop.findUnique({ where: { id: workshopId } });
+
+    // منع التعديل على سجلات قبل آخر محاسبة
+    if (workshop.lastSettlementDate && record.date <= workshop.lastSettlementDate) {
+      throw new BadRequestException('لا يمكن تعديل سجل إنتاج تم محاسبته مسبقاً');
+    }
+
+    const data: any = {};
+
+    if (updateDto.notes !== undefined) {
+      data.notes = updateDto.notes;
+    }
+
+    if (updateDto.date) {
+      data.date = updateDto.date;
+    }
+
+    // إعادة حساب الإنتاج إذا تم تغيير العناصر
+    if (updateDto.items) {
+      let totalProduction = 0;
+      const productionItems = [];
+
+      for (const item of updateDto.items) {
+        const productItem = await this.prisma.item.findUnique({
+          where: { id: item.itemId }
+        });
+
+        if (!productItem) {
+          throw new BadRequestException(`المنتج رقم ${item.itemId} غير موجود`);
+        }
+
+        if (!productItem.productionRate) {
+          throw new BadRequestException(`المنتج ${productItem.name} لا يحتوي على سعر إنتاج محدد`);
+        }
+
+        const itemTotal = item.quantity * productItem.productionRate;
+        totalProduction += itemTotal;
+
+        productionItems.push({
+          itemId: item.itemId,
+          itemName: productItem.name,
+          quantity: item.quantity,
+          rate: productItem.productionRate,
+          total: itemTotal
+        });
+      }
+
+      data.totalProduction = totalProduction;
+      data.items = productionItems;
+    }
+
+    return this.prisma.workshopProduction.update({
+      where: { id: recordId },
+      data
+    });
+  }
+
+  // حذف سجل إنتاج
+  async deleteProductionRecord(workshopId: number, recordId: number) {
+    const record = await this.prisma.workshopProduction.findFirst({
+      where: { id: recordId, workshopId }
+    });
+
+    if (!record) {
+      throw new NotFoundException(`سجل الإنتاج رقم ${recordId} غير موجود في هذه الورشة`);
+    }
+
+    const workshop = await this.prisma.workshop.findUnique({ where: { id: workshopId } });
+
+    if (workshop.lastSettlementDate && record.date <= workshop.lastSettlementDate) {
+      throw new BadRequestException('لا يمكن حذف سجل إنتاج تم محاسبته مسبقاً');
+    }
+
+    return this.prisma.workshopProduction.delete({
+      where: { id: recordId }
+    });
+  }
+
+  // تعديل سجل ساعات
+  async updateHoursRecord(workshopId: number, recordId: number, updateDto: UpdateWorkshopHoursDto) {
+    const record = await this.prisma.employeeHours.findUnique({
+      where: { id: recordId },
+      include: { employee: true }
+    });
+
+    if (!record) {
+      throw new NotFoundException(`سجل الساعات رقم ${recordId} غير موجود`);
+    }
+
+    if (record.employee.workshopId !== workshopId) {
+      throw new BadRequestException('هذا السجل لا ينتمي لهذه الورشة');
+    }
+
+    const workshop = await this.prisma.workshop.findUnique({ where: { id: workshopId } });
+
+    if (workshop.lastSettlementDate && record.date <= workshop.lastSettlementDate) {
+      throw new BadRequestException('لا يمكن تعديل سجل ساعات تم محاسبته مسبقاً');
+    }
+
+    const data: any = {};
+
+    if (updateDto.hours !== undefined) {
+      data.hours = updateDto.hours;
+    }
+
+    if (updateDto.hourlyRate !== undefined) {
+      data.hourlyRate = updateDto.hourlyRate;
+    }
+
+    if (updateDto.date) {
+      data.date = updateDto.date;
+    }
+
+    if (updateDto.notes !== undefined) {
+      data.notes = updateDto.notes;
+    }
+
+    // إعادة حساب المبلغ الإجمالي
+    const finalHours = data.hours ?? record.hours;
+    const finalRate = data.hourlyRate ?? record.hourlyRate;
+    data.totalAmount = finalHours * finalRate;
+
+    return this.prisma.employeeHours.update({
+      where: { id: recordId },
+      data,
+      include: { employee: true }
+    });
+  }
+
+  // حذف سجل ساعات
+  async deleteHoursRecord(workshopId: number, recordId: number) {
+    const record = await this.prisma.employeeHours.findUnique({
+      where: { id: recordId },
+      include: { employee: true }
+    });
+
+    if (!record) {
+      throw new NotFoundException(`سجل الساعات رقم ${recordId} غير موجود`);
+    }
+
+    if (record.employee.workshopId !== workshopId) {
+      throw new BadRequestException('هذا السجل لا ينتمي لهذه الورشة');
+    }
+
+    const workshop = await this.prisma.workshop.findUnique({ where: { id: workshopId } });
+
+    if (workshop.lastSettlementDate && record.date <= workshop.lastSettlementDate) {
+      throw new BadRequestException('لا يمكن حذف سجل ساعات تم محاسبته مسبقاً');
+    }
+
+    return this.prisma.employeeHours.delete({
+      where: { id: recordId }
+    });
+  }
+
   // إضافة موظف للورشة
   async addEmployeeToWorkshop(workshopId: number, employeeId: number) {
     const workshop = await this.prisma.workshop.findUnique({
