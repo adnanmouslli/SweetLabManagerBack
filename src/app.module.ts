@@ -23,6 +23,8 @@ import { EmployeesModule } from './module/employees/employees.module';
 import { WorkshopsModule } from './module/workshops/workshops.module';
 import { PdfReportsModule } from './module/pdf-reports/pdf-reports.module';
 import { BackupModule } from './module/backup/backup.module';
+import { OrderQueueModule } from './module/order-queue/order-queue.module';
+import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
   imports: [
@@ -61,6 +63,8 @@ import { BackupModule } from './module/backup/backup.module';
     EmployeesModule,
     WorkshopsModule,
     PdfReportsModule,
+    OrderQueueModule,
+    ScheduleModule.forRoot(),
     BackupModule
   ],
   providers: [PrismaConfig],

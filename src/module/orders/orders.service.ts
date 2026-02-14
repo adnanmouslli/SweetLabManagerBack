@@ -4,6 +4,7 @@ import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
 import { FilterOrdersDto } from './dto/filter-orders.dto';
 import { InvoicesService } from '../invoices/invoices.service';
+import { OrderQueueService } from '../order-queue/order-queue.service';
 import { OrderStatus } from '@prisma/client';
 import { CreateInvoiceDto } from '../invoices/dto/create-invoice.dto';
 
@@ -11,7 +12,8 @@ import { CreateInvoiceDto } from '../invoices/dto/create-invoice.dto';
 export class OrdersService {
   constructor(
     private prisma: PrismaService,
-    private invoicesService: InvoicesService
+    private invoicesService: InvoicesService,
+    private orderQueueService: OrderQueueService,
   ) {}
   
   // دالة مساعدة للحصول على الصندوق المناسب حسب نوع العميل
@@ -185,6 +187,13 @@ async create(createOrderDto: CreateOrderDto, employeeId: number) {
       }
     });
     
+    // تعيين رقم الدور للطلبية
+    const queueNumber = await this.orderQueueService.getNextQueueNumber();
+    await prisma.order.update({
+      where: { id: order.id },
+      data: { queueNumber },
+    });
+
     // If order is marked as paid, create an invoice
     let invoice = null;
     if (createOrderDto.paidStatus) {

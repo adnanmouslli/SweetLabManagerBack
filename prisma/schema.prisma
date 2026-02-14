@@ -305,6 +305,7 @@ model Order {
   categoryId   Int
   invoiceId    Int?          @unique
   employeeId   Int
+  queueNumber  Int?
   items        OrderItem[]
   category     OrderCategory @relation(fields: [categoryId], references: [id])
   customer     Customer      @relation(fields: [customerId], references: [id])
@@ -312,6 +313,14 @@ model Order {
   invoice      Invoice?      @relation(fields: [invoiceId], references: [id])
 
   @@map("orders")
+}
+
+model OrderQueue {
+  id         Int      @id @default(autoincrement())
+  date       DateTime @unique @db.Date
+  lastNumber Int      @default(0)
+
+  @@map("order_queue")
 }
 
 model OrderItem {

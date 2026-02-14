@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=80mm, initial-scale=1.0">
+    <title>تذكرة دور #1</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Arial, 'Noto Kufi Arabic', sans-serif;
+            padding: 8px;
+            background: #fff;
+            color: #000;
+            font-size: 13px;
+            line-height: 1.4;
+            font-weight: 600;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 6px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid #000;
+        }
+
+        .header .bakery-name {
+            font-size: 18px;
+            font-weight: bold;
+            color: #000;
+            margin-bottom: 2px;
+        }
+
+        .header .sub-title {
+            font-size: 12px;
+            color: #000;
+            font-weight: 700;
+        }
+
+        .queue-section {
+            text-align: center;
+            padding: 8px 0;
+            border-bottom: 1px dashed #000;
+        }
+
+        .queue-label {
+            font-size: 14px;
+            font-weight: 700;
+            color: #000;
+            margin-bottom: 2px;
+        }
+
+        .queue-number {
+            font-size: 72px;
+            font-weight: 900;
+            line-height: 1;
+            color: #000;
+            letter-spacing: 2px;
+        }
+
+        .details {
+            padding: 8px 0;
+            border-bottom: 1px dashed #000;
+        }
+
+        .detail-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 4px 0;
+            font-size: 13px;
+            font-weight: 700;
+        }
+
+        .detail-row .label {
+            color: #000;
+            font-weight: bold;
+        }
+
+        .detail-row .value {
+            color: #000;
+            font-weight: 700;
+            font-size: 14px;
+        }
+
+        .category-badge {
+            text-align: center;
+            padding: 6px 0;
+            border-bottom: 1px dashed #000;
+        }
+
+        .category-badge span {
+            display: inline-block;
+            font-size: 14px;
+            font-weight: 700;
+            color: #000;
+            padding: 4px 16px;
+            border: 2px solid #000;
+            border-radius: 2px;
+        }
+
+        .items-section {
+            padding: 6px 0;
+            border-bottom: 1px dashed #000;
+        }
+
+        .items-title {
+            font-size: 12px;
+            font-weight: 700;
+            text-align: center;
+            margin-bottom: 4px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th {
+            background: #fff;
+            color: #000;
+            padding: 4px 3px;
+            text-align: center;
+            font-size: 11px;
+            font-weight: 700;
+            border: 1px solid #000;
+        }
+
+        td {
+            padding: 4px 3px;
+            border: 1px solid #000;
+            font-size: 11px;
+            background: #fff;
+            color: #000;
+            font-weight: 600;
+            text-align: center;
+        }
+
+        .footer {
+            text-align: center;
+            padding-top: 6px;
+            font-size: 11px;
+            color: #000;
+            font-weight: 700;
+        }
+
+        @media print {
+            @page {
+                size: 80mm auto;
+                margin: 2mm;
+            }
+
+            body {
+                padding: 2mm;
+                font-weight: 700;
+                color: #000 !important;
+            }
+
+            .header .bakery-name {
+                font-size: 17px;
+            }
+
+            .queue-number {
+                font-size: 72px;
+            }
+
+            .detail-row {
+                font-size: 12px;
+            }
+
+            .detail-row .value {
+                font-size: 13px;
+            }
+
+            th {
+                font-size: 10px;
+                padding: 3px 2px;
+                font-weight: 700;
+            }
+
+            td {
+                font-size: 10px;
+                padding: 3px 2px;
+                font-weight: 700;
+            }
+
+            * {
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="header">
+        <div class="bakery-name">مخبز الإحسان الدمشقي</div>
+        <div class="sub-title">تذكرة دور</div>
+    </div>
+
+    <div class="queue-section">
+        <div class="queue-label">رقم الدور</div>
+        <div class="queue-number">1</div>
+    </div>
+
+    <div class="details">
+        <div class="detail-row">
+            <span class="label">الزبون:</span>
+            <span class="value">ggggg</span>
+        </div>
+    </div>
+
+    <div class="category-badge">
+        <span>asd</span>
+    </div>
+
+    <div class="items-section">
+        <div class="items-title">المنتجات</div>
+        <table>
+            <thead>
+                <tr>
+                    <th>المادة</th>
+                    <th>الكمية</th>
+                    <th>الوحدة</th>
+                </tr>
+            </thead>
+            <tbody>
+
+                <tr>
+                    <td>كروسان</td>
+                    <td>1</td>
+                    <td>قطعة</td>
+                </tr>
+                <tr>
+                    <td>كروسان</td>
+                    <td>1</td>
+                    <td>قطعة</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="footer">
+        <div>14/02/2026 | 16:21</div>
+    </div>
+
+    <script>
+        window.onload = function() {
+      setTimeout(() => {
+        window.print();
+      }, 500);
+    };
+
+    window.printReceipt = function() {
+      window.print();
+    };
+    </script>
+</body>
+
+</html>
