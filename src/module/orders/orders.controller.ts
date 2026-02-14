@@ -3,7 +3,7 @@
   import { CreateOrderDto } from './dto/create-order.dto';
   import { UpdateOrderDto } from './dto/update-order.dto';
   import { FilterOrdersDto } from './dto/filter-orders.dto';
-  import { JwtAuthGuard, RolesGuard, Role, Roles } from '@/common';
+  import { JwtAuthGuard, RolesGuard, Role, Roles, AuditLog } from '@/common';
   import { OrderStatus } from '@prisma/client';
 import { CreateInvoiceDto } from '../invoices/dto/create-invoice.dto';
 
@@ -13,6 +13,7 @@ import { CreateInvoiceDto } from '../invoices/dto/create-invoice.dto';
     constructor(private readonly ordersService: OrdersService) {}
 
     @Post()
+    @AuditLog({ entity: 'Order', action: 'CREATE' })
     create(@Body() createOrderDto: CreateOrderDto, @Req() req) {
       return this.ordersService.create(createOrderDto, req.user.id);
     }
@@ -48,17 +49,20 @@ import { CreateInvoiceDto } from '../invoices/dto/create-invoice.dto';
     }
 
     @Patch(':id')
+    @AuditLog({ entity: 'Order', action: 'UPDATE' })
     update(@Param('id') id: string, @Body() updateOrderDto: UpdateOrderDto, @Req() req) {
       return this.ordersService.update(+id, updateOrderDto, req.user.id);
     }
 
     @Delete(':id')
     @Roles(Role.MANAGER, Role.ADMIN)
+    @AuditLog({ entity: 'Order', action: 'DELETE' })
     remove(@Param('id') id: string) {
       return this.ordersService.remove(+id);
     }
 
     @Post(':id/convert-to-invoice')
+    @AuditLog({ entity: 'Order', action: 'CONVERT_TO_INVOICE' })
     convertToInvoice(
       @Param('id') id: string, 
       @Body() invoiceData: Partial<CreateInvoiceDto>,
@@ -68,11 +72,13 @@ import { CreateInvoiceDto } from '../invoices/dto/create-invoice.dto';
     }
 
     @Patch(':id/status/:status')
+    @AuditLog({ entity: 'Order', action: 'STATUS_CHANGE' })
     updateStatus(@Param('id') id: string, @Param('status') status: OrderStatus) {
       return this.ordersService.updateOrderStatus(+id, status);
     }
 
     @Patch(':id/cancel')
+    @AuditLog({ entity: 'Order', action: 'CANCEL' })
     cancelOrder(
       @Param('id') id: string, 
       @Body() cancelData: { reason?: string },

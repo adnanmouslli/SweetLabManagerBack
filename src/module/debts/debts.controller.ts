@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Body, Param, UseGuards, ParseIntPipe, Query } from '@nestjs/common';
 import { DebtsService } from './debts.service';
-import { JwtAuthGuard, Role, Roles, RolesGuard } from '@/common';
+import { JwtAuthGuard, Role, Roles, RolesGuard, AuditLog } from '@/common';
 import { ApplyDiscountDto } from './dto/apply-discount.dto';
 
 @Controller('debts')
@@ -35,6 +35,7 @@ export class DebtsController {
 
   @Post(':id/discount')
   @Roles(Role.ADMIN, Role.MANAGER)
+  @AuditLog({ entity: 'Debt', action: 'APPLY_DISCOUNT' })
   applyDiscount(
     @Param('id', ParseIntPipe) id: number,
     @Body() discountDto: ApplyDiscountDto

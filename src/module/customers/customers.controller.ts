@@ -15,7 +15,7 @@ import { CustomersService } from './customers.service';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
 import { SupplierPaymentDto } from './dto/supplier-payment.dto';
-import { JwtAuthGuard, Role, Roles, RolesGuard } from '@/common';
+import { JwtAuthGuard, Role, Roles, RolesGuard, AuditLog } from '@/common';
 
 @Controller('customers')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -23,6 +23,7 @@ export class CustomersController {
   constructor(private readonly customersService: CustomersService) {}
 
   @Post()
+  @AuditLog({ entity: 'Customer', action: 'CREATE' })
   create(@Body() createCustomerDto: CreateCustomerDto) {
     return this.customersService.create(createCustomerDto);
   }
@@ -74,14 +75,16 @@ export class CustomersController {
   }
     
   @Patch(':id')
+  @AuditLog({ entity: 'Customer', action: 'UPDATE' })
   update(
-    @Param('id', ParseIntPipe) id: number, 
+    @Param('id', ParseIntPipe) id: number,
     @Body() updateCustomerDto: UpdateCustomerDto
   ) {
     return this.customersService.update(id, updateCustomerDto);
   }
 
   @Delete(':id')
+  @AuditLog({ entity: 'Customer', action: 'DELETE' })
   remove(@Param('id', ParseIntPipe) id: number) {
     return this.customersService.remove(id);
   }
@@ -99,6 +102,7 @@ export class CustomersController {
   }
 
   @Post(':id/supplier-payment')
+  @AuditLog({ entity: 'Customer', action: 'SUPPLIER_PAYMENT' })
   paySupplierBalance(
     @Param('id', ParseIntPipe) id: number,
     @Body() paymentDto: SupplierPaymentDto,

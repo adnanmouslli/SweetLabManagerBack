@@ -2,7 +2,7 @@ import { Controller, Get, Post, Put, Delete, Body, Param, UseGuards, Query, BadR
 import { ShiftsService } from './shifts.service';
 import { CreateShiftDto } from './dto/create-shift.dto';
 import { UpdateShiftDto } from './dto/update-shift.dto';
-import { JwtAuthGuard, Role, Roles, RolesGuard, User } from '@/common';
+import { JwtAuthGuard, Role, Roles, RolesGuard, User, AuditLog } from '@/common';
 import { ShiftStatus, ShiftType } from '@prisma/client';
 import { CloseShiftDto } from './dto/close-shift.dto';
 import { CompleteShiftClosureDto } from './dto/complete-shift-closure.dto';
@@ -13,6 +13,7 @@ export class ShiftsController {
   constructor(private readonly shiftsService: ShiftsService) {}
 
   @Post()
+  @AuditLog({ entity: 'Shift', action: 'CREATE' })
   create(@Body() createShiftDto: CreateShiftDto, @User() user) {
     return this.shiftsService.create(createShiftDto, user);
   }
@@ -24,6 +25,7 @@ export class ShiftsController {
 
 
   @Get('partial-close')
+  @AuditLog({ entity: 'Shift', action: 'PARTIAL_CLOSE' })
   async partialCloseShift() {
     return this.shiftsService.partialCloseShift();
   }
@@ -31,16 +33,19 @@ export class ShiftsController {
 
 
   @Put(':id')
+  @AuditLog({ entity: 'Shift', action: 'UPDATE' })
   update(@Param('id') id: string, @Body() updateShiftDto: UpdateShiftDto) {
     return this.shiftsService.update(+id, updateShiftDto);
   }
 
   @Delete(':id')
+  @AuditLog({ entity: 'Shift', action: 'DELETE' })
   remove(@Param('id') id: string) {
     return this.shiftsService.remove(+id);
   }
 
   @Post('close')
+  @AuditLog({ entity: 'Shift', action: 'CLOSE' })
   closeShift(@Body() closeShiftDto: CloseShiftDto) {
     return this.shiftsService.closeShift(closeShiftDto.actualAmount);
   }
@@ -84,6 +89,7 @@ export class ShiftsController {
   
 
   @Post(':id/complete-closure')
+  @AuditLog({ entity: 'Shift', action: 'COMPLETE_CLOSURE' })
   async completeShiftClosure(
     @Param('id', ParseIntPipe) id: number,
     @Body() completeShiftClosureDto: CompleteShiftClosureDto

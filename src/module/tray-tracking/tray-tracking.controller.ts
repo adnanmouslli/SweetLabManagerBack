@@ -1,6 +1,6 @@
 import { Controller, Param, UseGuards , Post , Get } from '@nestjs/common';
 import { TrayTrackingService } from './tray-tracking.service';
-import { JwtAuthGuard, Role, Roles, RolesGuard } from '@/common';
+import { JwtAuthGuard, Role, Roles, RolesGuard, AuditLog } from '@/common';
 
 @Controller('tray-tracking')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -9,6 +9,7 @@ export class TrayTrackingController {
 
 
   @Post(':invoiceId/return')
+  @AuditLog({ entity: 'TrayTracking', action: 'RETURN_TRAYS', idParam: 'invoiceId' })
   // @Roles(Role.EMPLOYEE, Role.MANAGER)
   async markTraysAsReturned(@Param('invoiceId') invoiceId: string) {
     return this.trayTrackingService.markTraysAsReturned(+invoiceId);

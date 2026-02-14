@@ -12,7 +12,7 @@ import {
 import { AdvancesService } from './advances.service';
 import { CreateAdvanceDto } from './dto/create-advance.dto';
 import { RepayAdvanceDto } from './dto/repay-advance.dto';
-import { JwtAuthGuard, Role, Roles, RolesGuard } from '@/common';
+import { JwtAuthGuard, Role, Roles, RolesGuard, AuditLog } from '@/common';
 
 @Controller('advances')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -41,11 +41,13 @@ export class AdvancesController {
   }
 
   @Post()
+  @AuditLog({ entity: 'Advance', action: 'CREATE' })
   createAdvance(@Body() createAdvanceDto: CreateAdvanceDto, @Request() req) {
     return this.advancesService.createAdvance(createAdvanceDto, req.user.id);
   }
 
   @Post(':id/repay')
+  @AuditLog({ entity: 'Advance', action: 'REPAY' })
   repayAdvance(
     @Param('id', ParseIntPipe) id: number,
     @Body() repayAdvanceDto: RepayAdvanceDto,

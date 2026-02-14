@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { appConfig, databaseConfig } from './config/configuration';
@@ -25,6 +26,8 @@ import { PdfReportsModule } from './module/pdf-reports/pdf-reports.module';
 import { BackupModule } from './module/backup/backup.module';
 import { OrderQueueModule } from './module/order-queue/order-queue.module';
 import { ScheduleModule } from '@nestjs/schedule';
+import { AuditLogModule } from './module/audit-log/audit-log.module';
+import { AuditInterceptor } from './common/interceptors/audit.interceptor';
 
 @Module({
   imports: [
@@ -65,9 +68,16 @@ import { ScheduleModule } from '@nestjs/schedule';
     PdfReportsModule,
     OrderQueueModule,
     ScheduleModule.forRoot(),
+    AuditLogModule,
     BackupModule
   ],
-  providers: [PrismaConfig],
+  providers: [
+    PrismaConfig,
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: AuditInterceptor,
+    },
+  ],
   exports: [PrismaConfig],
 })
 export class AppModule {}

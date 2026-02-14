@@ -1,5 +1,6 @@
 import { Controller, Get, Logger } from '@nestjs/common';
 import { BackupService } from './backup.service';
+import { AuditLog } from '@/common';
 
 @Controller('backup')
 export class BackupController {
@@ -7,11 +8,8 @@ export class BackupController {
 
   constructor(private readonly backupService: BackupService) {}
 
-  /**
-   * Endpoint لتشغيل النسخة الاحتياطية يدويًا
-   * GET /backup/run
-   */
   @Get('run')
+  @AuditLog({ entity: 'System', action: 'BACKUP' })
   async runBackup() {
     this.logger.log('Manual backup triggered.');
 

@@ -1,6 +1,6 @@
   import { Controller, Get, Post, Body, Param, UseGuards, Req, Query, Put, Delete, BadRequestException, NotFoundException } from '@nestjs/common';
   import { CreateInvoiceDto } from './dto/create-invoice.dto';
-  import { JwtAuthGuard, RolesGuard } from '@/common';
+  import { JwtAuthGuard, RolesGuard, AuditLog } from '@/common';
   import { InvoicesService } from './invoices.service';
 import { FilterInvoiceDto } from './dto/filter-invoice.dto';
 import { InvoiceCategory, InvoiceType } from '@prisma/client';
@@ -17,6 +17,7 @@ export class InvoicesController {
   constructor(private readonly invoicesService: InvoicesService) {}
 
   @Post()
+  @AuditLog({ entity: 'Invoice', action: 'CREATE' })
   create(@Body() createInvoiceDto: CreateInvoiceDto, @Req() req) {
     return this.invoicesService.create(createInvoiceDto, req.user.id);
   }
@@ -55,22 +56,26 @@ export class InvoicesController {
   }
 
   @Post(':id/pay')
+  @AuditLog({ entity: 'Invoice', action: 'PAY' })
   markAsPaid(@Param('id') id: string) {
     return this.invoicesService.markAsPaid(+id);
   }
 
   @Post(':id/convert-to-debt')
+  @AuditLog({ entity: 'Invoice', action: 'CONVERT_TO_DEBT' })
   convertToDebt(@Param('id') id: string) {
     return this.invoicesService.convertInvoiceToDebt(+id);
   }
   
   @Put(':id')
+  @AuditLog({ entity: 'Invoice', action: 'UPDATE' })
   updateInvoice(@Param('id') id: string, @Body() updateInvoiceDto: UpdateInvoiceDto, @Req() req) {
     return this.invoicesService.updateInvoice(+id, updateInvoiceDto , req.user.id);
   }
 
 
   @Delete(':invoiceId')
+  @AuditLog({ entity: 'Invoice', action: 'DELETE', idParam: 'invoiceId' })
   async deleteInvoice(@Param('invoiceId') invoiceId: number): Promise<string> {
     return await this.invoicesService.deleteInvoice(+invoiceId);
   }
@@ -78,6 +83,7 @@ export class InvoicesController {
 
 // قسم التحويلات
 @Post('transfer/booth-university-to-general')
+@AuditLog({ entity: 'FundTransfer', action: 'TRANSFER_BOOTH_UNIVERSITY_TO_GENERAL' })
 transferFromBoothOrUniversityToGeneral(
   @Body() transferData: TransferToBoothUniversityDto,
   @Req() req
@@ -91,6 +97,7 @@ transferFromBoothOrUniversityToGeneral(
 }
 
 @Post('transfer/from/:sourceId/to-main/request')
+@AuditLog({ entity: 'FundTransfer', action: 'REQUEST_TRANSFER_TO_MAIN', idParam: 'sourceId' })
 createTransferToMainRequest(
   @Param('sourceId') sourceId: string,
   @Body() requestData: TransferToMainRequestDto,
@@ -105,6 +112,7 @@ createTransferToMainRequest(
 }
 
 @Post('transfer/to-main/confirm/:requestId')
+@AuditLog({ entity: 'FundTransfer', action: 'CONFIRM_TRANSFER_TO_MAIN', idParam: 'requestId' })
 confirmTransferToMain(
   @Param('requestId') requestId: string,
   @Body() confirmData: ConfirmTransferDto,
@@ -141,6 +149,7 @@ getTransferRequestHistory(
 }
 
 @Post(':id/convert-to-break')
+@AuditLog({ entity: 'Invoice', action: 'CONVERT_TO_BREAK' })
 convertToBreak(@Param('id') id: string, @Body() convertToBreakDto: ConvertToBreakDto) {
   return this.invoicesService.convertToBreak(+id, convertToBreakDto);
 }
@@ -165,6 +174,7 @@ async getInventoryItems() {
 
 // 2. إجراء الجرد
 @Post('inventory/audit')
+@AuditLog({ entity: 'Inventory', action: 'PERFORM_AUDIT' })
 async performInventoryAudit(
   @Body() auditDto: InventoryAuditDto,
   @Req() req: any

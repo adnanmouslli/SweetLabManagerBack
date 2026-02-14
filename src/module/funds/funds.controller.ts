@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Body, Patch, Param, UseGuards, Req, Query } from '@nestjs/common';
 import { FundsService } from './funds.service';
 import { CreateFundDto } from './dto/create-fund.dto';
-import { JwtAuthGuard, Role, Roles, RolesGuard } from '@/common';
+import { JwtAuthGuard, Role, Roles, RolesGuard, AuditLog } from '@/common';
 
 @Controller('funds')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -9,6 +9,7 @@ export class FundsController {
   constructor(private readonly fundsService: FundsService) {}
 
   @Post()
+  @AuditLog({ entity: 'Fund', action: 'CREATE' })
   create(@Body() createFundDto: CreateFundDto) {
     return this.fundsService.create(createFundDto);
   }
@@ -19,6 +20,7 @@ export class FundsController {
   }
 
   @Patch(':id/balance')
+  @AuditLog({ entity: 'Fund', action: 'UPDATE_BALANCE' })
   updateBalance(
     @Param('id') id: string,
     @Body('amount') amount: number
@@ -27,6 +29,7 @@ export class FundsController {
   }
 
   @Post('transfer-to-main')
+  @AuditLog({ entity: 'Fund', action: 'TRANSFER_TO_MAIN' })
   async transferToMain(
     @Body('amount') amount: number,
     @Req() req
@@ -36,6 +39,7 @@ export class FundsController {
   
 
   @Post('transfer-for-next-shift')
+  @AuditLog({ entity: 'Fund', action: 'CREATE_PENDING_TRANSFER' })
   createPendingTransfer(
     @Body() transferDto,
     @Req() req
@@ -54,6 +58,7 @@ export class FundsController {
   }
 
   @Post('handle-pending-transfer/:id')
+  @AuditLog({ entity: 'Fund', action: 'HANDLE_PENDING_TRANSFER' })
   handlePendingTransfer(
     @Param('id') id: string,
     @Body() handleDto,

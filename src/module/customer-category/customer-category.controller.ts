@@ -14,7 +14,7 @@ import {
 } from '@nestjs/common';
 import { CreateCustomerCategoryDto } from './dto/create-customer-category.dto';
 import { UpdateCustomerCategoryDto } from './dto/update-customer-category.dto';
-import { JwtAuthGuard, Role, Roles, RolesGuard } from '@/common';
+import { JwtAuthGuard, Role, Roles, RolesGuard, AuditLog } from '@/common';
 import { CustomerCategoriesService } from './customer-category.service';
 import { FileInterceptor } from '@nestjs/platform-express';
 
@@ -25,6 +25,7 @@ export class CustomerCategoriesController {
 
   @Post()
   @Roles(Role.ADMIN, Role.MANAGER)
+  @AuditLog({ entity: 'CustomerCategory', action: 'CREATE' })
   create(@Body() createCustomerCategoryDto: CreateCustomerCategoryDto) {
     return this.customerCategoriesService.create(createCustomerCategoryDto);
   }
@@ -49,6 +50,7 @@ export class CustomerCategoriesController {
 
   @Patch(':id')
   @Roles(Role.ADMIN, Role.MANAGER)
+  @AuditLog({ entity: 'CustomerCategory', action: 'UPDATE' })
   update(
     @Param('id', ParseIntPipe) id: number,
     @Body() updateCustomerCategoryDto: UpdateCustomerCategoryDto
@@ -58,11 +60,13 @@ export class CustomerCategoriesController {
 
   @Delete(':id')
   @Roles(Role.ADMIN)
+  @AuditLog({ entity: 'CustomerCategory', action: 'DELETE' })
   remove(@Param('id', ParseIntPipe) id: number) {
     return this.customerCategoriesService.remove(id);
   }
 
   @Post('import-excel')
+@AuditLog({ entity: 'CustomerCategory', action: 'IMPORT_CUSTOMERS_EXCEL', captureBody: false })
 @UseInterceptors(FileInterceptor('file'))
 async importCustomersFromExcel(@UploadedFile() file: any) {
   if (!file) {
@@ -83,6 +87,7 @@ async importCustomersFromExcel(@UploadedFile() file: any) {
 }
 
 @Post('import-suppliers-excel')
+@AuditLog({ entity: 'CustomerCategory', action: 'IMPORT_SUPPLIERS_EXCEL', captureBody: false })
 @UseInterceptors(FileInterceptor('file'))
 async importSuppliersFromExcel(@UploadedFile() file: any) {
   if (!file) {

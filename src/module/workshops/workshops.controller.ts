@@ -7,7 +7,7 @@ import { UpdateWorkshopProductionDto } from './dto/update-workshop-production.dt
 import { CreateWorkshopSettlementDto } from './dto/create-workshop-settlement.dto';
 import { CreateWorkshopHoursDto } from './dto/create-workshop-hours.dto';
 import { UpdateWorkshopHoursDto } from './dto/update-workshop-hours.dto';
-import { JwtAuthGuard, RolesGuard } from '@/common';
+import { JwtAuthGuard, RolesGuard, AuditLog } from '@/common';
 
 
 @Controller('workshops')
@@ -16,6 +16,7 @@ export class WorkshopsController {
   constructor(private readonly workshopsService: WorkshopsService) {}
 
   @Post()
+  @AuditLog({ entity: 'Workshop', action: 'CREATE' })
   create(@Body() createWorkshopDto: CreateWorkshopDto) {
     return this.workshopsService.create(createWorkshopDto);
   }
@@ -31,6 +32,7 @@ export class WorkshopsController {
   }
 
   @Put(':id')
+  @AuditLog({ entity: 'Workshop', action: 'UPDATE' })
   update(
     @Param('id', ParseIntPipe) id: number,
     @Body() updateWorkshopDto: UpdateWorkshopDto
@@ -39,11 +41,13 @@ export class WorkshopsController {
   }
 
   @Delete(':id')
+  @AuditLog({ entity: 'Workshop', action: 'DELETE' })
   remove(@Param('id', ParseIntPipe) id: number) {
     return this.workshopsService.remove(id);
   }
 
   @Post('verify-password')
+  @AuditLog({ entity: 'Workshop', action: 'VERIFY_PASSWORD', captureBody: false })
   verifyPassword(@Body() verifyDto: { workshopId: number; password: string }) {
     return this.workshopsService.verifyWorkshopPassword(
       verifyDto.workshopId,
@@ -52,6 +56,7 @@ export class WorkshopsController {
   }
 
   @Post(':id/production')
+  @AuditLog({ entity: 'Workshop', action: 'ADD_PRODUCTION' })
   addProductionRecord(
     @Param('id', ParseIntPipe) id: number,
     @Body() productionDto: CreateWorkshopProductionDto
@@ -60,6 +65,7 @@ export class WorkshopsController {
   }
 
   @Post(':id/hours')
+  @AuditLog({ entity: 'Workshop', action: 'ADD_HOURS' })
   addHoursRecord(
     @Param('id', ParseIntPipe) id: number,
     @Body() hoursDto: CreateWorkshopHoursDto
@@ -69,6 +75,7 @@ export class WorkshopsController {
 
  // في controller
 @Post(':id/settlement')
+@AuditLog({ entity: 'Workshop', action: 'SETTLEMENT' })
 async settleWorkshop(
   @Param('id') id: number,
   @Body() settlementDto: CreateWorkshopSettlementDto,
@@ -92,6 +99,7 @@ async settleWorkshop(
   }
 
   @Patch(':id/production/:recordId')
+  @AuditLog({ entity: 'Workshop', action: 'UPDATE_PRODUCTION' })
   updateProductionRecord(
     @Param('id', ParseIntPipe) id: number,
     @Param('recordId', ParseIntPipe) recordId: number,
@@ -101,6 +109,7 @@ async settleWorkshop(
   }
 
   @Delete(':id/production/:recordId')
+  @AuditLog({ entity: 'Workshop', action: 'DELETE_PRODUCTION' })
   deleteProductionRecord(
     @Param('id', ParseIntPipe) id: number,
     @Param('recordId', ParseIntPipe) recordId: number
@@ -109,6 +118,7 @@ async settleWorkshop(
   }
 
   @Patch(':id/hours/:recordId')
+  @AuditLog({ entity: 'Workshop', action: 'UPDATE_HOURS' })
   updateHoursRecord(
     @Param('id', ParseIntPipe) id: number,
     @Param('recordId', ParseIntPipe) recordId: number,
@@ -118,6 +128,7 @@ async settleWorkshop(
   }
 
   @Delete(':id/hours/:recordId')
+  @AuditLog({ entity: 'Workshop', action: 'DELETE_HOURS' })
   deleteHoursRecord(
     @Param('id', ParseIntPipe) id: number,
     @Param('recordId', ParseIntPipe) recordId: number
@@ -126,6 +137,7 @@ async settleWorkshop(
   }
 
   @Post(':id/employees/:employeeId')
+  @AuditLog({ entity: 'Workshop', action: 'ADD_EMPLOYEE' })
   addEmployeeToWorkshop(
     @Param('id', ParseIntPipe) id: number,
     @Param('employeeId', ParseIntPipe) employeeId: number
@@ -134,6 +146,7 @@ async settleWorkshop(
   }
 
   @Delete(':id/employees/:employeeId')
+  @AuditLog({ entity: 'Workshop', action: 'REMOVE_EMPLOYEE' })
   removeEmployeeFromWorkshop(
     @Param('id', ParseIntPipe) id: number,
     @Param('employeeId', ParseIntPipe) employeeId: number

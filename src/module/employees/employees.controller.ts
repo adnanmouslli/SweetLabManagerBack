@@ -6,7 +6,7 @@ import { CreateEmployeeWithdrawalDto } from './dto/create-employee-withdrawal.dt
 import { CreateEmployeePaymentDto } from './dto/create-employee-payment.dto';
 import { CreateEmployeeProductionDto } from './dto/employee-production.dto';
 import { CreateEmployeeHoursDto } from './dto/employee-hours.dto';
-import { JwtAuthGuard, RolesGuard } from '@/common';
+import { JwtAuthGuard, RolesGuard, AuditLog } from '@/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 
 
@@ -16,6 +16,7 @@ export class EmployeesController {
   constructor(private readonly employeesService: EmployeesService) {}
 
   @Post()
+  @AuditLog({ entity: 'Employee', action: 'CREATE' })
   create(@Body() createEmployeeDto: CreateEmployeeDto) {
     return this.employeesService.create(createEmployeeDto);
   }
@@ -31,19 +32,22 @@ export class EmployeesController {
   }
 
   @Put(':id')
+  @AuditLog({ entity: 'Employee', action: 'UPDATE' })
   update(
-    @Param('id', ParseIntPipe) id: number, 
+    @Param('id', ParseIntPipe) id: number,
     @Body() updateEmployeeDto: UpdateEmployeeDto
   ) {
     return this.employeesService.update(id, updateEmployeeDto);
   }
 
   @Delete(':id')
+  @AuditLog({ entity: 'Employee', action: 'DELETE' })
   remove(@Param('id', ParseIntPipe) id: number) {
     return this.employeesService.remove(id);
   }
 
   @Post(':id/withdrawals')
+  @AuditLog({ entity: 'Employee', action: 'ADD_WITHDRAWAL' })
   addWithdrawal(
     @Param('id', ParseIntPipe) id: number,
     @Body() withdrawalDto: CreateEmployeeWithdrawalDto,
@@ -54,6 +58,7 @@ export class EmployeesController {
   }
 
   @Post(':id/payments')
+  @AuditLog({ entity: 'Employee', action: 'ADD_PAYMENT' })
   addPayment(
     @Param('id', ParseIntPipe) id: number,
     @Body() paymentDto: CreateEmployeePaymentDto,
@@ -64,6 +69,7 @@ export class EmployeesController {
   }
 
   @Post(':id/production')
+  @AuditLog({ entity: 'Employee', action: 'ADD_PRODUCTION' })
   addProduction(
     @Param('id', ParseIntPipe) id: number,
     @Body() productionDto: CreateEmployeeProductionDto
@@ -72,6 +78,7 @@ export class EmployeesController {
   }
 
   @Post(':id/hours')
+  @AuditLog({ entity: 'Employee', action: 'ADD_HOURS' })
   addHours(
     @Param('id', ParseIntPipe) id: number,
     @Body() hoursDto: CreateEmployeeHoursDto
@@ -92,6 +99,7 @@ export class EmployeesController {
 
 
   @Post('import-excel')
+@AuditLog({ entity: 'Employee', action: 'IMPORT_EXCEL', captureBody: false })
 @UseInterceptors(FileInterceptor('file'))
 async importEmployeesFromExcel(@UploadedFile() file: any) {
   if (!file) {

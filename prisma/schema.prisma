@@ -547,6 +547,7 @@ model InventoryAudit {
 }
 
 enum Role {
+  SUPER_ADMIN
   MANAGER
   ADMIN
   ShiftManager
@@ -622,4 +623,34 @@ enum OrderStatus {
 enum CustomerType {
   CUSTOMER
   SUPPLIER
+}
+
+model AuditLog {
+  id          Int      @id @default(autoincrement())
+  userId      Int?
+  username    String?
+  action      String
+  entity      String
+  entityId    Int?
+  description String?
+  oldData     Json?
+  newData     Json?
+  metadata    Json?
+  ipAddress   String?
+  userAgent   String?
+  method      String?
+  route       String?
+  statusCode  Int?
+  duration    Int?
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([entity])
+  @@index([entityId])
+  @@index([createdAt])
+  @@index([entity, entityId])
+  @@index([userId, createdAt])
+  @@index([entity, action, createdAt])
+  @@map("audit_logs")
 }

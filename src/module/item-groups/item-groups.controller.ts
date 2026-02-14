@@ -15,7 +15,7 @@ import {
 import { ItemGroupsService } from './item-groups.service';
 import { CreateItemGroupDto } from './dto/create-item-group.dto';
 import { UpdateItemGroupDto } from './dto/update-item-group.dto';
-import { JwtAuthGuard, Role, Roles, RolesGuard } from '@/common';
+import { JwtAuthGuard, Role, Roles, RolesGuard, AuditLog } from '@/common';
 import { ItemType } from '@prisma/client';
 import { FileInterceptor } from '@nestjs/platform-express';
 
@@ -26,6 +26,7 @@ export class ItemGroupsController {
   constructor(private readonly itemGroupsService: ItemGroupsService) {}
 
   @Post()
+  @AuditLog({ entity: 'ItemGroup', action: 'CREATE' })
   create(@Body() createItemGroupDto: CreateItemGroupDto) {
     return this.itemGroupsService.create(createItemGroupDto);
   }
@@ -47,18 +48,21 @@ export class ItemGroupsController {
 
   @Patch(':id')
   @Roles(Role.MANAGER, Role.ADMIN)
+  @AuditLog({ entity: 'ItemGroup', action: 'UPDATE' })
   update(@Param('id') id: string, @Body() updateItemGroupDto: UpdateItemGroupDto) {
     return this.itemGroupsService.update(+id, updateItemGroupDto);
   }
 
   @Delete(':id')
   @Roles(Role.MANAGER, Role.ADMIN)
+  @AuditLog({ entity: 'ItemGroup', action: 'DELETE' })
   remove(@Param('id') id: string) {
     return this.itemGroupsService.remove(+id);
   }
 
 
   @Post('import-excel')
+@AuditLog({ entity: 'ItemGroup', action: 'IMPORT_EXCEL', captureBody: false })
 @UseInterceptors(FileInterceptor('file'))
 async importItemsFromExcel(@UploadedFile() file: any) {
   if (!file) {
