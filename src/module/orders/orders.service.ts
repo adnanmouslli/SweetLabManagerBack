@@ -134,12 +134,11 @@ async create(createOrderDto: CreateOrderDto, employeeId: number) {
       tomorrow.setDate(tomorrow.getDate() + 1);
       tomorrow.setHours(12, 0, 0, 0);
 
-      // معالجة حالة الخميس (الغد = الجمعة → عطلة)
-      // getDay() → 0 الأحد , 4 الخميس , 5 الجمعة , 6 السبت
-      if (now.getDay() === 4) { 
-        // اليوم الخميس، الغد جمعة → نحرك يومين للسبت
-        tomorrow.setDate(tomorrow.getDate() + 1);
-      }
+      // رمضان: السماح بتسجيل طلبيات ليوم الجمعة
+      // تم تعطيل تخطي يوم الجمعة مؤقتاً
+      // if (now.getDay() === 4) {
+      //   tomorrow.setDate(tomorrow.getDate() + 1);
+      // }
 
       scheduledDate = tomorrow;
     }
@@ -595,7 +594,7 @@ async create(createOrderDto: CreateOrderDto, employeeId: number) {
     // Realizar la consulta
     const orders = await this.prisma.order.findMany({
       where,
-      take: 100,
+      take: 1000,
       include: {
         customer: true,
         category: true,
@@ -661,73 +660,114 @@ async create(createOrderDto: CreateOrderDto, employeeId: number) {
       throw new NotFoundException(`الطلبية برقم ${id} غير موجودة`);
     }
     
+    // طلبية مرتبطة بفاتورة: السماح بتعديل الصنف ويوم التسليم والملاحظة فقط
     if (existingOrder.invoice) {
-      throw new BadRequestException('لا يمكن تعديل طلبية مرتبطة بفاتورة');
+      if (updateOrderDto.categoryId) {
+        const category = await this.prisma.orderCategory.findUnique({
+          where: { id: updateOrderDto.categoryId }
+        });
+        if (!category) {
+          throw new BadRequestException('فئة الطلبية غير موجودة');
+        }
+      }
+
+      let scheduledDate = undefined;
+      if (updateOrderDto.scheduledFor) {
+        scheduledDate = new Date(updateOrderDto.scheduledFor);
+      }
+
+      const updatedOrder = await this.prisma.order.update({
+        where: { id },
+        data: {
+          categoryId: updateOrderDto.categoryId,
+          scheduledFor: scheduledDate,
+          notes: updateOrderDto.notes,
+        },
+        include: {
+          customer: true,
+          category: true,
+          employee: {
+            select: {
+              username: true
+            }
+          },
+          items: {
+            include: {
+              item: true
+            }
+          },
+          invoice: true
+        }
+      });
+
+      return {
+        ...updatedOrder,
+        message: 'تم تحديث الطلبية بنجاح (صنف، يوم التسليم، ملاحظة)'
+      };
     }
-    
 
     if (updateOrderDto.customerId) {
       const customer = await this.prisma.customer.findUnique({
         where: { id: updateOrderDto.customerId }
       });
-      
+
       if (!customer) {
         throw new BadRequestException('العميل غير موجود');
       }
     }
-    
+
 
     if (updateOrderDto.categoryId) {
       const category = await this.prisma.orderCategory.findUnique({
         where: { id: updateOrderDto.categoryId }
       });
-      
+
       if (!category) {
         throw new BadRequestException('فئة الطلبية غير موجودة');
       }
     }
-    
+
 
     if (updateOrderDto.items) {
       for (const item of updateOrderDto.items) {
         const existingItem = await this.prisma.item.findUnique({
           where: { id: item.itemId }
         });
-        
+
         if (!existingItem) {
           throw new BadRequestException(`المنتج برقم ${item.itemId} غير موجود`);
         }
       }
-      
+
 
       const calculatedTotal = updateOrderDto.items.reduce(
         (sum, item) => sum + (item.quantity * item.unitPrice),
         0
       );
-      
-      if (updateOrderDto.totalAmount && 
+
+      if (updateOrderDto.totalAmount &&
           Math.abs(calculatedTotal - updateOrderDto.totalAmount) > 0.01) {
         throw new BadRequestException('المجموع الكلي غير صحيح');
       }
-      
+
 
       if (!updateOrderDto.totalAmount) {
         updateOrderDto.totalAmount = calculatedTotal;
       }
     }
-    
+
 
     let scheduledDate = undefined;
     if (updateOrderDto.scheduledFor) {
       scheduledDate = new Date(updateOrderDto.scheduledFor);
     }
-    
+
 
     let deliveryDate = undefined;
     if (updateOrderDto.deliveryDate) {
       deliveryDate = new Date(updateOrderDto.deliveryDate);
     }
-    
+
     return this.prisma.$transaction(async (prisma) => {
 
       if (updateOrderDto.items) {
@@ -735,7 +775,7 @@ async create(createOrderDto: CreateOrderDto, employeeId: number) {
           await prisma.orderItem.deleteMany({
             where: { orderId: id }
           });
-          
+
           for (const item of updateOrderDto.items) {
             await prisma.orderItem.create({
               data: {
@@ -750,7 +790,7 @@ async create(createOrderDto: CreateOrderDto, employeeId: number) {
             });
           }
       }
-      
+
       const updatedOrder = await prisma.order.update({
         where: { id },
         data: {
@@ -778,7 +818,7 @@ async create(createOrderDto: CreateOrderDto, employeeId: number) {
           }
         }
       });
-      
+
       return {
         ...updatedOrder,
         message: 'تم تحديث الطلبية بنجاح'
@@ -1189,37 +1229,72 @@ async create(createOrderDto: CreateOrderDto, employeeId: number) {
   const existingOrder = await this.prisma.order.findUnique({
     where: { id },
     include: {
-      invoice: true,
+      invoice: {
+        include: {
+          items: true
+        }
+      },
       items: true
     }
   });
-  
+
   if (!existingOrder) {
     throw new NotFoundException(`الطلبية برقم ${id} غير موجودة`);
   }
-  
+
   // التحقق من أن الطلبية ليست ملغاة بالفعل
   if (existingOrder.status === OrderStatus.cancelled) {
     throw new BadRequestException('الطلبية ملغاة بالفعل');
   }
-  
-  // التحقق من أن الطلبية لم يتم تسليمها
-  if (existingOrder.status === OrderStatus.delivered) {
-    throw new BadRequestException('لا يمكن إلغاء طلبية تم تسليمها');
-  }
-  
-  // التحقق من أن الطلبية غير مرتبطة بفاتورة مدفوعة
-  if (existingOrder.invoice && existingOrder.paidStatus) {
-    throw new BadRequestException('لا يمكن إلغاء طلبية مدفوعة ومرتبطة بفاتورة. يجب إلغاء الفاتورة أولاً');
-  }
-  
+
   return this.prisma.$transaction(async (prisma) => {
+    // إذا كانت الطلبية مرتبطة بفاتورة، نقوم بعكس جميع الحركات وحذف الفاتورة
+    if (existingOrder.invoice) {
+      const invoice = existingOrder.invoice;
+
+      // عكس رصيد الصندوق إذا كانت الفاتورة مدفوعة
+      if (existingOrder.paidStatus && invoice.fundId) {
+        await prisma.fund.update({
+          where: { id: invoice.fundId },
+          data: {
+            currentBalance: {
+              decrement: invoice.totalAmount
+            }
+          }
+        });
+      }
+
+      // حذف تتبع الصواجي المرتبط بالفاتورة
+      await prisma.trayTracking.deleteMany({
+        where: { invoiceId: invoice.id }
+      });
+
+      // حذف عناصر الفاتورة
+      await prisma.invoiceItem.deleteMany({
+        where: { invoiceId: invoice.id }
+      });
+
+      // فك ربط الطلبية بالفاتورة أولاً
+      await prisma.order.update({
+        where: { id },
+        data: {
+          invoiceId: null
+        }
+      });
+
+      // حذف الفاتورة
+      await prisma.invoice.delete({
+        where: { id: invoice.id }
+      });
+    }
+
     // تحديث حالة الطلبية إلى ملغاة
     const cancelledOrder = await prisma.order.update({
       where: { id },
       data: {
         status: OrderStatus.cancelled,
-        notes: existingOrder.notes 
+        paidStatus: false,
+        notes: existingOrder.notes
           ? `${existingOrder.notes} - تم الإلغاء: ${reason || 'بدون سبب محدد'}`
           : `تم الإلغاء: ${reason || 'بدون سبب محدد'}`
       },
@@ -1239,29 +1314,7 @@ async create(createOrderDto: CreateOrderDto, employeeId: number) {
         invoice: true
       }
     });
-    
-    // إذا كانت الطلبية مرتبطة بفاتورة غير مدفوعة، قم بإلغائها أيضاً
-    if (existingOrder.invoice && !existingOrder.paidStatus) {
-      await prisma.invoice.update({
-        where: { id: existingOrder.invoice.id },
-        data: {
-          notes: existingOrder.invoice.notes 
-            ? existingOrder.invoice.notes 
-            : null
-        }
-      });
-      
-      // حذف عناصر الفاتورة
-      await prisma.invoiceItem.deleteMany({
-        where: { invoiceId: existingOrder.invoice.id }
-      });
-      
-      // حذف الفاتورة
-      await prisma.invoice.delete({
-        where: { id: existingOrder.invoice.id }
-      });
-    }
-    
+
     return {
       ...cancelledOrder,
       message: 'تم إلغاء الطلبية بنجاح'
