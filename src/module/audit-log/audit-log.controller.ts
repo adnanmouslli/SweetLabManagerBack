@@ -42,4 +42,7 @@ export class AuditLogController {
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.auditLogService.findOne(id);
   }
+
+  // GET /audit-logs?customerName=أحمد
+  // يبحث في سجلات المراقبة حسب اسم العميل (زبون / مورد / ورشة)
 }

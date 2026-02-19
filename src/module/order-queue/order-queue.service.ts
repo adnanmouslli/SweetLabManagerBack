@@ -53,12 +53,12 @@ export class OrderQueueService {
   /**
    * تصفير العداد كل يوم الساعة 12 بليل بتوقيت سوريا (UTC+3 → 21:00 UTC)
    */
-  @Cron('0 21 * * *')
-  async resetDailyQueue(): Promise<void> {
-    console.log('تصفير عداد الدور اليومي...');
-    // لا حاجة لحذف أي شيء - سجل اليوم الجديد سيُنشأ تلقائياً عند أول طلبية
-    // الأرقام القديمة تبقى للأرشفة
-  }
+  // @Cron('0 21 * * *')
+  // async resetDailyQueue(): Promise<void> {
+  //   console.log('تصفير عداد الدور اليومي...');
+  //   // لا حاجة لحذف أي شيء - سجل اليوم الجديد سيُنشأ تلقائياً عند أول طلبية
+  //   // الأرقام القديمة تبقى للأرشفة
+  // }
 
   private formatCurrency(amount: number | null | undefined): string {
     const numericAmount = Number(amount) || 0;
@@ -89,8 +89,14 @@ export class OrderQueueService {
       throw new NotFoundException('الطلبية غير موجودة');
     }
 
+    // إذا لم يكن للطلبية رقم دور، نحجز لها رقم جديد
     if (!order.queueNumber) {
-      throw new NotFoundException('لا يوجد رقم دور لهذه الطلبية');
+      const queueNumber = await this.getNextQueueNumber();
+      await this.prisma.order.update({
+        where: { id: orderId },
+        data: { queueNumber },
+      });
+      order.queueNumber = queueNumber;
     }
 
     const createdAt = new Date(order.createdAt);

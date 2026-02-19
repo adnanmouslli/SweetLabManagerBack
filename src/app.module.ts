@@ -28,6 +28,7 @@ import { OrderQueueModule } from './module/order-queue/order-queue.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AuditLogModule } from './module/audit-log/audit-log.module';
 import { AuditInterceptor } from './common/interceptors/audit.interceptor';
+import { PrismaService } from './prisma/prisma.service';
 
 @Module({
   imports: [
@@ -73,6 +74,7 @@ import { AuditInterceptor } from './common/interceptors/audit.interceptor';
   ],
   providers: [
     PrismaConfig,
+    PrismaService,
     {
       provide: APP_INTERCEPTOR,
       useClass: AuditInterceptor,

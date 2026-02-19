@@ -55,4 +55,8 @@ export class QueryAuditLogDto {
   @IsOptional()
   @IsString()
   method?: string;
+
+  @IsOptional()
+  @IsString()
+  customerName?: string;
 }

@@ -187,13 +187,6 @@ async create(createOrderDto: CreateOrderDto, employeeId: number) {
       }
     });
     
-    // تعيين رقم الدور للطلبية
-    const queueNumber = await this.orderQueueService.getNextQueueNumber();
-    await prisma.order.update({
-      where: { id: order.id },
-      data: { queueNumber },
-    });
-
     // If order is marked as paid, create an invoice
     let invoice = null;
     if (createOrderDto.paidStatus) {
@@ -798,32 +791,38 @@ async create(createOrderDto: CreateOrderDto, employeeId: number) {
     const existingOrder = await this.prisma.order.findUnique({
       where: { id },
       include: {
-        invoice: true
+        invoice: true,
+        customer: { select: { name: true, customerType: true } },
+        category: { select: { name: true } },
+        employee: { select: { username: true } },
+        items: {
+          include: { item: { select: { name: true } } }
+        },
       }
     });
-    
+
     if (!existingOrder) {
       throw new NotFoundException(`الطلبية برقم ${id} غير موجودة`);
     }
-    
+
 
     if (existingOrder.invoice) {
       throw new BadRequestException('لا يمكن حذف طلبية مرتبطة بفاتورة');
     }
-    
+
     return this.prisma.$transaction(async (prisma) => {
 
       await prisma.orderItem.deleteMany({
         where: { orderId: id }
       });
-      
 
-      const deletedOrder = await prisma.order.delete({
+
+      await prisma.order.delete({
         where: { id }
       });
-      
+
       return {
-        ...deletedOrder,
+        ...existingOrder,
         message: 'تم حذف الطلبية بنجاح'
       };
     });

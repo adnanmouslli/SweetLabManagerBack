@@ -1586,16 +1586,20 @@ ${invoice.notes ? `📝 ملاحظات: ${invoice.notes}` : ''}
 
 
   async deleteInvoice(invoiceId: number): Promise<any> {
-     this.prisma.$transaction(async (prisma) => {
+     return this.prisma.$transaction(async (prisma) => {
       // التحقق من وجود الفاتورة
       const invoice = await prisma.invoice.findUnique({
         where: { id: invoiceId },
         include: {
-          items: true, // لجلب العناصر المرتبطة
-          trayTracking: true, // لجلب الصواني المرتبطة
-          fund: true, // لجلب الصندوق المرتبط
-          relatedDebt: true, // لجلب الديون المرتبطة
-          relatedAdvance: true, // لجلب السلف المرتبطة
+          items: {
+            include: { item: { select: { name: true } } }
+          },
+          customer: { select: { name: true, customerType: true } },
+          employee: { select: { username: true } },
+          fund: true,
+          trayTracking: true,
+          relatedDebt: true,
+          relatedAdvance: true,
           salaryPayments: true ,
           employeeWithdrawals: true,
           relatedEmployeeDebt: true ,
@@ -1745,11 +1749,12 @@ ${invoice.notes ? `📝 ملاحظات: ${invoice.notes}` : ''}
        await prisma.invoice.delete({
         where: { id: invoiceId },
       });
-  
+
        return {
+        ...invoice,
         message: `تم حذف الفاتورة رقم ${invoice.invoiceNumber} بنجاح`
        };
-    
+
     });
   }
 
