@@ -110,13 +110,20 @@ async create(createOrderDto: CreateOrderDto, employeeId: number) {
     }
   }
   
-  // Determine scheduled date
+  // Determine scheduled date: إما تاريخ معين (scheduledFor) أو الفلو المعتاد (اليوم/غداً)
   let scheduledDate: Date;
 
   const now = this.createSyriaDate(); // تاريخ/وقت محلي (مثلاً Asia/Damascus)
 
   if (createOrderDto.scheduledFor) {
-    scheduledDate = new Date(createOrderDto.scheduledFor);
+    // طلبية لتاريخ معين (اختياري): تطبيع التاريخ والساعة 12:00 مثل اليوم/غداً
+    const customDate = this.createSyriaDate(new Date(createOrderDto.scheduledFor));
+    scheduledDate = new Date(
+      customDate.getFullYear(),
+      customDate.getMonth(),
+      customDate.getDate(),
+      12, 0, 0
+    );
   } else {
     const isForToday = createOrderDto.isForToday || false;
 

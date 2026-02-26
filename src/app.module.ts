@@ -70,7 +70,7 @@ import { PrismaService } from './prisma/prisma.service';
     OrderQueueModule,
     ScheduleModule.forRoot(),
     AuditLogModule,
-    BackupModule
+    // BackupModule
   ],
   providers: [
     PrismaConfig,

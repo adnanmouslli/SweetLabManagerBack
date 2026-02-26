@@ -71,6 +71,7 @@ export class CreateOrderDto {
   @IsString()
   status?: OrderStatus;
 
+  /** اختياري: تاريخ تسليم معين. إن وُجد يُستخدم، وإلا يُطبّق الفلو المعتاد (اليوم أو غداً حسب isForToday) */
   @IsOptional()
   @IsDate()
   @Type(() => Date)
