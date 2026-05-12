@@ -1083,29 +1083,76 @@ ${invoice.notes ? `📝 ملاحظات: ${invoice.notes}` : ''}
           break;
       }
     }
-    
-    return this.prisma.invoice.findMany({
-      where,
-      include: {
-        items: {
-          include: {
-            item: true
-          }
+
+    // Search by invoice number, customer name, or notes
+    if (query.search) {
+      where.OR = [
+        { invoiceNumber: { contains: query.search } },
+        { notes: { contains: query.search } },
+        { customer: { name: { contains: query.search } } },
+      ];
+    }
+
+    const page = Number(query.page) || 1;
+    const limit = Number(query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    // Run queries in parallel: paginated invoices, total count, and fund statistics
+    const [invoices, totalCount, statsResult] = await Promise.all([
+      this.prisma.invoice.findMany({
+        where,
+        include: {
+          items: {
+            include: {
+              item: true
+            }
+          },
+          employee: {
+            select: {
+              username: true
+            }
+          },
+          relatedEmployee: true,
+          fund: true,
+          shift: true,
+          customer: true
         },
-        employee: {
-          select: {
-            username: true
-          }
+        orderBy: {
+          createdAt: 'desc'
         },
-        relatedEmployee: true ,
-        fund: true,
-        shift: true,
-        customer: true
+        skip,
+        take: limit,
+      }),
+      this.prisma.invoice.count({ where }),
+      // Statistics: calculate total income and expenses for the fund (using same filters except pagination)
+      this.prisma.invoice.groupBy({
+        by: ['invoiceType'],
+        where,
+        _sum: {
+          totalAmount: true,
+        },
+      }),
+    ]);
+
+    // Build statistics
+    const totalIncome = statsResult.find(s => s.invoiceType === 'income')?._sum?.totalAmount || 0;
+    const totalExpenses = statsResult.find(s => s.invoiceType === 'expense')?._sum?.totalAmount || 0;
+    const balance = totalIncome - totalExpenses;
+
+    return {
+      data: invoices,
+      pagination: {
+        page,
+        limit,
+        totalCount,
+        totalPages: Math.ceil(totalCount / limit),
       },
-      orderBy: {
-        createdAt: 'desc'
-      }
-    });
+      statistics: {
+        totalIncome,
+        totalExpenses,
+        balance,
+      },
+    };
   }
 
   async getSummary() {
