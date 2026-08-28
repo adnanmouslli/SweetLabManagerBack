@@ -51,4 +51,14 @@ export class FilterOrdersDto {
     return value;
   })
   forTomorrow?: boolean; // Para filtrar pedidos de mañana
+
+  @IsInt()
+  @IsOptional()
+  @Transform(({ value }) => value ? parseInt(value) : undefined)
+  page?: number;
+
+  @IsInt()
+  @IsOptional()
+  @Transform(({ value }) => value ? parseInt(value) : undefined)
+  limit?: number;
 }

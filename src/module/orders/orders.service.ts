@@ -598,32 +598,53 @@ async create(createOrderDto: CreateOrderDto, employeeId: number) {
       };
     }
 
+    // Paginación: si el cliente no especifica page/limit, se conserva el comportamiento
+    // anterior (hasta 1000 resultados) para no afectar a quienes aún no paginan (hoy/mañana).
+    // Se usa Number() explícitamente porque el ValidationPipe global no tiene transform activado,
+    // por lo que estos valores pueden llegar como string desde la query.
+    const parsedPage = Number(filterDto.page);
+    const parsedLimit = Number(filterDto.limit);
+    const page = Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : 1;
+    const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 1000;
+    const skip = (page - 1) * limit;
+
     // Realizar la consulta
-    const orders = await this.prisma.order.findMany({
-      where,
-      take: 1000,
-      include: {
-        customer: true,
-        category: true,
-        employee: {
-          select: {
-            username: true
-          }
+    const [orders, total] = await Promise.all([
+      this.prisma.order.findMany({
+        where,
+        skip,
+        take: limit,
+        include: {
+          customer: true,
+          category: true,
+          employee: {
+            select: {
+              username: true
+            }
+          },
+          items: {
+            include: {
+              item: true
+            }
+          },
+          invoice: true
         },
-        items: {
-          include: {
-            item: true
-          }
-        },
-        invoice: true
-      },
-      orderBy: {
-        scheduledFor: 'asc'
-      }
-    });
-    
-    console.log(`Se encontraron ${orders.length} pedidos con los filtros aplicados.`);
-    return orders;
+        orderBy: {
+          scheduledFor: 'asc'
+        }
+      }),
+      this.prisma.order.count({ where })
+    ]);
+
+    console.log(`Se encontraron ${orders.length} pedidos (de ${total}) con los filtros aplicados.`);
+
+    return {
+      data: orders,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit)
+    };
   }
   
   async findOne(id: number) {
