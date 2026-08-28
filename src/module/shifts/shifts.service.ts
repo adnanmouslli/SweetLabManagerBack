@@ -55,21 +55,83 @@ export class ShiftsService {
    }
  }
 
- async findAll() {
+ async findAll(query?: {
+   page?: string | number;
+   limit?: string | number;
+   search?: string;
+   shiftType?: ShiftType;
+   status?: ShiftStatus;
+ }) {
    try {
-     return await this.prisma.shift.findMany({
-       include: {
-         employee: {
-           select: {
-             id: true,
-             username: true
+     const where: any = {};
+     if (query?.status) {
+       where.status = query.status;
+     }
+     if (query?.shiftType) {
+       where.shiftType = query.shiftType;
+     }
+     if (query?.search && query.search.trim()) {
+       const term = query.search.trim();
+       const numericId = Number(term);
+       where.OR = [
+         { employee: { username: { contains: term, mode: 'insensitive' } } },
+         ...(Number.isInteger(numericId) ? [{ id: numericId }] : []),
+       ];
+     }
+
+     // Sin page/limit: se conserva el comportamiento original (arreglo completo, sin paginar)
+     // para no afectar a quienes aún no piden paginación (dashboard, reportes).
+     const hasPagination = query?.page !== undefined || query?.limit !== undefined;
+     if (!hasPagination) {
+       return await this.prisma.shift.findMany({
+         where: Object.keys(where).length ? where : undefined,
+         include: {
+           employee: {
+             select: {
+               id: true,
+               username: true
+             }
            }
+         },
+         orderBy: {
+           openTime: 'desc'
          }
-       },
-       orderBy: {
-         openTime: 'desc'
-       }
-     });
+       });
+     }
+
+     const parsedPage = Number(query?.page);
+     const parsedLimit = Number(query?.limit);
+     const page = Number.isFinite(parsedPage) && parsedPage > 0 ? parsedPage : 1;
+     const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 10;
+     const skip = (page - 1) * limit;
+
+     const [data, total] = await Promise.all([
+       this.prisma.shift.findMany({
+         where,
+         include: {
+           employee: {
+             select: {
+               id: true,
+               username: true
+             }
+           }
+         },
+         orderBy: {
+           openTime: 'desc'
+         },
+         skip,
+         take: limit
+       }),
+       this.prisma.shift.count({ where })
+     ]);
+
+     return {
+       data,
+       total,
+       page,
+       limit,
+       totalPages: Math.ceil(total / limit)
+     };
    } catch (error) {
      throw new InternalServerErrorException('Failed to fetch shifts');
    }

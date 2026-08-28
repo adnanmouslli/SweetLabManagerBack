@@ -19,8 +19,14 @@ export class ShiftsController {
   }
   
   @Get()
-  findAll() {
-    return this.shiftsService.findAll();
+  findAll(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('search') search?: string,
+    @Query('shiftType') shiftType?: ShiftType,
+    @Query('status') status?: ShiftStatus,
+  ) {
+    return this.shiftsService.findAll({ page, limit, search, shiftType, status });
   }
 
 
